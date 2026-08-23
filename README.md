@@ -3,7 +3,7 @@ A GPU-accelerated 2D time-series plotting library using Qt RHI and Qt Quick.
 ![Function Plotter](function_plotter_example.png)
 <sub>function_plotter example</sub>
 ## CI Status
-[![CI Linux](https://github.com/imakris/vnm_plot/actions/workflows/ci-linux.yml/badge.svg?branch=master)](https://github.com/imakris/vnm_plot/actions/workflows/ci-linux.yml) [![CI macOS](https://github.com/imakris/vnm_plot/actions/workflows/ci-macos.yml/badge.svg?branch=master)](https://github.com/imakris/vnm_plot/actions/workflows/ci-macos.yml) [![CI Windows](https://github.com/imakris/vnm_plot/actions/workflows/ci-windows.yml/badge.svg?branch=master)](https://github.com/imakris/vnm_plot/actions/workflows/ci-windows.yml) [![CI FreeBSD](https://github.com/imakris/vnm_plot/actions/workflows/ci-freebsd.yml/badge.svg?branch=master)](https://github.com/imakris/vnm_plot/actions/workflows/ci-freebsd.yml)
+[![CI Linux](https://github.com/Varinomics/vnm_plot/actions/workflows/ci-linux.yml/badge.svg?branch=master)](https://github.com/Varinomics/vnm_plot/actions/workflows/ci-linux.yml) [![CI macOS](https://github.com/Varinomics/vnm_plot/actions/workflows/ci-macos.yml/badge.svg?branch=master)](https://github.com/Varinomics/vnm_plot/actions/workflows/ci-macos.yml) [![CI Windows](https://github.com/Varinomics/vnm_plot/actions/workflows/ci-windows.yml/badge.svg?branch=master)](https://github.com/Varinomics/vnm_plot/actions/workflows/ci-windows.yml) [![CI FreeBSD](https://github.com/Varinomics/vnm_plot/actions/workflows/ci-freebsd.yml/badge.svg?branch=master)](https://github.com/Varinomics/vnm_plot/actions/workflows/ci-freebsd.yml)
 
 ## Overview
 
@@ -305,7 +305,7 @@ Via FetchContent:
 ```cmake
 include(FetchContent)
 FetchContent_Declare(vnm_plot
-    GIT_REPOSITORY https://github.com/imakris/vnm_plot.git
+    GIT_REPOSITORY https://github.com/Varinomics/vnm_plot.git
     GIT_TAG        master
 )
 FetchContent_MakeAvailable(vnm_plot)

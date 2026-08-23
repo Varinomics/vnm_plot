@@ -200,7 +200,7 @@ if(_vnm_plot_missing_msdf_text_targets)
             else()
                 message(STATUS "vnm_plot: Fetching vnm_msdf_text")
                 FetchContent_Declare(vnm_msdf_text
-                    GIT_REPOSITORY https://github.com/imakris/vnm_msdf_text.git
+                    GIT_REPOSITORY https://github.com/Varinomics/vnm_msdf_text.git
                     GIT_TAG        master
                     GIT_SHALLOW    TRUE
                 )
@@ -213,7 +213,7 @@ if(_vnm_plot_missing_msdf_text_targets)
             else()
                 message(STATUS "vnm_plot: Fetching vnm_msdf_text LCD contract headers")
                 FetchContent_Declare(vnm_msdf_text
-                    GIT_REPOSITORY https://github.com/imakris/vnm_msdf_text.git
+                    GIT_REPOSITORY https://github.com/Varinomics/vnm_msdf_text.git
                     GIT_TAG        master
                     GIT_SHALLOW    TRUE
                 )
