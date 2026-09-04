@@ -3587,6 +3587,52 @@ bool test_stacked_sum_overlay_uses_top_geometry_and_theme()
         top_state->second.main_view.line_window_staging.front().y == 112.0f,
         "changed stack geometry must rebuild each AREA sum overlay once");
 
+    // The two theme defaults above are defaults, not fixed ink: a host that
+    // paints its own plot background has to be able to restate the overlay's
+    // color and its extra width per theme. Both dark and light are checked so
+    // an override cannot land on one palette and leave the other hardcoded.
+    const glm::vec4 override_dark_color(0.20f, 0.40f, 0.60f, 1.0f);
+    const glm::vec4 override_light_color(0.60f, 0.40f, 0.20f, 1.0f);
+    config.dark_color_palette.stack_sum_line  = override_dark_color;
+    config.light_color_palette.stack_sum_line = override_light_color;
+    config.stack_sum_line_width_extra_px      = 0.5;
+    for (const bool dark_mode : {true, false}) {
+        ctx.dark_mode = dark_mode;
+        events.clear();
+        TEST_ASSERT(
+            rhi_fixture.render_layer_frame(renderer, ctx, series_map, events, error_message),
+            error_message);
+        std::size_t overridden_overlay_count = 0;
+        for (std::size_t i = 0; i < renderer.m_last_recorded_stack_sum_overlays.size(); ++i) {
+            if (!renderer.m_last_recorded_stack_sum_overlays[i]) {
+                continue;
+            }
+            ++overridden_overlay_count;
+            TEST_ASSERT(close_color(
+                renderer.m_last_recorded_draw_colors[i],
+                dark_mode ? override_dark_color : override_light_color),
+                "stack sum overlay must take its color from the configured palette");
+            TEST_ASSERT(renderer.m_last_recorded_line_widths[i] == 2.0f,
+                "stack sum overlay must add the configured extra width to line_width_px");
+        }
+        TEST_ASSERT(overridden_overlay_count == 6,
+            "overriding the overlay theme must not change which draws are overlays");
+    }
+
+    // Component primitives keep their own series color under an override.
+    bool overridden_component_color_preserved = false;
+    for (std::size_t i = 0; i < renderer.m_last_recorded_draw_series_ids.size(); ++i) {
+        if (renderer.m_last_recorded_draw_series_ids[i] == 10 &&
+            !renderer.m_last_recorded_stack_sum_overlays[i])
+        {
+            overridden_component_color_preserved = close_color(
+                renderer.m_last_recorded_draw_colors[i],
+                glm::vec4(0.8f, 0.1f, 0.2f, 0.3f));
+        }
+    }
+    TEST_ASSERT(overridden_component_color_preserved,
+        "configured overlay theme must not recolor component primitives");
+
     return true;
 }
 

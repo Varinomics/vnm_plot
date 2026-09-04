@@ -57,6 +57,12 @@ struct Color_palette
     glm::vec4 grid_line               = hex_to_vec4("ffd5d7da");
     glm::vec4 preview_cover           = hex_to_vec4("26555555");
     glm::vec4 preview_cover_secondary = hex_to_vec4("10505050");
+    // Overlay tracing a stacked group's running total, drawn over the
+    // components, so it carries theme ink rather than any series color. Soften
+    // it by moving it toward the background, not by lowering alpha: segment
+    // quads overlap by half a line width and a translucent stroke beads at
+    // every join.
+    glm::vec4 stack_sum_line          = hex_to_vec4("ffe6dfcc");
 
     // --- Factory methods ---
 
@@ -76,6 +82,7 @@ struct Color_palette
         p.grid_line               = hex_to_vec4("ff000000");
         p.preview_cover           = hex_to_vec4("a8949ea4");
         p.preview_cover_secondary = hex_to_vec4("94949ea4");
+        p.stack_sum_line          = hex_to_vec4("ff192033");
         return p;
     }
 

@@ -165,6 +165,9 @@ struct Plot_config
     double                                     point_diameter_px = 1.0;
     // Area fill alpha multiplier (0..1).
     double                                     area_fill_alpha = 0.3;
+    // Width in pixels added to line_width_px for the stack-sum overlay, so the
+    // running total of a stacked group reads above the components it covers.
+    double                                     stack_sum_line_width_extra_px = 2.0;
 
     // --- Auto V-Range ---
     // Default is GLOBAL.

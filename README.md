@@ -149,10 +149,16 @@ QML can call `get_stack_status(group, preview)`; the returned map contains
 `group`, uppercase `view`, `state`, and `reason` strings, plus an
 `affected_series_ids` list.
 
-The final cumulative value gets an automatic line overlay two pixels thicker
-than `Plot_config::line_width_px`: `#E6DFCC` in dark mode and `#192033` in light
-mode. This applies to the main and preview views for `LINE`, `DOTS`, and `AREA`
-stacks.
+The final cumulative value gets an automatic line overlay. By default it is two
+pixels thicker than `Plot_config::line_width_px` and painted `#E6DFCC` in dark
+mode, `#192033` in light. A host that paints its own plot background can restate
+both: `Plot_config::stack_sum_line_width_extra_px` sets the added width, and
+`Color_palette::stack_sum_line` - reached through `Plot_config`'s
+`dark_color_palette` and `light_color_palette` - sets the color per theme.
+Soften the overlay by moving that color toward the background rather than by
+lowering its alpha; segment quads overlap by half a line width, so a translucent
+stroke beads at every join. This applies to the main and preview views for
+`LINE`, `DOTS`, and `AREA` stacks.
 
 `PlotIndicator` keeps component text values raw while placing their markers on
 the cumulative rendered layers. It adds a text-only `Σ` total and the note
@@ -284,6 +290,8 @@ Customize rendering via `Plot_config`:
 vnm::plot::Plot_config config;
 config.dark_mode = true;
 config.line_width_px = 2.0;
+config.stack_sum_line_width_extra_px = 1.0;
+config.dark_color_palette.stack_sum_line = vnm::plot::rgba_u8(0x9a, 0x96, 0x8b);
 config.auto_v_range_mode = vnm::plot::Auto_v_range_mode::VISIBLE;
 config.format_timestamp = [](double ts, double range) {
     return my_format_time(ts, range);

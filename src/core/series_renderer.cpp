@@ -45,20 +45,8 @@ constexpr glm::vec4 k_default_series_color_dark(
     0.88f,
     1.0f);
 
-constexpr glm::vec4 k_stack_sum_color_dark(
-    230.0f / 255.0f,
-    223.0f / 255.0f,
-    204.0f / 255.0f,
-    1.0f);
-
-constexpr glm::vec4 k_stack_sum_color_light(
-    25.0f / 255.0f,
-    32.0f / 255.0f,
-    51.0f / 255.0f,
-    1.0f);
 constexpr float         k_default_color_epsilon     = 0.01f;
 constexpr int           k_stack_sum_z_order         = 20;
-constexpr float         k_stack_sum_width_extra_px  = 2.0f;
 constexpr std::uint64_t k_stack_grid_policy_version = 1;
 
 const char* stack_rejection_reason_text(Stack_rejection_reason reason)
@@ -1643,6 +1631,10 @@ void Series_renderer::prepare(
             ? static_cast<float>(ctx.config->point_diameter_px) : 1.0f;
         const float area_fill_alpha = ctx.config
             ? static_cast<float>(ctx.config->area_fill_alpha) : 0.3f;
+        const float stack_sum_width_extra_px = ctx.config
+            ? static_cast<float>(ctx.config->stack_sum_line_width_extra_px) : 2.0f;
+        const glm::vec4 stack_sum_color =
+            resolved_color_palette(ctx.config, ctx.dark_mode).stack_sum_line;
 
         for (const auto& planned_draw : planned_draws) {
             if (planned_draw.is_builtin) {
@@ -1654,7 +1646,7 @@ void Series_renderer::prepare(
 
                 std::vector<builtin_segment_span_t> prepared_segment_spans;
                 const glm::vec4 series_color = planned_draw.stack_sum_overlay
-                    ? (ctx.dark_mode ? k_stack_sum_color_dark : k_stack_sum_color_light)
+                    ? stack_sum_color
                     : draw_state.series->color;
                 const glm::vec4 draw_color = builtin_draw_color(
                     ctx,
@@ -1663,7 +1655,7 @@ void Series_renderer::prepare(
                     window,
                     area_fill_alpha);
                 const float draw_line_width_px = planned_draw.stack_sum_overlay
-                    ? line_width_px + k_stack_sum_width_extra_px
+                    ? line_width_px + stack_sum_width_extra_px
                     : line_width_px;
                 if (rhi_prepare_series_primitive(
                         ctx, planned_draw.primitive_style, view_state, window, draw_color, draw_line_width_px,
