@@ -91,6 +91,19 @@ target_include_directories(function_plotter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# The icon face the toolbar buttons draw their glyphs with. It lives in
+# vnm_fonts rather than beside this example, so it joins the resources here
+# instead of in resources.qrc, which can only name files relative to itself.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/VnmFonts.cmake)
+get_filename_component(_function_plotter_icon_font_dir
+    "${VNM_PLOT_ICON_FONT_FILE}" DIRECTORY)
+qt_add_resources(function_plotter "function_plotter_icon_font"
+    PREFIX "/rc"
+    BASE   "${_function_plotter_icon_font_dir}"
+    FILES  "${VNM_PLOT_ICON_FONT_FILE}"
+)
+unset(_function_plotter_icon_font_dir)
+
 if(VNM_PLOT_BUILD_TESTS)
     enable_testing()
     add_executable(test_function_plotter_stacking

@@ -5,7 +5,6 @@
         <file>qml/PlotView.qml</file>
         <file>qml/StyleToggleButton.qml</file>
         <file>qml/ValidatingSpinBox.qml</file>
-        <file alias="rc/FA5.otf">FA5.otf</file>
         <file alias="rc/varinomics.ico">varinomics.ico</file>
     </qresource>
 </RCC>

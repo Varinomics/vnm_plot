@@ -251,6 +251,21 @@ a sibling `../vnm_msdf_text` checkout when present, otherwise it fetches the
 GitHub `master` branch. The atlas path fetches FreeType and msdfgen when they
 are not already available as targets.
 
+The fonts vnm_plot ships come from
+[vnm_fonts](https://github.com/Varinomics/vnm_fonts): the monospace face
+`vnm_plot_rhi` embeds, and the icon face the function plotter example loads. A
+tree that has already added vnm_fonts has published the verbatim files in
+`VNM_FONTS_DIRECTORY`, and that is used as it stands; otherwise CMake uses a
+sibling `../vnm_fonts` checkout when present and fetches the GitHub `master`
+branch when it is not, and `VNM_PLOT_VNM_FONTS_SOURCE_DIR` overrides that pair.
+
+Only the file contract is used. vnm_fonts also builds a `vnm::fonts` library
+that marks a family name on the way into `QFontDatabase`, which is what a font
+entering a font database needs so it cannot merge with an identically named one
+the user has installed. The face vnm_plot embeds is baked into an MSDF atlas
+straight from its bytes and enters no font database, so `vnm::fonts` is
+deliberately not linked and the marking would change nothing.
+
 CI currently builds QRhi and QRhi+Text on Linux, macOS, Windows, and FreeBSD.
 The GitHub Actions jobs use the Qt 6.10.1 SDK on Linux, macOS, and Windows so
 the QRhi private headers and `qsb` shader compiler are available consistently.
@@ -355,4 +370,9 @@ required only when building vnm_plot from source.
 
 ## License
 
-BSD-2-Clause
+BSD-2-Clause.
+
+The build embeds two third-party fonts into the artifacts it produces - Ubuntu
+Mono - Bront into `vnm_plot_rhi`, and Font Awesome 7 Free Solid into the
+function plotter example - and they keep their own licences. Their notices are
+in `THIRD_PARTY_NOTICES.md` and their licence texts in `LICENSES/`.

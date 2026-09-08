@@ -23,7 +23,7 @@ ApplicationWindow {
     readonly property color buttonPressed: "#434343"
     readonly property color accentBlue: "#8094b0"
 
-    FontLoader { id: fontFA5; source: "qrc:/rc/FA5.otf" }
+    FontLoader { id: iconFont; source: "qrc:/rc/FontAwesome7Free-Solid.otf" }
 
     ColumnLayout {
         anchors.fill: parent
@@ -388,7 +388,7 @@ ApplicationWindow {
                         text: functionDelegate.isPlaying ? "\uf04c" : "\uf04b"
                         Layout.preferredWidth: controlHeight
                         Layout.preferredHeight: controlHeight
-                        font.family: fontFA5.name
+                        font.family: iconFont.name
                         font.pixelSize: fontSize
 
                         contentItem: Text {
@@ -418,7 +418,7 @@ ApplicationWindow {
                         text: "\uf00d"  // X icon
                         Layout.preferredWidth: controlHeight
                         Layout.preferredHeight: controlHeight
-                        font.family: fontFA5.name
+                        font.family: iconFont.name
                         font.pixelSize: fontSize
                         visible: functionPlotter.functionCount > 1
 
@@ -537,7 +537,7 @@ ApplicationWindow {
                     spacing: 6
                     Text {
                         text: "\uf067"
-                        font.family: fontFA5.name
+                        font.family: iconFont.name
                         font.pixelSize: fontSize - 2
                         color: textColor
                         Layout.alignment: Qt.AlignVCenter

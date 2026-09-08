@@ -250,32 +250,12 @@ unset(_vnm_plot_msdf_text_components)
 unset(_vnm_plot_msdf_text_fetch_deps)
 unset(_vnm_plot_msdf_text_required_targets)
 
+# --- Fonts ---
+# Only the embedded monospace face is this file's business; the function
+# plotter example resolves the icon face for itself, because it is also
+# configurable as a project of its own.
 if(VNM_PLOT_ENABLE_TEXT)
-    if(NOT VNM_MSDF_TEXT_DEFAULT_FONT_FILE)
-        if(DEFINED vnm_msdf_text_SOURCE_DIR AND
-           EXISTS "${vnm_msdf_text_SOURCE_DIR}/fonts/monospace.ttf")
-            set(VNM_MSDF_TEXT_DEFAULT_FONT_FILE
-                "${vnm_msdf_text_SOURCE_DIR}/fonts/monospace.ttf"
-                CACHE FILEPATH "Default font embedded by vnm_plot" FORCE)
-        else()
-            get_filename_component(_vnm_plot_sibling_msdf_text_font
-                "${CMAKE_CURRENT_SOURCE_DIR}/../vnm_msdf_text/fonts/monospace.ttf"
-                ABSOLUTE)
-            if(EXISTS "${_vnm_plot_sibling_msdf_text_font}")
-                set(VNM_MSDF_TEXT_DEFAULT_FONT_FILE
-                    "${_vnm_plot_sibling_msdf_text_font}"
-                    CACHE FILEPATH "Default font embedded by vnm_plot" FORCE)
-            endif()
-            unset(_vnm_plot_sibling_msdf_text_font)
-        endif()
-    endif()
-
-    if(NOT VNM_MSDF_TEXT_DEFAULT_FONT_FILE OR
-       NOT EXISTS "${VNM_MSDF_TEXT_DEFAULT_FONT_FILE}")
-        message(FATAL_ERROR
-            "vnm_plot: VNM_MSDF_TEXT_DEFAULT_FONT_FILE must name an existing "
-            "font file when VNM_PLOT_ENABLE_TEXT=ON.")
-    endif()
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/VnmFonts.cmake)
 endif()
 
 # -----------------------------------------------------------------------------
@@ -379,8 +359,11 @@ set(VNM_PLOT_EMBEDDED_ASSETS_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/embed
 set(VNM_PLOT_RHI_ASSETS)
 
 if(VNM_PLOT_ENABLE_TEXT)
+    # "fonts/monospace.ttf" is the asset name Font_renderer asks the loader for,
+    # not the name of a font: it is vnm_plot's own asset namespace, and a
+    # consumer substitutes its own typeface by registering other bytes under it.
     list(APPEND VNM_PLOT_RHI_ASSETS
-        "${VNM_MSDF_TEXT_DEFAULT_FONT_FILE}:fonts/monospace.ttf"
+        "${VNM_PLOT_MONOSPACE_FONT_FILE}:fonts/monospace.ttf"
     )
 endif()
 
@@ -626,6 +609,17 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # Install headers
     install(DIRECTORY include/vnm_plot
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
+
+    # vnm_plot_rhi carries the bytes of an Ubuntu-Font-Licence font, so the
+    # notice and the licence text travel with what is installed.
+    install(FILES
+        LICENSE.txt
+        THIRD_PARTY_NOTICES.md
+        DESTINATION ${CMAKE_INSTALL_DOCDIR}
+    )
+    install(DIRECTORY LICENSES
+        DESTINATION ${CMAKE_INSTALL_DOCDIR}
     )
 
     set(_vnm_plot_install_targets
