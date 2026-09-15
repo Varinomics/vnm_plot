@@ -13,6 +13,7 @@
 #include <filesystem>
 #endif
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -135,12 +136,14 @@ public:
 
     // Appends a string to the QRhi CPU batch to be drawn in this frame.
     // There is exactly one such batch, and it only exists between
-    // rhi_begin_frame() and rhi_record_frame(): outside that window, or before
-    // initialize_metrics() has produced an atlas, the call is a no-op.
+    // rhi_begin_frame() and the frame's reset by rhi_record_frame() or
+    // rhi_reset_frame(): outside that window, or before initialize_metrics()
+    // has produced an atlas, the call is a no-op.
     void batch_text(float x, float y, const char* text);
 
     // Starts a QRhi text frame. Subsequent batch_text() calls append to the
-    // QRhi CPU batch until rhi_record_frame() resets the frame state.
+    // QRhi CPU batch until rhi_record_frame() or rhi_reset_frame() resets the
+    // frame state.
     void rhi_begin_frame();
 
     // Uploads the current QRhi CPU batch into this frame's draw plan and clears it.
@@ -162,7 +165,22 @@ public:
     // Uploads the accumulated QRhi text geometry after all draw batches are queued.
     void rhi_finalize_frame(const frame_context_t& ctx);
 
-    // Records all queued QRhi text draws. Must be called inside the render pass.
+    // Number of draw ops queued so far this frame. A shadowed rhi_queue_draw()
+    // queues two, so the value counts neither draws nor strings: its only use
+    // is as an `end` boundary for rhi_record_draws(), captured between queues.
+    std::size_t queued_draw_count() const;
+
+    // Records the queued draws from where the previous call stopped up to, but
+    // not including, `end`, clamped to queued_draw_count(). Within those draws
+    // every shadow is recorded before every foreground. The text pipeline is
+    // bound on every call, so other renderers may record between calls. The
+    // cursor only advances: an `end` at or before it records nothing. The call
+    // never resets the frame; rhi_begin_frame() and rhi_reset_frame() return
+    // the cursor to the first draw. Must be called inside the render pass.
+    void rhi_record_draws(const frame_context_t& ctx, std::size_t end);
+
+    // Records every queued draw that rhi_record_draws() has not recorded yet,
+    // then resets the frame. Must be called inside the render pass.
     void rhi_record_frame(const frame_context_t& ctx);
 
     // Clears QRhi per-frame CPU/draw state without touching persistent resources.

@@ -773,6 +773,9 @@ struct rhi_text_state_t
     std::vector<rhi_text_call_t>       calls;
     std::vector<rhi_text_draw_op_t>    ops;
     std::size_t                        call_used = 0;
+    // First op the next rhi_record_draws() call records. Every path that
+    // clears `ops` returns it to zero.
+    std::size_t                        record_cursor = 0;
 
     std::unique_ptr<QRhiGraphicsPipeline>
                                        pipeline;
@@ -997,7 +1000,8 @@ void Font_renderer::rhi_begin_frame()
     m_impl->m_rhi_frame_vertex_data.clear();
     m_impl->m_rhi_frame_index_data.clear();
     m_impl->m_rhi.ops.clear();
-    m_impl->m_rhi.call_used = 0;
+    m_impl->m_rhi.call_used     = 0;
+    m_impl->m_rhi.record_cursor = 0;
 }
 
 void Font_renderer::rhi_queue_draw(
@@ -1434,20 +1438,32 @@ void Font_renderer::rhi_finalize_frame(const frame_context_t& ctx)
         m_impl->m_rhi_frame_index_data.data());
 }
 
-void Font_renderer::rhi_record_frame(const frame_context_t& ctx)
+std::size_t Font_renderer::queued_draw_count() const
+{
+    return m_impl->m_rhi.ops.size();
+}
+
+void Font_renderer::rhi_record_draws(const frame_context_t& ctx, std::size_t end)
 {
     auto& rhi_state = m_impl->m_rhi;
-    if (!ctx.cb || !rhi_state.pipeline || !rhi_state.vbo || !rhi_state.ibo) {
-        rhi_reset_frame();
+
+    // A frame reset after `end` was captured, which rhi_finalize_frame()
+    // performs when its upload fails, leaves fewer ops queued than `end` names.
+    const std::size_t slice_end = std::min(end, rhi_state.ops.size());
+    if (slice_end <= rhi_state.record_cursor ||
+        !ctx.cb || !rhi_state.pipeline || !rhi_state.vbo || !rhi_state.ibo)
+    {
         return;
     }
 
+    // Other renderers may have bound their own pipeline since the previous slice.
     QRhiCommandBuffer* cb = ctx.cb;
     cb->setGraphicsPipeline(rhi_state.pipeline.get());
 
     QRhiCommandBuffer::VertexInput vertex_input{rhi_state.vbo.get(), 0u};
     const auto record_pass = [&](rhi_text_pass_t pass) {
-        for (const auto& op : rhi_state.ops) {
+        for (std::size_t op_index = rhi_state.record_cursor; op_index < slice_end; ++op_index) {
+            const auto& op = rhi_state.ops[op_index];
             if (op.pass        != pass                   ||
                 op.call_index  >= rhi_state.calls.size() ||
                 op.index_count == 0)
@@ -1483,7 +1499,12 @@ void Font_renderer::rhi_record_frame(const frame_context_t& ctx)
 
     record_pass(rhi_text_pass_t::SHADOW);
     record_pass(rhi_text_pass_t::FOREGROUND);
+    rhi_state.record_cursor = slice_end;
+}
 
+void Font_renderer::rhi_record_frame(const frame_context_t& ctx)
+{
+    rhi_record_draws(ctx, queued_draw_count());
     rhi_reset_frame();
 }
 
@@ -1495,7 +1516,8 @@ void Font_renderer::rhi_reset_frame()
     m_impl->m_rhi_frame_vertex_data.clear();
     m_impl->m_rhi_frame_index_data.clear();
     m_impl->m_rhi.ops.clear();
-    m_impl->m_rhi.call_used = 0;
+    m_impl->m_rhi.call_used     = 0;
+    m_impl->m_rhi.record_cursor = 0;
 }
 
 } // namespace vnm::plot

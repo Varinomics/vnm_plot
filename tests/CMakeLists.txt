@@ -31,6 +31,7 @@ if(VNM_PLOT_ENABLE_TEXT)
         test_font_disk_cache
         test_font_identity
         test_font_renderer_bounds
+        test_font_renderer_draw_ranges
         test_msdf_lcd_shader_reference
     )
     target_compile_definitions(vnm_plot_rhi PRIVATE VNM_PLOT_ENABLE_TEST_HOOKS=1)
@@ -96,6 +97,11 @@ if(TARGET test_font_identity)
     if(TARGET Threads::Threads)
         target_link_libraries(test_font_identity PRIVATE Threads::Threads)
     endif()
+endif()
+if(TARGET test_font_renderer_draw_ranges)
+    # The frames it compares are rasterized through the QRhi of a Qt Quick
+    # render control, which picks a real backend on every platform.
+    target_link_libraries(test_font_renderer_draw_ranges PRIVATE Qt6::Quick Qt6::GuiPrivate Qt6::Gui)
 endif()
 if(TARGET test_msdf_lcd_shader_reference)
     if(NOT TARGET vnm_msdf_text::lcd_shader_reference)
@@ -212,6 +218,9 @@ if(TARGET test_font_identity)
 endif()
 if(TARGET test_font_renderer_bounds)
     vnm_plot_add_test(FontRendererBounds test_font_renderer_bounds)
+endif()
+if(TARGET test_font_renderer_draw_ranges)
+    vnm_plot_add_test(FontRendererDrawRanges test_font_renderer_draw_ranges)
 endif()
 if(TARGET test_msdf_lcd_shader_reference)
     vnm_plot_add_test(MsdfLcdShaderReference test_msdf_lcd_shader_reference)

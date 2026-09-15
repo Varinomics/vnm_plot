@@ -125,6 +125,16 @@ void Font_renderer::rhi_finalize_frame(const frame_context_t&)
     // No-op in stub.
 }
 
+std::size_t Font_renderer::queued_draw_count() const
+{
+    return 0;
+}
+
+void Font_renderer::rhi_record_draws(const frame_context_t&, std::size_t)
+{
+    // No-op in stub.
+}
+
 void Font_renderer::rhi_record_frame(const frame_context_t&)
 {
     // No-op in stub.
