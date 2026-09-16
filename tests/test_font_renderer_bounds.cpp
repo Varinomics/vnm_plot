@@ -61,6 +61,10 @@ bool test_bounds_fail_closed_without_atlas()
         "null text must fail closed before font initialization");
     TEST_ASSERT(!renderer.text_visual_bounds_px("Axis", 0.0f, 0.0f, bounds),
         "visible text must fail closed before font initialization");
+    TEST_ASSERT(!renderer.text_ink_bounds_px(nullptr, 0.0f, 0.0f, bounds),
+        "null text must fail closed for ink bounds before font initialization");
+    TEST_ASSERT(!renderer.text_ink_bounds_px("Axis", 0.0f, 0.0f, bounds),
+        "visible text must fail closed for ink bounds before font initialization");
     return true;
 }
 
@@ -81,6 +85,12 @@ bool test_bounds_fail_closed_for_no_visible_glyphs()
         "empty text must fail closed as no visible glyphs");
     TEST_ASSERT(!renderer.text_visual_bounds_px("   ", 10.0f, 20.0f, bounds),
         "space-only text must fail closed as no visible glyphs");
+    TEST_ASSERT(!renderer.text_ink_bounds_px(nullptr, 10.0f, 20.0f, bounds),
+        "null text must fail closed for ink bounds after font initialization");
+    TEST_ASSERT(!renderer.text_ink_bounds_px("", 10.0f, 20.0f, bounds),
+        "empty text must fail closed for ink bounds as no visible glyphs");
+    TEST_ASSERT(!renderer.text_ink_bounds_px("   ", 10.0f, 20.0f, bounds),
+        "space-only text must fail closed for ink bounds as no visible glyphs");
     return true;
 }
 
@@ -159,6 +169,78 @@ bool test_visible_bounds_are_finite_ordered_and_translation_invariant()
     return true;
 }
 
+bool test_ink_bounds_strip_the_padding_the_quad_carries()
+{
+    Scoped_font_disk_cache_setting cache_setting(false);
+
+    plot::Asset_loader loader;
+    plot::init_embedded_assets(loader);
+
+    plot::Font_renderer renderer(loader);
+    renderer.initialize_metrics(k_test_font_px);
+
+    constexpr float x = 12.25f;
+    constexpr float y = 34.5f;
+
+    // The padding is the distance field's, so it is the same all round every
+    // glyph, and the text bound takes it from whichever glyph reaches each
+    // side. Two strings sharing one atlas therefore lose the same margin.
+    bool  margin_known = false;
+    float first_margin = 0.0f;
+    for (const char* text : {"Axis 123", "0", "0000", "|"}) {
+        glm::vec4 quad;
+        glm::vec4 ink;
+        TEST_ASSERT(renderer.text_visual_bounds_px(text, x, y, quad),
+            "visible text must produce visual bounds");
+        TEST_ASSERT(renderer.text_ink_bounds_px(text, x, y, ink),
+            "visible text must produce ink bounds");
+        TEST_ASSERT(finite_ordered(ink),
+            "ink bounds must be finite and ordered");
+        TEST_ASSERT(ink.x > quad.x && ink.y > quad.y && ink.z < quad.z && ink.w < quad.w,
+            "ink bounds must sit strictly inside the visual quad on every side");
+
+        const float margin = ink.x - quad.x;
+        TEST_ASSERT(nearly_equal(ink.y - quad.y, margin) &&
+                    nearly_equal(quad.z - ink.z, margin) &&
+                    nearly_equal(quad.w - ink.w, margin),
+            "the quad must exceed the ink by one margin on all four sides");
+        if (!margin_known) {
+            margin_known = true;
+            first_margin = margin;
+        }
+        TEST_ASSERT(nearly_equal(margin, first_margin),
+            "every string of one atlas must lose the same margin");
+
+        const float ink_height = ink.w - ink.y;
+        TEST_ASSERT(ink_height > static_cast<float>(k_test_font_px) * 0.25f,
+            "ink bounds must stay a plausible height for the font size");
+        TEST_ASSERT(ink_height < static_cast<float>(k_test_font_px) * 1.5f,
+            "ink bounds must not greatly exceed the font size");
+    }
+
+    // Widening the text widens its ink, so the margin is not swallowing it.
+    glm::vec4 single;
+    glm::vec4 repeated;
+    TEST_ASSERT(renderer.text_ink_bounds_px("0", x, y, single),
+        "single visible glyph must produce ink bounds");
+    TEST_ASSERT(renderer.text_ink_bounds_px("0000", x, y, repeated),
+        "repeated visible glyphs must produce ink bounds");
+    TEST_ASSERT((repeated.z - repeated.x) > (single.z - single.x) * 2.5f,
+        "repeated glyph ink must be wider than one glyph's");
+
+    constexpr float dx = 7.75f;
+    constexpr float dy = -3.5f;
+    glm::vec4 translated;
+    TEST_ASSERT(renderer.text_ink_bounds_px("0", x + dx, y + dy, translated),
+        "translated visible text must produce ink bounds");
+    TEST_ASSERT(nearly_equal(translated.x - single.x, dx) &&
+                nearly_equal(translated.z - single.z, dx) &&
+                nearly_equal(translated.y - single.y, dy) &&
+                nearly_equal(translated.w - single.w, dy),
+        "ink bounds must shift with the baseline they are measured at");
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -171,6 +253,7 @@ int main()
     RUN_TEST(test_bounds_fail_closed_without_atlas);
     RUN_TEST(test_bounds_fail_closed_for_no_visible_glyphs);
     RUN_TEST(test_visible_bounds_are_finite_ordered_and_translation_invariant);
+    RUN_TEST(test_ink_bounds_strip_the_padding_the_quad_carries);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;

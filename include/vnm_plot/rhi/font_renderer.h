@@ -117,6 +117,16 @@ public:
     // Returns the visual glyph quad bounds for text at the given baseline.
     bool text_visual_bounds_px(const char* text, float x, float y, glm::vec4& bounds) const;
 
+    // Returns the pixels the text can put colour in, at the same baseline. A
+    // glyph's quad carries the distance field's padding all round its outline,
+    // and the shader leaves that padding clear except for the anti-aliasing at
+    // the outline itself, so this bound is every glyph's outline widened by
+    // that anti-aliasing and clipped to its own quad. It is the bound for a
+    // scissor, a culling extent or a conflict rectangle, where the quad
+    // text_visual_bounds_px() reports is far wider than the drawn glyph; the
+    // quad remains the bound for what the frame uploads.
+    bool text_ink_bounds_px(const char* text, float x, float y, glm::vec4& bounds) const;
+
     // Returns a key that changes when font metrics change (for caching).
     std::uint64_t text_measure_cache_key() const;
 

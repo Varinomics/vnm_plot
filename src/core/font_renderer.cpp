@@ -180,6 +180,21 @@ double draw_scale_for(const msdf_atlas_t& atlas, int draw_pixel_height)
         : 0.0;
 }
 
+// How far beyond a glyph's outline the fragment shader can still put colour,
+// in output pixels. It decodes a signed distance multiplied by sharpness_bias
+// and keeps a fragment while that distance is above -0.5, so the coverage ramp
+// reaches 0.5 / sharpness_bias pixels outside the outline. With LCD filtering
+// a fragment also samples three subpixel steps -- one whole pixel -- to either
+// side, and the widest of the three channels decides its alpha. A bias that is
+// not positive decodes every texel of the glyph alike, and then nothing
+// narrower than the whole quad can be claimed.
+double anti_aliasing_reach_px(const msdf_atlas_t& atlas)
+{
+    return (atlas.sharpness_bias > 0.0f)
+        ? 1.0 + 0.5 / double(atlas.sharpness_bias)
+        : std::numeric_limits<double>::max();
+}
+
 void add_text_to_vectors(
     const char*                    text,
     float                          x,
@@ -912,6 +927,91 @@ bool Font_renderer::text_visual_bounds_px(
         y + measured.top,
         x + measured.right,
         y + measured.bottom);
+    return
+        std::isfinite(bounds.x) &&
+        std::isfinite(bounds.y) &&
+        std::isfinite(bounds.z) &&
+        std::isfinite(bounds.w) &&
+        bounds.z > bounds.x     &&
+        bounds.w > bounds.y;
+}
+
+bool Font_renderer::text_ink_bounds_px(
+    const char*    text,
+    float          x,
+    float          y,
+    glm::vec4&     bounds) const
+{
+    const msdf_atlas_t* atlas = m_impl->current_atlas();
+    if (!text || !atlas) {
+        return false;
+    }
+
+    const int    draw_pixel_height = m_impl->current_draw_pixel_height();
+    const double draw_scale        = draw_scale_for(*atlas, draw_pixel_height);
+    const double reach             = anti_aliasing_reach_px(*atlas);
+    bool         has_visible_glyph = false;
+    double       left              = 0.0;
+    double       top               = 0.0;
+    double       right             = 0.0;
+    double       bottom            = 0.0;
+    static_cast<void>(vnm::msdf_text::for_each_positioned_glyph(
+        *atlas,
+        draw_pixel_height,
+        text,
+        0.0f,
+        [&](const vnm::msdf_text::positioned_glyph_t& positioned) {
+            const vnm::msdf_text::scaled_glyph_t& quad = positioned.glyph;
+            const auto outline = atlas->glyphs.find(positioned.codepoint);
+            if (quad.plane_left == quad.plane_right ||
+                quad.plane_bottom == quad.plane_top ||
+                outline == atlas->glyphs.end())
+            {
+                return;
+            }
+
+            // The quad's Y axis points down, so its plane_bottom is the lower
+            // of its two Y values and the font's top bound is the lower of the
+            // outline's. Widening the outline and clipping it to the quad
+            // needs both in one orientation.
+            const double quad_top    = std::min(double(quad.plane_bottom), double(quad.plane_top));
+            const double quad_bottom = std::max(double(quad.plane_bottom), double(quad.plane_top));
+            const double glyph_left   = std::max(
+                double(quad.plane_left),
+                double(outline->second.bounds_left_units)    * draw_scale - reach);
+            const double glyph_right  = std::min(
+                double(quad.plane_right),
+                double(outline->second.bounds_right_units)   * draw_scale + reach);
+            const double glyph_top    = std::max(
+                quad_top,
+                double(-outline->second.bounds_top_units)    * draw_scale - reach);
+            const double glyph_bottom = std::min(
+                quad_bottom,
+                double(-outline->second.bounds_bottom_units) * draw_scale + reach);
+
+            if (!has_visible_glyph) {
+                has_visible_glyph = true;
+                left   = double(positioned.pen_x) + glyph_left;
+                right  = double(positioned.pen_x) + glyph_right;
+                top    = glyph_top;
+                bottom = glyph_bottom;
+                return;
+            }
+
+            left   = std::min(left,   double(positioned.pen_x) + glyph_left);
+            right  = std::max(right,  double(positioned.pen_x) + glyph_right);
+            top    = std::min(top,    glyph_top);
+            bottom = std::max(bottom, glyph_bottom);
+        }));
+    if (!has_visible_glyph) {
+        return false;
+    }
+
+    bounds = glm::vec4(
+        float(double(x) + left),
+        float(double(y) + top),
+        float(double(x) + right),
+        float(double(y) + bottom));
     return
         std::isfinite(bounds.x) &&
         std::isfinite(bounds.y) &&

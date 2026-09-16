@@ -64,6 +64,11 @@ bool Font_renderer::text_visual_bounds_px(const char*, float, float, glm::vec4&)
     return false;
 }
 
+bool Font_renderer::text_ink_bounds_px(const char*, float, float, glm::vec4&) const
+{
+    return false;
+}
+
 std::uint64_t Font_renderer::text_measure_cache_key() const
 {
     return 0;
