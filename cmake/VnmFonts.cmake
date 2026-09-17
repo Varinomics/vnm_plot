@@ -44,7 +44,7 @@ endif()
 
 # The monospace face vnm_plot_rhi embeds and bakes its MSDF atlas from, and the
 # icon face the function plotter example puts in its resources.
-set(VNM_PLOT_MONOSPACE_FONT_FILE "${VNM_FONTS_DIRECTORY}/UbuntuMono-Bront.ttf")
+set(VNM_PLOT_MONOSPACE_FONT_FILE "${VNM_FONTS_DIRECTORY}/UbuntuSansMonoDerivativeVnm-Regular.ttf")
 set(VNM_PLOT_ICON_FONT_FILE      "${VNM_FONTS_DIRECTORY}/FontAwesome7Free-Solid.otf")
 
 foreach(_vnm_plot_font IN ITEMS

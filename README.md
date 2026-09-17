@@ -373,6 +373,6 @@ required only when building vnm_plot from source.
 BSD-2-Clause.
 
 The build embeds two third-party fonts into the artifacts it produces - Ubuntu
-Mono - Bront into `vnm_plot_rhi`, and Font Awesome 7 Free Solid into the
+Sans Mono derivative vnm into `vnm_plot_rhi`, and Font Awesome 7 Free Solid into the
 function plotter example - and they keep their own licences. Their notices are
 in `THIRD_PARTY_NOTICES.md` and their licence texts in `LICENSES/`.

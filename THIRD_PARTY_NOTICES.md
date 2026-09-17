@@ -12,15 +12,15 @@ upstream repository, revision, path, digest and size of each one.
 
 | Font | Where it ends up | Licence |
 |---|---|---|
-| Ubuntu Mono - Bront | `vnm_plot_rhi`, as a C++ byte array under the asset name `fonts/monospace.ttf` | Ubuntu Font Licence 1.0 |
+| Ubuntu Sans Mono derivative vnm | `vnm_plot_rhi`, as a C++ byte array under the asset name `fonts/monospace.ttf` | Ubuntu Font Licence 1.0 |
 | Font Awesome 7 Free Solid | `function_plotter`, in the example's Qt resources | SIL Open Font License 1.1 |
 
-## Ubuntu Mono - Bront
+## Ubuntu Sans Mono derivative vnm
 
-Embedded into `vnm_plot_rhi` from `fonts/UbuntuMono-Bront.ttf`, and baked into
-an MSDF atlas at runtime. The typeface is Chris Wendt's derivative of Canonical's
-Ubuntu Mono, distributed by him as `Ubuntu Mono - Bront`; the file is his,
-unmodified.
+Embedded into `vnm_plot_rhi` from
+`fonts/UbuntuSansMonoDerivativeVnm-Regular.ttf`, and baked into an MSDF atlas at
+runtime. The file is supplied byte-verbatim by `vnm_fonts`; its package
+provenance manifest records the upstream source and revision.
 
 License: Ubuntu Font Licence 1.0.
 Local license text: `LICENSES/Ubuntu-Font-Licence-1.0.txt`.
@@ -31,7 +31,7 @@ Copyright notice carried in the font:
 
 Source:
 
-- https://github.com/chrismwendt/bront
+- https://github.com/Varinomics/vnm_fonts
 - https://ubuntu.com/legal/font-licence
 
 `fonts/monospace.ttf` is the name `Font_renderer` asks its `Asset_loader` for.
