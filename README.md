@@ -308,8 +308,10 @@ config.line_width_px = 2.0;
 config.stack_sum_line_width_extra_px = 1.0;
 config.dark_color_palette.stack_sum_line = vnm::plot::rgba_u8(0x9a, 0x96, 0x8b);
 config.auto_v_range_mode = vnm::plot::Auto_v_range_mode::VISIBLE;
-config.format_timestamp = [](double ts, double range) {
-    return my_format_time(ts, range);
+config.format_timestamp = [](
+    std::int64_t timestamp_ns,
+    std::int64_t step_ns) {
+    return my_format_time(timestamp_ns, step_ns);
 };
 plot_widget->set_config(config);
 ```
