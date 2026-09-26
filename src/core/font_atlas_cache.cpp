@@ -8,18 +8,18 @@ namespace vnm::plot::detail {
 
 bool operator==(const font_atlas_key_t& lhs, const font_atlas_key_t& rhs)
 {
-    return lhs.pixel_height == rhs.pixel_height && lhs.font_digest == rhs.font_digest;
+    return lhs.baked_pixel_height == rhs.baked_pixel_height && lhs.font_digest == rhs.font_digest;
 }
 
 std::size_t font_atlas_key_hash_t::operator()(const font_atlas_key_t& key) const
 {
     // The digest already is a cryptographic hash, so its leading bytes make a
-    // good bucket index; the pixel height separates draw sizes of one font.
+    // good bucket index; the pixel height separates bake sizes of one font.
     std::size_t hash = 0;
     for (std::size_t i = 0; i < sizeof(std::size_t) && i < key.font_digest.size(); ++i) {
         hash = (hash << 8) | static_cast<std::size_t>(key.font_digest[i]);
     }
-    return hash ^ (static_cast<std::size_t>(key.pixel_height) * 0x9e3779b9u);
+    return hash ^ (static_cast<std::size_t>(key.baked_pixel_height) * 0x9e3779b9u);
 }
 
 Font_atlas_cache::Font_atlas_cache(std::size_t max_retained_bytes)

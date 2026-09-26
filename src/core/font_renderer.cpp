@@ -123,7 +123,7 @@ using detail::cached_font_data_t;
 using detail::font_atlas_key_t;
 
 // Every retained entry is one k_atlas_texture_size RGBA bitmap (16 MiB at
-// 2048), so this budget keeps the eight most recently used (font, draw height)
+// 2048), so this budget keeps the eight most recently used (font, bake height)
 // pairs alive: enough for the handful of label sizes a plot cycles through
 // while DPI or zoom changes, and far below the ~1 GiB a 64-entry ceiling
 // allowed. Evicted entries cost a rebuild, not a wrong result.
@@ -461,7 +461,6 @@ std::shared_ptr<cached_font_data_t> load_cached_font_from_disk(
     }
 
     auto font = std::make_shared<cached_font_data_t>();
-    font->draw_pixel_height = pixel_height;
     font->font_digest       = digest;
 
     std::uint32_t atlas_size = 0;
@@ -482,7 +481,10 @@ std::shared_ptr<cached_font_data_t> load_cached_font_from_disk(
     {
         return nullptr;
     }
-    font->atlas.baked_pixel_height = static_cast<int>(baked_pixel_height);
+    if (baked_pixel_height != static_cast<std::uint32_t>(pixel_height)) {
+        return nullptr;
+    }
+    font->atlas.baked_pixel_height = pixel_height;
     // ascender, bitmap_scale, and atlas_px_range are divisors/projections in the
     // scaling helpers, so require them strictly positive; the rest must be finite.
     if (!(font->atlas.atlas_px_range > 0.0) ||
@@ -591,7 +593,7 @@ bool serialize_cached_font(std::ostream& out, const cached_font_data_t& font)
     constexpr std::uint32_t k_magic = 0x4d534446; // 'MSDF'
     write(k_magic);
     write(k_cache_version);
-    write(static_cast<std::uint32_t>(font.draw_pixel_height));
+    write(static_cast<std::uint32_t>(font.atlas.baked_pixel_height));
     out.write(reinterpret_cast<const char*>(font.font_digest.data()), font.font_digest.size());
     write(static_cast<std::uint32_t>(font.atlas.atlas_size));
     write(static_cast<std::uint32_t>(font.atlas.baked_pixel_height));
@@ -662,7 +664,6 @@ std::shared_ptr<cached_font_data_t> build_font_cache(
 {
     auto font = std::make_shared<cached_font_data_t>();
     font->font_digest       = font_digest;
-    font->draw_pixel_height = pixel_height;
 
     auto result = vnm::msdf_text::build_font_atlas(
         reinterpret_cast<const std::uint8_t*>(font_bytes.data()),
@@ -691,6 +692,14 @@ std::shared_ptr<cached_font_data_t> load_or_build_font_cache(
     const std::function<void(const std::string&)>& log_error,
     const std::function<void(const std::string&)>& log_debug_info)
 {
+    // Normalize only valid draw sizes; otherwise the bake floor would turn an
+    // invalid height into a successful 48px atlas request.
+    if (pixel_height <= 0) {
+        if (log_error) {
+            log_error("Font pixel height must be positive");
+        }
+        return nullptr;
+    }
     // The font belongs to the asset loader that was passed in: a process can
     // hold several loaders that register different fonts under this name, so
     // the bytes are read per request and their digest keys the cache.
@@ -702,7 +711,8 @@ std::shared_ptr<cached_font_data_t> load_or_build_font_cache(
         return nullptr;
     }
 
-    const font_atlas_key_t key{compute_font_digest(*font_bytes), pixel_height};
+    const int bake_height = vnm::msdf_text::msdf_bake_pixel_height(pixel_height, atlas_options());
+    const font_atlas_key_t key{compute_font_digest(*font_bytes), bake_height};
     const auto options = font_disk_cache_options();
     const bool disk_cache = font_disk_cache_enabled() && options.max_bytes > 0;
 
@@ -713,7 +723,7 @@ std::shared_ptr<cached_font_data_t> load_or_build_font_cache(
             const auto directory = disk_cache ? resolve_cache_directory(options) : std::filesystem::path{};
             const auto path = directory.empty()
                 ? std::filesystem::path{}
-                : cache_file_path(directory, pixel_height, key.font_digest);
+                : cache_file_path(directory, bake_height, key.font_digest);
             if (disk_cache && path.empty() && log_error) {
                 log_error("Failed to create MSDF font cache directory");
             }
@@ -724,7 +734,7 @@ std::shared_ptr<cached_font_data_t> load_or_build_font_cache(
                 auto from_disk = load_cached_font_from_disk(
                     path,
                     key.font_digest,
-                    pixel_height);
+                    bake_height);
                 if (from_disk) {
                     std::error_code ec;
                     std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), ec);
@@ -735,7 +745,7 @@ std::shared_ptr<cached_font_data_t> load_or_build_font_cache(
 
             auto built = build_font_cache(
                 *font_bytes,
-                pixel_height,
+                bake_height,
                 key.font_digest,
                 log_error,
                 log_debug_info);
@@ -1082,7 +1092,11 @@ bool Font_renderer::text_ink_bounds_px(
 
 std::uint64_t Font_renderer::text_measure_cache_key() const
 {
-    return m_impl->current_cache_epoch();
+    const auto epoch = m_impl->current_cache_epoch();
+    // The GPU texture follows the atlas epoch; measurement caches also need
+    // the draw size even when the same immutable atlas serves both sizes.
+    return epoch == 0 ? 0 :
+        (epoch * 0x9e3779b97f4a7c15ULL) ^ static_cast<std::uint64_t>(m_impl->current_draw_pixel_height());
 }
 
 float Font_renderer::monospace_advance_px() const
@@ -1145,7 +1159,7 @@ void Font_renderer::batch_text(float x, float y, const char* text)
         text,
         x,
         y,
-        cached->draw_pixel_height,
+        m_impl->current_draw_pixel_height(),
         cached->atlas,
         m_impl->m_rhi_vertex_data,
         m_impl->m_rhi_index_data);
@@ -1477,7 +1491,7 @@ void Font_renderer::rhi_queue_draw(
         block.shadow_color[2] = draw_shadow.color.b;
         block.shadow_color[3] = draw_shadow.color.a;
         block.px_range        = vnm::msdf_text::px_range_for_pixel_height(
-            cached.atlas, cached.draw_pixel_height);
+            cached.atlas, m_impl->current_draw_pixel_height());
         block.target_width    = static_cast<float>(std::max(1, ctx.win_w));
         block.target_height   = static_cast<float>(std::max(1, ctx.win_h));
         block.shadow_radius   = draw_shadow.radius_px;

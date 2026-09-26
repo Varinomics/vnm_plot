@@ -115,12 +115,15 @@ bool test_concurrent_renderers_share_one_atlas_build()
     plot::Asset_loader loader;
     plot::init_embedded_assets(loader);
 
-    // A height no earlier case in this process has built, so both threads miss
-    // the memo and the disk cache is off, which keeps the bake long enough for
+    // A font identity no earlier case in this process has built, so both threads
+    // miss the memo and the disk cache is off, which keeps the bake long enough for
     // the second thread to arrive while the first is still inside it. This is
     // the shape Logonomic and Phylax produce: two QQuickRhiItems, and therefore
     // two Qt scene-graph render threads, initializing font metrics at once.
     constexpr int k_concurrent_font_px = k_test_font_px + 1;
+    const auto bundled_font = loader.load("fonts/monospace.ttf");
+    TEST_ASSERT(bundled_font && !bundled_font->empty(), "the bundled font must be available");
+    loader.register_embedded("fonts/monospace.ttf", *bundled_font + std::string(128, '\0'));
 
     plot::Font_renderer   first_renderer(loader);
     plot::Font_renderer   second_renderer(loader);
@@ -144,7 +147,7 @@ bool test_concurrent_renderers_share_one_atlas_build()
 
     TEST_ASSERT(first_key != 0 && second_key != 0,
         "both concurrent renderers must end up with an atlas");
-    // The key is the atlas' cache epoch, which is stamped once per production,
+    // The key includes the atlas' cache epoch, stamped once per production,
     // so two distinct keys mean the two threads each ran their own multi-second
     // bake of the same font at the same height.
     TEST_ASSERT(first_key == second_key,

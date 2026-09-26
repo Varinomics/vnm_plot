@@ -115,7 +115,8 @@ public:
     // Initializes CPU font metrics/cache for layout calculation before the render pass.
     // The atlas is built from the bound loader's font asset, so renderers whose
     // loaders register different font bytes get different atlases, and each
-    // atlas is built once per (font, pixel height) across all threads.
+    // atlas is built once per (font, bake height) across all threads. Draw
+    // heights up to 48px share one atlas and retain their own scaled metrics.
     //
     // The font asset is read at the first call for a pixel height. force_rebuild
     // re-reads it and rebuilds the atlas, which is also how a caller that

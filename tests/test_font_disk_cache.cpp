@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -24,7 +25,7 @@ namespace {
 constexpr std::uint32_t k_magic                  = 0x4d534446; // 'MSDF'
 constexpr std::uint32_t k_cache_version          = 4;
 constexpr std::uint32_t k_previous_cache_version = 3;
-constexpr std::uint32_t k_pixel_height           = 18;
+constexpr std::uint32_t k_pixel_height           = 48;
 constexpr std::uint32_t k_atlas_texture_size     = 2048;
 constexpr std::uint32_t k_expected_atlas_bytes   =
     k_atlas_texture_size * k_atlas_texture_size * 4u;
@@ -133,6 +134,62 @@ bool test_renderer_publishes_within_host_directory_and_budget()
     TEST_ASSERT(files == 1, "the configured profile directory must receive the atlas");
     TEST_ASSERT(bytes > k_expected_atlas_bytes && bytes <= options.max_bytes,
         "the atlas and its metrics must fit within the configured byte budget");
+    return true;
+}
+
+bool test_draw_heights_share_one_baked_atlas()
+{
+    Scoped_temp_dir tmp;
+    Scoped_cache_options restore;
+    plot::font_disk_cache_options_t options;
+    options.directory = tmp.path;
+    plot::set_font_disk_cache_options(options);
+    plot::set_font_disk_cache_enabled(true);
+
+    plot::Asset_loader loader;
+    plot::init_embedded_assets(loader);
+    plot::Font_renderer renderer(loader);
+    const auto cold_start = std::chrono::steady_clock::now();
+    renderer.initialize_metrics(18, true);
+    const auto cold_end = std::chrono::steady_clock::now();
+    const auto small_key = renderer.text_measure_cache_key();
+    const float small_advance = renderer.measure_text_px("Axis 0123456789");
+    glm::vec4 small_bounds;
+    TEST_ASSERT(renderer.text_visual_bounds_px("Axis 0123456789", 0.f, 0.f, small_bounds),
+        "the first draw size must provide glyph bounds");
+
+    const auto resize_start = std::chrono::steady_clock::now();
+    renderer.initialize_metrics(24);
+    const auto resize_end = std::chrono::steady_clock::now();
+    const auto large_key = renderer.text_measure_cache_key();
+    glm::vec4 large_bounds;
+    TEST_ASSERT(renderer.text_visual_bounds_px("Axis 0123456789", 0.f, 0.f, large_bounds),
+        "the second draw size must provide glyph bounds");
+    TEST_ASSERT(std::abs(renderer.measure_text_px("Axis 0123456789") - small_advance * 4.f / 3.f) < 0.001f,
+        "measurements must follow the requested draw size when the atlas is reused");
+    for (int i = 0; i < 4; ++i) {
+        TEST_ASSERT(std::abs(large_bounds[i] - small_bounds[i] * 4.f / 3.f) < 0.001f,
+            "glyph bounds must follow the requested draw size");
+    }
+    TEST_ASSERT(small_key != 0 && large_key != small_key, "measurement identity must distinguish draw sizes");
+    renderer.initialize_metrics(18);
+    TEST_ASSERT(renderer.text_measure_cache_key() == small_key,
+        "returning to a draw size must reuse its measurement identity");
+    renderer.initialize_metrics(0);
+    TEST_ASSERT(renderer.text_measure_cache_key() == small_key,
+        "an invalid draw height must not become a valid atlas request through the bake floor");
+
+    std::size_t files = 0;
+    std::uint64_t bytes = 0;
+    for (const auto& file : std::filesystem::directory_iterator(tmp.path)) {
+        ++files;
+        bytes += file.file_size();
+    }
+    std::cout << "Atlas resize 18 -> 24 -> 18: cold_ms="
+              << std::chrono::duration<double, std::milli>(cold_end - cold_start).count()
+              << " resize_ms=" << std::chrono::duration<double, std::milli>(resize_end - resize_start).count()
+              << " files=" << files << " bytes=" << bytes << std::endl;
+    TEST_ASSERT(files == 1, "draw heights within the 48px bake bucket must store only one atlas");
     return true;
 }
 
@@ -382,6 +439,7 @@ int main()
     RUN_TEST(test_previous_cache_version_is_rejected);
     RUN_TEST(test_cache_prunes_owned_files_and_stale_temporaries);
     RUN_TEST(test_renderer_publishes_within_host_directory_and_budget);
+    RUN_TEST(test_draw_heights_share_one_baked_atlas);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;

@@ -23,14 +23,14 @@ detail::font_atlas_key_t make_key(std::uint8_t digest_fill, int pixel_height)
 {
     detail::font_atlas_key_t key;
     key.font_digest.fill(digest_fill);
-    key.pixel_height = pixel_height;
+    key.baked_pixel_height = pixel_height;
     return key;
 }
 
 std::shared_ptr<detail::cached_font_data_t> make_font(const detail::font_atlas_key_t& key)
 {
     auto font = std::make_shared<detail::cached_font_data_t>();
-    font->draw_pixel_height = key.pixel_height;
+    font->atlas.baked_pixel_height = key.baked_pixel_height;
     font->font_digest       = key.font_digest;
     font->atlas.rgba.resize(k_atlas_bytes);
     return font;

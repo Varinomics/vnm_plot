@@ -16,10 +16,12 @@
 #include <QImage>
 #include <QQuickRenderControl>
 #include <QQuickWindow>
+#include <QRect>
 #include <QSize>
 #include <rhi/qrhi.h>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <functional>
 #include <initializer_list>
@@ -420,6 +422,47 @@ bool test_slices_record_in_submission_order(Offscreen_frames& frames)
     return true;
 }
 
+bool test_changing_draw_height_rescales_the_rendered_glyphs(Offscreen_frames& frames)
+{
+    plot::Asset_loader loader;
+    plot::init_embedded_assets(loader);
+    plot::Font_renderer fonts(loader);
+    const text_draw_t draw{20.f, 60.f, "Size 123", glm::vec4(1.f), {}, {}};
+    const QImage blank = frames.render([](const auto&) {}, [](const auto&) {});
+    TEST_ASSERT(!blank.isNull(), "the blank frame must be readable");
+    const auto render_at = [&](int height) {
+        fonts.initialize_metrics(height);
+        return frames.render(
+            [&](const auto& ctx) { prepare_whole_frame(fonts, ctx, {draw}); },
+            [&](const auto& ctx) { fonts.rhi_record_frame(ctx); });
+    };
+    const QImage small = render_at(18);
+    const QImage large = render_at(24);
+    const QImage restored = render_at(18);
+    TEST_ASSERT(!small.isNull() && !large.isNull() && !restored.isNull(),
+        "each draw size must render a readable frame");
+    const auto ink_bounds = [&](const QImage& image) {
+        QRect bounds;
+        for (int y = 0; y < image.height(); ++y) {
+            for (int x = 0; x < image.width(); ++x) {
+                if (image.pixel(x, y) != blank.pixel(x, y)) {
+                    bounds = bounds.united(QRect(x, y, 1, 1));
+                }
+            }
+        }
+        return bounds;
+    };
+    const QRect small_bounds = ink_bounds(small);
+    const QRect large_bounds = ink_bounds(large);
+    TEST_ASSERT(!small_bounds.isEmpty() && !large_bounds.isEmpty(), "both draw sizes must paint visible glyphs");
+    TEST_ASSERT(std::abs(large_bounds.width() - small_bounds.width() * 4.f / 3.f) <= 2.f,
+        "the rasterized text width must scale with draw height, within pixel rounding");
+    TEST_ASSERT(std::abs(large_bounds.height() - small_bounds.height() * 4.f / 3.f) <= 2.f,
+        "the rasterized glyph height must scale with draw height, within pixel rounding");
+    TEST_ASSERT(small == restored, "returning to the initial size must restore the exact rendered pixels");
+    return true;
+}
+
 using frame_test_fn_t = bool (*)(Offscreen_frames& frames);
 
 void run_frame_test(
@@ -477,6 +520,7 @@ int main(int argc, char** argv)
     RUN_FRAME_TEST(test_sliced_recording_matches_whole_recording);
     RUN_FRAME_TEST(test_record_draws_cursor_only_advances);
     RUN_FRAME_TEST(test_slices_record_in_submission_order);
+    RUN_FRAME_TEST(test_changing_draw_height_rescales_the_rendered_glyphs);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;
