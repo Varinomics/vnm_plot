@@ -24,7 +24,6 @@ Window {
             height: parent.height * 0.5 - parent.spacing * 0.5
             width: parent.width
             time_axis: sharedAxis
-            Component.onCompleted: plot_widget.update_dpi_scaling_factor()
         }
 
         PlotView {
@@ -32,7 +31,6 @@ Window {
             height: parent.height * 0.5 - parent.spacing * 0.5
             width: parent.width
             time_axis: sharedAxis
-            Component.onCompleted: plot_widget.update_dpi_scaling_factor()
         }
     }
 

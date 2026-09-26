@@ -36,7 +36,6 @@ Window {
             dark_mode: true
             link_indicator: true
             time_axis: sharedAxis
-            Component.onCompleted: plot_widget.update_dpi_scaling_factor()
         }
 
         PlotView {
@@ -46,7 +45,6 @@ Window {
             dark_mode: true
             link_indicator: true
             time_axis: sharedAxis
-            Component.onCompleted: plot_widget.update_dpi_scaling_factor()
         }
     }
 

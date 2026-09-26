@@ -13,7 +13,15 @@
 #include <vnm_plot/qt/plot_interaction_item.h>
 #include <vnm_plot/qt/plot_time_axis.h>
 
+#include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QGuiApplication>
+#include <QImage>
+#include <QQuickRenderControl>
+#include <QQuickRenderTarget>
+#include <QQuickWindow>
+#include <QThread>
 #include <QMouseEvent>
 #include <QVariantMap>
 
@@ -1084,6 +1092,94 @@ bool test_preview_thumb_press_handles_full_int64_availability()
     return true;
 }
 
+bool wait_for_preview_height(plot::Plot_widget& widget, double target)
+{
+    QElapsedTimer elapsed;
+    elapsed.start();
+    while (std::abs(widget.preview_height() - target) > 0.001 && elapsed.elapsed() < 2000) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        QThread::msleep(1);
+    }
+    return std::abs(widget.preview_height() - target) <= 0.001;
+}
+
+bool test_automatic_preview_tracks_resize()
+{
+    plot::Plot_widget widget;
+    widget.setHeight(700.0);
+    TEST_ASSERT(wait_for_preview_height(widget, 150.0), "automatic preview should reach its upper bound");
+    widget.setHeight(200.0);
+    TEST_ASSERT(widget.preview_height_target() == 30.0, "smaller geometry should calculate the collapsed preview");
+    TEST_ASSERT(wait_for_preview_height(widget, 30.0), "automatic preview should apply its new target without a QML handler");
+    widget.setHeight(700.0);
+    TEST_ASSERT(wait_for_preview_height(widget, 150.0), "automatic preview should grow again");
+
+    auto config = widget.config();
+    config.preview_height_px = 45.0;
+    widget.set_config(config);
+    widget.setHeight(200.0);
+    TEST_ASSERT(widget.preview_height() == 45.0, "fixed preview height should survive geometry changes");
+    return true;
+}
+
+bool test_automatic_preview_resumes_after_fixed_height()
+{
+    plot::Plot_widget widget;
+    widget.setHeight(700.0);
+    TEST_ASSERT(wait_for_preview_height(widget, 150.0), "automatic preview should initialize at the tall target");
+
+    auto config = widget.config();
+    config.preview_height_px = 45.0;
+    widget.set_config(config);
+    TEST_ASSERT(widget.preview_height() == 45.0, "fixed mode should apply its configured height");
+    config.preview_height_px = 0.0;
+    widget.set_config(config);
+    TEST_ASSERT(wait_for_preview_height(widget, 150.0), "returning to automatic mode should reapply the unchanged target");
+
+    widget.set_preview_height(45.0);
+    widget.setWidth(640.0);
+    TEST_ASSERT(widget.preview_height() == 45.0, "an explicit height override should remain until its automatic target changes");
+
+    widget.setHeight(200.0);
+    config.preview_height_px = 45.0;
+    widget.set_config(config);
+    config.preview_height_px = 0.0;
+    widget.set_config(config);
+    TEST_ASSERT(wait_for_preview_height(widget, 30.0), "automatic sizing should resume after fixed mode interrupts a transition");
+    return true;
+}
+
+bool test_same_screen_pixel_ratio_change_updates_plot_scaling()
+{
+    // Qt defines effectiveDevicePixelRatio from the redirected render target.
+    // Its normal DevicePixelRatioChange event sends that scale to content items.
+    QQuickRenderControl control;
+    QQuickWindow window(&control);
+    QImage image(800, 600, QImage::Format_ARGB32_Premultiplied);
+    auto target = QQuickRenderTarget::fromPaintDevice(&image);
+    const double initial_scale = window.devicePixelRatio();
+    target.setDevicePixelRatio(initial_scale);
+    window.setRenderTarget(target);
+    plot::Plot_widget widget;
+    auto config = widget.config();
+    config.preview_height_px = 30.0;
+    widget.set_config(config);
+    widget.setParentItem(window.contentItem());
+    widget.setSize(QSizeF(400.0, 300.0));
+    TEST_ASSERT(widget.scaling_factor() == initial_scale, "initial render target uses the window scale");
+    const auto screen = window.screen();
+
+    target.setDevicePixelRatio(initial_scale * 2.0);
+    window.setRenderTarget(target);
+    QEvent changed(QEvent::DevicePixelRatioChange);
+    QCoreApplication::sendEvent(&window, &changed);
+    TEST_ASSERT(window.screen() == screen, "DPR regression must stay on the same screen");
+    TEST_ASSERT(widget.scaling_factor() == initial_scale * 2.0, "item DPR notification should update scale without screenChanged");
+    TEST_ASSERT(widget.preview_height() == 30.0, "DPR should preserve logical preview height");
+    TEST_ASSERT(widget.reserved_height() == 44.0, "DPR should preserve logical preview and label reservation");
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1120,6 +1216,9 @@ int main(int argc, char** argv)
     RUN_TEST(test_widget_local_preview_adjustment_matches_shared_axis);
     RUN_TEST(test_set_config_applies_complete_config_and_notifies);
     RUN_TEST(test_preview_thumb_press_handles_full_int64_availability);
+    RUN_TEST(test_automatic_preview_tracks_resize);
+    RUN_TEST(test_automatic_preview_resumes_after_fixed_height);
+    RUN_TEST(test_same_screen_pixel_ratio_change_updates_plot_scaling);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;

@@ -15,6 +15,7 @@
 #include <QQuickRhiItem>
 
 #include <QString>
+#include <QVariantAnimation>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -274,6 +275,7 @@ signals:
 
 protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
+    void itemChange(ItemChange change, const ItemChangeData& data) override;
     void timerEvent(QTimerEvent* ev) override;
     void adjust_t_to_target(qint64 target_tmin_ns, qint64 target_tmax_ns);
     std::pair<float, float> manual_v_range() const;
@@ -391,7 +393,7 @@ private:
 
     double                         m_preview_height                              = 0.0;
     double                         m_preview_height_target                       = 0.0;
-    double                         m_adjusted_preview_height                     = 0.0;
+    QVariantAnimation              m_preview_height_animation;
     bool                           m_preview_height_initialized                  = false;
     float                          m_relative_preview_height                     = 0.0f;
     double                         m_preview_height_min                          = 0.0;
@@ -403,7 +405,8 @@ private:
     double                         m_base_label_height                           = 14.0;
     double                         m_scaling_factor                              = 1.0;
 
-    void recalculate_preview_height();
+    void apply_preview_height(double height);
+    void recalculate_preview_height(bool resume_automatic = false);
     double compute_preview_height_px(double widget_height_px) const;
     std::pair<float, float> current_v_range() const;
     data_config_t data_cfg_snapshot() const;

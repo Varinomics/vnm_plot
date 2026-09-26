@@ -31,10 +31,10 @@
 
 namespace {
 
-double dpi_scaling_for_window(const QWindow* window)
+double dpi_scaling_for_window(const QQuickWindow* window)
 {
     if (window) {
-        return window->devicePixelRatio();
+        return window->effectiveDevicePixelRatio();
     }
     const auto* const screen = QGuiApplication::primaryScreen();
     return screen ? screen->devicePixelRatio() : 1.0;
@@ -140,6 +140,10 @@ Plot_widget::Plot_widget()
     m_preview_height_max                          = 150.0;
     m_show_if_calculated_preview_height_below_min = false;
     m_preview_height_steps                        = 2;
+
+    m_preview_height_animation.setDuration(250);
+    QObject::connect(&m_preview_height_animation, &QVariantAnimation::valueChanged,
+        this, [this](const QVariant& value) { apply_preview_height(value.toDouble()); });
 
     update_dpi_scaling_factor();
 
@@ -257,6 +261,7 @@ void Plot_widget::set_config(const Plot_config& config)
     bool        grid_changed    = false;
     bool        preview_changed = false;
     bool        line_changed    = false;
+    bool        resume_automatic_preview = false;
 
     {
         std::unique_lock lock(m_config_mutex);
@@ -264,6 +269,8 @@ void Plot_widget::set_config(const Plot_config& config)
         grid_changed    = m_config.grid_visibility != config.grid_visibility;
         preview_changed = m_config.preview_visibility != config.preview_visibility;
         line_changed    = m_config.line_width_px != config.line_width_px;
+        resume_automatic_preview = m_config.preview_height_px > 0.0 &&
+            !(config.preview_height_px > 0.0);
         m_config        = config;
         m_config_revision.fetch_add(1, std::memory_order_relaxed);
         effective_config = m_config;
@@ -286,7 +293,7 @@ void Plot_widget::set_config(const Plot_config& config)
         set_preview_height(effective_config.preview_height_px);
     }
     else {
-        recalculate_preview_height();
+        recalculate_preview_height(resume_automatic_preview);
     }
     update();
 }
@@ -698,9 +705,14 @@ double Plot_widget::preview_height() const
 
 void Plot_widget::set_preview_height(double height)
 {
+    m_preview_height_animation.stop();
+    apply_preview_height(height);
+}
+
+void Plot_widget::apply_preview_height(double height)
+{
     if (std::abs(m_preview_height - height) > 0.001) {
         m_preview_height = height;
-        m_adjusted_preview_height = height * m_scaling_factor;
         emit preview_height_changed();
         update();
     }
@@ -1997,8 +2009,12 @@ double Plot_widget::compute_preview_height_px(double widget_height_px) const
     return preview_px;
 }
 
-void Plot_widget::recalculate_preview_height()
+void Plot_widget::recalculate_preview_height(bool resume_automatic)
 {
+    if (config().preview_height_px > 0.0) {
+        return;
+    }
+
     const double widget_h_dp  = height();
     const double widget_h_px  = widget_h_dp * m_scaling_factor;
     const double new_adjusted = compute_preview_height_px(widget_h_px);
@@ -2010,7 +2026,9 @@ void Plot_widget::recalculate_preview_height()
         (std::abs(new_dp - m_preview_height_target) > 0.5) ||
         (!m_preview_height_initialized && std::abs(new_dp - m_preview_height) > 0.5);
 
-    if (!changed_target) {
+    // Fixed mode may have stopped at another height while retaining this
+    // target. Re-enabling automatic mode must resume following that target.
+    if (!changed_target && !resume_automatic) {
         return;
     }
 
@@ -2018,12 +2036,18 @@ void Plot_widget::recalculate_preview_height()
 
     if (!m_preview_height_initialized) {
         m_preview_height_initialized = true;
-        m_preview_height             = new_dp;
-        m_adjusted_preview_height    = new_adjusted;
-        emit preview_height_changed();
+        apply_preview_height(new_dp);
+    }
+    else {
+        m_preview_height_animation.stop();
+        m_preview_height_animation.setStartValue(m_preview_height);
+        m_preview_height_animation.setEndValue(new_dp);
+        m_preview_height_animation.start();
     }
 
-    emit preview_height_target_changed(m_preview_height_target);
+    if (changed_target) {
+        emit preview_height_target_changed(m_preview_height_target);
+    }
 }
 
 QQuickRhiItemRenderer* Plot_widget::createRenderer()
@@ -2038,6 +2062,14 @@ void Plot_widget::geometryChange(const QRectF& newGeometry, const QRectF& oldGeo
     if (newGeometry.size() != oldGeometry.size()) {
         recalculate_preview_height();
         update();
+    }
+}
+
+void Plot_widget::itemChange(ItemChange change, const ItemChangeData& data)
+{
+    QQuickRhiItem::itemChange(change, data);
+    if (change == ItemDevicePixelRatioHasChanged) {
+        invalidate_display_context();
     }
 }
 
