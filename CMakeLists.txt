@@ -296,7 +296,6 @@ set(VNM_PLOT_LAYOUT_HEADERS
 
 set(VNM_PLOT_RHI_SOURCES
     src/core/asset_loader.cpp
-    src/core/platform_paths.cpp
     src/core/primitive_renderer.cpp
     src/core/chrome_renderer.cpp
     src/core/series_renderer.cpp

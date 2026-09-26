@@ -3,7 +3,6 @@
 #include <vnm_plot/rhi/asset_loader.h>
 #include "atomic_file_write.h"
 #include "font_atlas_cache.h"
-#include "platform_paths.h"
 #include "rhi_helpers.h"
 
 #include <glm/gtc/type_ptr.hpp>
@@ -15,6 +14,10 @@
 #include <QFile>
 #include <QCryptographicHash>
 #include <QImage>
+#include <QDateTime>
+#include <QDir>
+#include <QRegularExpression>
+#include <QStandardPaths>
 #include <rhi/qrhi.h>
 
 #include <algorithm>
@@ -29,6 +32,7 @@
 #include <iomanip>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <type_traits>
 #include <vector>
@@ -52,6 +56,8 @@ constexpr char k_msdf_builder_semantics[] =
     "vnm_msdf_text_scale_independent_font_units_mtsdf_atlas_px_range";
 
 std::atomic<bool> s_disk_cache_enabled{true};
+std::mutex s_disk_cache_options_mutex;
+font_disk_cache_options_t s_disk_cache_options;
 
 } // anonymous namespace
 
@@ -67,6 +73,18 @@ void set_font_disk_cache_enabled(bool enabled)
 bool font_disk_cache_enabled()
 {
     return s_disk_cache_enabled.load(std::memory_order_relaxed);
+}
+
+void set_font_disk_cache_options(const font_disk_cache_options_t& options)
+{
+    std::lock_guard<std::mutex> lock(s_disk_cache_options_mutex);
+    s_disk_cache_options = options;
+}
+
+font_disk_cache_options_t font_disk_cache_options()
+{
+    std::lock_guard<std::mutex> lock(s_disk_cache_options_mutex);
+    return s_disk_cache_options;
 }
 
 namespace {
@@ -338,36 +356,61 @@ std::string digest_to_hex(const std::array<std::uint8_t, 32>& digest)
         ).toHex().toStdString();
 }
 
-std::filesystem::path resolve_cache_directory()
+std::filesystem::path resolve_cache_directory(const font_disk_cache_options_t& options)
 {
-    // Prefer cache directory for disposable MSDF artifacts
-    auto cache_dir = get_cache_directory();
-    if (!cache_dir.empty()) {
-        return cache_dir;
+    auto cache_dir = options.directory;
+    if (cache_dir.empty()) {
+        const auto base = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+        if (base.isEmpty()) {
+            return {};
+        }
+        cache_dir = std::filesystem::path(base.toStdU16String()) / "vnm_plot";
     }
-
-    // Fallback to data directory
-    cache_dir = get_data_directory();
-    if (!cache_dir.empty()) {
-        return cache_dir;
-    }
-
-    // Last resort: current directory
-    cache_dir = std::filesystem::current_path() / ".vnm_plot_cache";
     std::error_code ec;
     std::filesystem::create_directories(cache_dir, ec);
-    return cache_dir;
+    return ec ? std::filesystem::path{} : cache_dir;
+}
+
+void prune_disk_cache(const std::filesystem::path& path, std::uint64_t max_bytes)
+{
+    // Restrict cleanup to our complete file-name grammar, so a host may share
+    // its cache directory with other artifacts. Never follow symbolic links.
+    static const QRegularExpression cache_name(
+        QStringLiteral("^msdf_cache_v[0-9]+_px[0-9]+_font[0-9a-f]{64}\\.bin(\\.tmp-[0-9a-f]+-[0-9a-f]+)?$"));
+    const QDir directory(path);
+    const auto files = directory.entryInfoList(QDir::Files | QDir::NoSymLinks, QDir::Time | QDir::Reversed);
+    const auto stale_before = QDateTime::currentDateTimeUtc().addDays(-1);
+    std::vector<QFileInfo> completed;
+    std::uint64_t total_bytes = 0;
+    for (const auto& file : files) {
+        const auto match = cache_name.match(file.fileName());
+        if (!match.hasMatch()) {
+            continue;
+        }
+        if (!match.captured(1).isEmpty()) {
+            if (file.lastModified() < stale_before) {
+                QFile::remove(file.absoluteFilePath());
+            }
+            continue;
+        }
+        total_bytes += static_cast<std::uint64_t>(file.size());
+        completed.push_back(file);
+    }
+    for (const auto& file : completed) {
+        if (total_bytes <= max_bytes) {
+            break;
+        }
+        if (QFile::remove(file.absoluteFilePath())) {
+            total_bytes -= static_cast<std::uint64_t>(file.size());
+        }
+    }
 }
 
 std::filesystem::path cache_file_path(
+    const std::filesystem::path&           cache_dir,
     int                                    pixel_height,
     const std::array<std::uint8_t, 32>&    font_digest)
 {
-    // Resolved exactly once and never reassigned: the magic-static guard makes
-    // the resolution itself thread-safe and the value is immutable afterwards,
-    // so concurrent render threads never observe a half-assigned path.
-    static const std::filesystem::path cache_dir = resolve_cache_directory();
-
     std::ostringstream oss;
     oss << "msdf_cache_v" << k_cache_version << "_px" << pixel_height << "_font";
     oss << digest_to_hex(font_digest);
@@ -660,21 +703,32 @@ std::shared_ptr<cached_font_data_t> load_or_build_font_cache(
     }
 
     const font_atlas_key_t key{compute_font_digest(*font_bytes), pixel_height};
-    const bool             disk_cache = s_disk_cache_enabled.load(std::memory_order_relaxed);
+    const auto options = font_disk_cache_options();
+    const bool disk_cache = font_disk_cache_enabled() && options.max_bytes > 0;
 
     return font_atlas_cache().get_or_build(
         key,
         force_rebuild,
         [&]() -> std::shared_ptr<cached_font_data_t> {
+            const auto directory = disk_cache ? resolve_cache_directory(options) : std::filesystem::path{};
+            const auto path = directory.empty()
+                ? std::filesystem::path{}
+                : cache_file_path(directory, pixel_height, key.font_digest);
+            if (disk_cache && path.empty() && log_error) {
+                log_error("Failed to create MSDF font cache directory");
+            }
             // A forced rebuild has to regenerate the atlas, so it bypasses the
             // disk cache as well as the memo; reading the file back would hand
             // out the same bytes through another door.
-            if (disk_cache && !force_rebuild) {
+            if (!path.empty() && !force_rebuild) {
                 auto from_disk = load_cached_font_from_disk(
-                    cache_file_path(pixel_height, key.font_digest),
+                    path,
                     key.font_digest,
                     pixel_height);
                 if (from_disk) {
+                    std::error_code ec;
+                    std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), ec);
+                    prune_disk_cache(directory, options.max_bytes);
                     return from_disk;
                 }
             }
@@ -685,11 +739,11 @@ std::shared_ptr<cached_font_data_t> load_or_build_font_cache(
                 key.font_digest,
                 log_error,
                 log_debug_info);
-            if (built && disk_cache) {
-                const auto cache_path = cache_file_path(pixel_height, key.font_digest);
-                if (!save_cached_font_to_disk(cache_path, *built) && log_error) {
-                    log_error("Failed to publish MSDF font cache " + cache_path.string());
+            if (built && !path.empty()) {
+                if (!save_cached_font_to_disk(path, *built) && log_error) {
+                    log_error("Failed to publish MSDF font cache " + path.string());
                 }
+                prune_disk_cache(directory, options.max_bytes);
             }
             return built;
         });
@@ -699,6 +753,11 @@ std::shared_ptr<cached_font_data_t> load_or_build_font_cache(
 
 #if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
 namespace detail {
+
+void prune_font_disk_cache_directory(const std::filesystem::path& path, std::uint64_t max_bytes)
+{
+    prune_disk_cache(path, max_bytes);
+}
 
 bool validate_font_disk_cache_file(
     const std::filesystem::path&       path,

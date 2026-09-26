@@ -10,11 +10,11 @@
 
 #if defined(VNM_PLOT_ENABLE_TEXT) && defined(VNM_PLOT_ENABLE_TEST_HOOKS)
 #include <array>
-#include <filesystem>
 #endif
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -56,6 +56,21 @@ void set_font_disk_cache_enabled(bool enabled);
 // Returns true if disk caching is enabled.
 [[nodiscard]] bool font_disk_cache_enabled();
 
+struct font_disk_cache_options_t
+{
+    // Empty selects QStandardPaths::CacheLocation / "vnm_plot". Hosts can set
+    // an absolute directory to keep disposable atlases within their profile.
+    std::filesystem::path directory;
+    std::uint64_t max_bytes = 128u * 1024u * 1024u;
+};
+
+// Applies to subsequent atlas loads/builds; atlases already in memory stay valid.
+// Completed cache files are pruned by least recent use to this byte budget.
+// A zero budget disables disk storage. Cleanup is best effort if files are in
+// use by another process; fresh atomic-write temporaries are never removed.
+void set_font_disk_cache_options(const font_disk_cache_options_t& options);
+[[nodiscard]] font_disk_cache_options_t font_disk_cache_options();
+
 #if defined(VNM_PLOT_ENABLE_TEXT) && defined(VNM_PLOT_ENABLE_TEST_HOOKS)
 namespace detail {
 
@@ -65,6 +80,8 @@ using font_disk_cache_digest_t = std::array<std::uint8_t, 32>;
     const std::filesystem::path&       path,
     const font_disk_cache_digest_t&    expected_digest,
     int                                pixel_height);
+
+void prune_font_disk_cache_directory(const std::filesystem::path& path, std::uint64_t max_bytes);
 
 } // namespace detail
 #endif

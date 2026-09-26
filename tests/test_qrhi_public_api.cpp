@@ -6,6 +6,7 @@
 #include <vnm_plot/core/series_builder.h>
 #include <vnm_plot/core/series_window.h>
 #include <vnm_plot/core/types.h>
+#include <vnm_plot/rhi/font_renderer.h>
 #include <vnm_plot/rhi/qrhi_series_layer.h>
 #include <vnm_plot/rhi/series_builder.h>
 #include <vnm_plot/rhi/series_data.h>
@@ -26,6 +27,22 @@
 namespace plot = vnm::plot;
 
 namespace {
+
+bool test_font_cache_configuration_is_available_without_text()
+{
+    const auto previous = plot::font_disk_cache_options();
+    plot::font_disk_cache_options_t requested;
+    requested.directory = std::filesystem::temp_directory_path() / "plot-profile" / "font-cache";
+    requested.max_bytes = 32u * 1024u * 1024u;
+    plot::set_font_disk_cache_options(requested);
+    const auto observed = plot::font_disk_cache_options();
+    plot::set_font_disk_cache_options(previous);
+    TEST_ASSERT(observed.directory == requested.directory,
+        "font cache configuration must remain callable with text enabled or disabled");
+    TEST_ASSERT(observed.max_bytes == requested.max_bytes,
+        "font cache configuration must preserve the host's byte budget");
+    return true;
+}
 
 template<typename T, typename = void>
 struct has_bind_internal_access : std::false_type {};
@@ -393,6 +410,7 @@ int main()
     RUN_TEST(test_qrhi_layer_api_surface_can_be_implemented);
     RUN_TEST(test_core_plan_types_are_usable);
     RUN_TEST(test_make_series_view_uniform_values);
+    RUN_TEST(test_font_cache_configuration_is_available_without_text);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;

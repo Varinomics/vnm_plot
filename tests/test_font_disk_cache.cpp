@@ -3,9 +3,11 @@
 #include "test_macros.h"
 
 #include <vnm_plot/rhi/font_renderer.h>
+#include <vnm_plot/rhi/asset_loader.h>
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -50,6 +52,89 @@ struct Scoped_temp_dir
     Scoped_temp_dir(const Scoped_temp_dir&)            = delete;
     Scoped_temp_dir& operator=(const Scoped_temp_dir&) = delete;
 };
+
+struct Scoped_cache_options
+{
+    plot::font_disk_cache_options_t previous_options = plot::font_disk_cache_options();
+    bool previous_enabled = plot::font_disk_cache_enabled();
+
+    ~Scoped_cache_options()
+    {
+        plot::set_font_disk_cache_options(previous_options);
+        plot::set_font_disk_cache_enabled(previous_enabled);
+    }
+};
+
+std::string owned_cache_name(int version, int height)
+{
+    return "msdf_cache_v" + std::to_string(version) + "_px" + std::to_string(height) +
+           "_font" + std::string(64, 'a') + ".bin";
+}
+
+bool test_cache_prunes_owned_files_and_stale_temporaries()
+{
+    Scoped_temp_dir tmp;
+    const auto oldest = tmp.path / owned_cache_name(3, 16);
+    const auto newest = tmp.path / owned_cache_name(4, 18);
+    const auto stale_temporary = tmp.path / (owned_cache_name(4, 20) + ".tmp-a-1");
+    const auto fresh_temporary = tmp.path / (owned_cache_name(4, 22) + ".tmp-b-2");
+    const auto unrelated = tmp.path / "msdf_cache_notes.bin";
+    for (const auto& path : {oldest, newest, stale_temporary, fresh_temporary, unrelated}) {
+        std::ofstream out(path, std::ios::binary);
+        out << std::string(100, 'x');
+    }
+    const auto now = std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(oldest, now - std::chrono::hours(2));
+    std::filesystem::last_write_time(stale_temporary, now - std::chrono::hours(48));
+
+    plot::detail::prune_font_disk_cache_directory(tmp.path, 100);
+    TEST_ASSERT(!std::filesystem::exists(oldest), "the least recently used owned cache must be evicted");
+    TEST_ASSERT(std::filesystem::exists(newest), "the most recently used cache must fit within the budget");
+    TEST_ASSERT(!std::filesystem::exists(stale_temporary), "abandoned atomic-write files must be removed");
+    TEST_ASSERT(std::filesystem::exists(fresh_temporary), "a concurrent writer's temporary must survive");
+    TEST_ASSERT(std::filesystem::exists(unrelated), "host-owned files must never be pruned");
+
+    plot::detail::prune_font_disk_cache_directory(tmp.path, 0);
+    TEST_ASSERT(!std::filesystem::exists(newest), "a zero budget must remove every completed owned file");
+    return true;
+}
+
+bool test_renderer_publishes_within_host_directory_and_budget()
+{
+    Scoped_temp_dir tmp;
+    Scoped_cache_options restore;
+    plot::font_disk_cache_options_t options;
+    options.directory = tmp.path / "profile" / "font-cache";
+    options.max_bytes = 20u * 1024u * 1024u;
+    plot::set_font_disk_cache_options(options);
+    plot::set_font_disk_cache_enabled(true);
+    std::filesystem::create_directories(options.directory);
+    const auto superseded = options.directory / owned_cache_name(3, 18);
+    {
+        std::ofstream out(superseded, std::ios::binary);
+        out << 'x';
+    }
+    std::filesystem::resize_file(superseded, options.max_bytes);
+    std::filesystem::last_write_time(
+        superseded, std::filesystem::file_time_type::clock::now() - std::chrono::hours(2));
+
+    plot::Asset_loader loader;
+    plot::init_embedded_assets(loader);
+    plot::Font_renderer renderer(loader);
+    renderer.initialize_metrics(k_pixel_height, true);
+    TEST_ASSERT(renderer.measure_text_px("Profile cache") > 0.f, "the renderer must build a usable atlas");
+    TEST_ASSERT(!std::filesystem::exists(superseded), "publishing must evict superseded cache files");
+    std::uint64_t bytes = 0;
+    std::size_t files = 0;
+    for (const auto& file : std::filesystem::directory_iterator(options.directory)) {
+        bytes += file.file_size();
+        ++files;
+    }
+    TEST_ASSERT(files == 1, "the configured profile directory must receive the atlas");
+    TEST_ASSERT(bytes > k_expected_atlas_bytes && bytes <= options.max_bytes,
+        "the atlas and its metrics must fit within the configured byte budget");
+    return true;
+}
 
 struct cache_file_options_t
 {
@@ -295,6 +380,8 @@ int main()
     RUN_TEST(test_corrupt_atlas_size_and_bytes_are_rejected);
     RUN_TEST(test_same_height_changed_digest_does_not_reuse_old_cache);
     RUN_TEST(test_previous_cache_version_is_rejected);
+    RUN_TEST(test_cache_prunes_owned_files_and_stale_temporaries);
+    RUN_TEST(test_renderer_publishes_within_host_directory_and_budget);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;
