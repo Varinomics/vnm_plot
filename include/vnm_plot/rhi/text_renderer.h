@@ -1,7 +1,7 @@
 #pragma once
 
 // VNM Plot Library - RHI Text Renderer
-// Qt-free text rendering for axis labels and info overlay with fade animations.
+// Text rendering for axis labels and info overlay with fade animations.
 
 #include <vnm_plot/rhi/frame_context.h>
 
@@ -25,6 +25,9 @@ class Text_renderer
 public:
     explicit Text_renderer(Font_renderer* fr);
 
+    // Append labels to the Font_renderer frame the caller opened with
+    // rhi_begin_frame(). The caller finalizes and records that font frame;
+    // prepare()/record() below manage these steps for a standalone text pass.
     // Returns true while label fade animations are in progress.
     bool render(const frame_context_t& ctx, bool fade_v_labels, bool fade_h_labels);
 
