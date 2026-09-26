@@ -67,28 +67,6 @@ std::int64_t saturating_round_to_int64(long double value) noexcept
     return static_cast<std::int64_t>(rounded);
 }
 
-std::int64_t saturating_floor_to_int64(long double value) noexcept
-{
-    constexpr long double k_min =
-        static_cast<long double>(std::numeric_limits<std::int64_t>::min());
-    constexpr long double k_max =
-        static_cast<long double>(std::numeric_limits<std::int64_t>::max());
-
-    if (std::isnan(value)) {
-        return 0;
-    }
-    if (!std::isfinite(value)) {
-        return value < 0.0L
-            ? std::numeric_limits<std::int64_t>::min()
-            : std::numeric_limits<std::int64_t>::max();
-    }
-
-    const long double floored = std::floor(value);
-    if (floored <= k_min) { return std::numeric_limits<std::int64_t>::min(); }
-    if (floored >= k_max) { return std::numeric_limits<std::int64_t>::max(); }
-    return static_cast<std::int64_t>(floored);
-}
-
 std::int64_t saturating_seconds_to_ns(double seconds) noexcept
 {
     constexpr long double k_ns_per_second = 1.0e9L;
@@ -159,13 +137,13 @@ public:
         }
     }
 
-    bool try_get(double t, const Cached_label*& out) const
+    bool try_get(std::int64_t t, const Cached_label*& out) const
     {
         const Context_data* active = m_active;
         if (!active) {
             return false;
         }
-        const auto it = active->labels.find(to_ieee_bits(t));
+        const auto it = active->labels.find(t);
         if (it == active->labels.end()) {
             return false;
         }
@@ -173,7 +151,7 @@ public:
         return true;
     }
 
-    void store(double t, std::string&& bytes, float width)
+    void store(std::int64_t t, std::string&& bytes, float width)
     {
         if (!m_active) {
             return;
@@ -182,7 +160,7 @@ public:
         if (labels.size() >= k_max_entries) {
             labels.clear();
         }
-        labels.insert_or_assign(to_ieee_bits(t), Cached_label{std::move(bytes), width});
+        labels.insert_or_assign(t, Cached_label{std::move(bytes), width});
     }
 
 private:
@@ -230,7 +208,7 @@ private:
 
     struct Context_data
     {
-        std::unordered_map<uint64_t, Cached_label> labels;
+        std::unordered_map<std::int64_t, Cached_label> labels;
     };
 
     static constexpr size_t                                         k_max_entries  = 4096;
@@ -241,169 +219,51 @@ private:
     Context_data*                                                   m_active       = nullptr;
 };
 
-// Format signature cache
-class Format_signature_cache
+// A std::function's target type cannot identify a callable's captured state.
+// Probe each layout calculation so replacing a formatter refreshes label widths.
+size_t format_signature(double step, const Layout_calculator::parameters_t& params)
 {
-public:
-    size_t get_or_compute(
-        double                                 step,
-        double                                 range,
-        const Layout_calculator::parameters_t& params)
-    {
-        if (!params.format_timestamp_func) {
-            return 0;
-        }
+    if (!params.format_timestamp_func) {
+        return 0;
+    }
 
-        const Key key = make_key(step, range, params);
-        auto it = m_entries.find(key);
-        if (it != m_entries.end()) {
-            touch_lru(key);
-            return it->second.signature;
-        }
+    std::string signature_text;
+    signature_text.reserve(96);
 
-        std::string signature_text;
-        signature_text.reserve(96);
+    // Probe the formatter at a handful of synthetic timestamps. The set
+    // crosses second/sub-second boundaries so the resulting schema covers
+    // both regimes the calculator may pick. Step is in seconds; convert to
+    // the formatter's int64-nanosecond contract.
+    static constexpr std::array<std::int64_t, 3> k_sample_ns = {
+        std::int64_t{0},
+        std::int64_t{123'456'789},          // 0.123456789 s
+        std::int64_t{12'345'678'900'000}    // 12345.6789 s
+    };
+    const std::int64_t step_ns = saturating_seconds_to_ns(step);
 
-        // Probe the formatter at a handful of synthetic timestamps. The set
-        // crosses second/sub-second boundaries so the resulting schema covers
-        // both regimes the calculator may pick. Step is in seconds; convert to
-        // the formatter's int64-nanosecond contract.
-        static constexpr std::array<std::int64_t, 3> k_sample_ns = {
-            std::int64_t{0},
-            std::int64_t{123'456'789},          // 0.123456789 s
-            std::int64_t{12'345'678'900'000}    // 12345.6789 s
-        };
-        const std::int64_t step_ns = saturating_seconds_to_ns(step);
-
-        bool first = true;
-        for (std::int64_t sample_ns : k_sample_ns) {
-            std::string text = params.format_timestamp_func(sample_ns, step_ns);
-            for (char& ch : text) {
-                if (ch >= '0' && ch <= '9') {
-                    ch = '0';
-                }
+    bool first = true;
+    for (std::int64_t sample_ns : k_sample_ns) {
+        std::string text = params.format_timestamp_func(sample_ns, step_ns);
+        for (char& ch : text) {
+            if (ch >= '0' && ch <= '9') {
+                ch = '0';
             }
-            if (!first) {
-                signature_text.push_back('|');
-            }
-            signature_text += text;
-            first = false;
         }
-
-        const size_t signature = std::hash<std::string>{}(signature_text);
-        insert_entry(key, signature);
-        return signature;
+        if (!first) {
+            signature_text.push_back('|');
+        }
+        signature_text += text;
+        first = false;
     }
 
-private:
-    struct Key
-    {
-        uint64_t   step_bits           = 0;
-        uint32_t   coverage_bucket     = 0;
-        uintptr_t  formatter_identity  = 0;
-        size_t     formatter_type_hash = 0;
-        uint64_t   formatter_revision  = 0;
-
-        friend bool operator==(const Key& lhs, const Key& rhs) noexcept
-        {
-            return
-                lhs.step_bits           == rhs.step_bits           &&
-                lhs.coverage_bucket     == rhs.coverage_bucket     &&
-                lhs.formatter_identity  == rhs.formatter_identity  &&
-                lhs.formatter_type_hash == rhs.formatter_type_hash &&
-                lhs.formatter_revision  == rhs.formatter_revision;
-        }
-    };
-
-    struct Key_hash
-    {
-        size_t operator()(const Key& key) const noexcept
-        {
-            auto combine = [](size_t seed, size_t value) {
-                seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 22);
-                return seed;
-            };
-            size_t seed = std::hash<uint64_t>{}(key.step_bits);
-            seed = combine(seed, std::hash<uint32_t>{}(key.coverage_bucket));
-            seed = combine(seed, std::hash<uintptr_t>{}(key.formatter_identity));
-            seed = combine(seed, std::hash<size_t>{}(key.formatter_type_hash));
-            seed = combine(seed, std::hash<uint64_t>{}(key.formatter_revision));
-            return seed;
-        }
-    };
-
-    struct Entry
-    {
-        size_t signature = 0;
-    };
-
-    static constexpr size_t k_max_entries = 32;
-
-    static Key make_key(double step, double range, const Layout_calculator::parameters_t& params)
-    {
-        Key key;
-        const double safe_step  = std::isfinite(step) ? step : 0.0;
-        const double safe_range = std::isfinite(range) ? range : 0.0;
-        key.step_bits = to_ieee_bits(safe_step);
-
-        double ticks = 0.0;
-        if (std::abs(safe_step) > std::numeric_limits<double>::epsilon()) {
-            ticks = safe_range / safe_step;
-        }
-        if (!std::isfinite(ticks) || ticks < 0.0) {
-            key.coverage_bucket = 0;
-        }
-        else {
-            constexpr double k_max_bucket = static_cast<double>(std::numeric_limits<uint32_t>::max());
-            ticks = std::min(std::round(ticks), k_max_bucket);
-            key.coverage_bucket = static_cast<uint32_t>(ticks);
-        }
-
-        key.formatter_type_hash = params.format_timestamp_func
-            ? params.format_timestamp_func.target_type().hash_code()
-            : 0;
-
-        // Use the function pointer address as identity
-        key.formatter_identity = reinterpret_cast<uintptr_t>(
-            params.format_timestamp_func.target_type().name());
-        key.formatter_revision = params.format_timestamp_revision;
-
-        return key;
-    }
-
-    void touch_lru(const Key& key)
-    {
-        auto it = std::find(m_lru.begin(), m_lru.end(), key);
-        if (it != m_lru.end() && std::next(it) != m_lru.end()) {
-            Key moved = *it;
-            m_lru.erase(it);
-            m_lru.push_back(moved);
-        }
-    }
-
-    void insert_entry(const Key& key, size_t signature)
-    {
-        if (m_entries.size() >= k_max_entries && !m_lru.empty()) {
-            m_entries.erase(m_lru.front());
-            m_lru.erase(m_lru.begin());
-        }
-        m_entries.insert_or_assign(key, Entry{signature});
-        m_lru.push_back(key);
-    }
-
-    std::unordered_map<Key, Entry, Key_hash> m_entries;
-    std::vector<Key>                         m_lru;
-};
+    const size_t signature = std::hash<std::string>{}(signature_text);
+    return signature ^ (params.format_timestamp_revision +
+        0x9e3779b97f4a7c15ULL + (signature << 6) + (signature >> 22));
+}
 
 Timestamp_label_cache& timestamp_label_cache()
 {
     thread_local Timestamp_label_cache cache;
-    return cache;
-}
-
-Format_signature_cache& format_signature_cache()
-{
-    thread_local Format_signature_cache cache;
     return cache;
 }
 
@@ -781,14 +641,11 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
     }
 
     // --- Horizontal (T) Axis Label Selection ---
-    // Time math runs in fp64 seconds because the existing axis-step ladder
-    // (build_time_steps_covering) is expressed in seconds. The span goes
-    // through the int64-safe nanosecond helper before scaling, so extreme
-    // timestamp bounds cannot overflow before the double-domain layout math.
+    // Keep absolute ticks in integer nanoseconds. Floating point is used only
+    // for the step ladder and differences mapped to screen coordinates.
     constexpr double k_ns_per_second_d = 1.0e9;
     constexpr double k_seconds_per_ns  = 1.0 / k_ns_per_second_d;
     double           t_range           = 0.0;
-    const double     t_min_seconds     = static_cast<double>(params.t_min) * k_seconds_per_ns;
     {
         VNM_PLOT_PROFILE_SCOPE(
             profiler,
@@ -821,19 +678,20 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
             steps         = build_time_steps_covering(t_range);
         }
 
-        const auto x_of_t = [&](double tt_seconds) -> float {
-            return float((tt_seconds - t_min_seconds) * px_per_t);
+        const auto x_of_t = [&](std::int64_t timestamp_ns) -> float {
+            return float(span_ns_as_long_double(params.t_min, timestamp_ns) *
+                static_cast<long double>(k_seconds_per_ns) * px_per_t);
         };
 
         const auto seconds_to_ns = [](double seconds) -> std::int64_t {
             return saturating_seconds_to_ns(seconds);
         };
 
-        const auto label_text = [&](double t_seconds, double step_seconds) -> std::string {
+        const auto label_text = [&](std::int64_t timestamp_ns, double step_seconds) -> std::string {
             if (!params.format_timestamp_func) {
                 return {};
             }
-            return params.format_timestamp_func(seconds_to_ns(t_seconds), seconds_to_ns(step_seconds));
+            return params.format_timestamp_func(timestamp_ns, seconds_to_ns(step_seconds));
         };
 
         std::vector<std::pair<float, float>> accepted;
@@ -871,6 +729,9 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
 
         for (; si >= 0; --si) {
             const double step = steps[si];
+            if (step > static_cast<double>(std::numeric_limits<std::int64_t>::max()) * k_seconds_per_ns) {
+                continue;
+            }
 
             {
                 VNM_PLOT_PROFILE_SCOPE(
@@ -883,17 +744,18 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
 
             struct cand
             {
-                double t;
-                float  x0;
-                float  x1;
-                float  x_anchor;
+                std::int64_t t;
+                float        x0;
+                float        x1;
+                float        x_anchor;
             };
             std::vector<cand> candidates;
-            float  right_vis             = 0.0f;
-            float  pixel_step            = 0.0f;
-            float  optimistic_width      = 0.0f;
-            float  estimated_label_width = 0.0f;
-            double t_start               = 0.0;
+            float right_vis             = 0.0f;
+            float pixel_step            = 0.0f;
+            float optimistic_width      = 0.0f;
+            float estimated_label_width = 0.0f;
+            std::int64_t t_start = 0;
+            const std::int64_t step_ns = seconds_to_ns(step);
             {
                 VNM_PLOT_PROFILE_SCOPE(
                     profiler,
@@ -921,18 +783,25 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                 const float label_extent_px = estimated_label_width + k_text_margin_px;
                 const double left_steps =
                     static_cast<double>(label_extent_px) / static_cast<double>(pixel_step);
-                const int64_t k_min = saturating_floor_to_int64(
-                    (t_min_seconds / step) - 1.0 - left_steps);
-                t_start = k_min * step;
+                const std::int64_t remainder = params.t_min % step_ns;
+                t_start = params.t_min - remainder;
+                const int preceding_steps = int(std::ceil(1.0 + left_steps)) + (remainder < 0 ? 1 : 0);
+                for (int index = 0; index < preceding_steps; ++index) {
+                    const auto previous = checked_sub_ns(t_start, step_ns);
+                    if (!previous) {
+                        break;
+                    }
+                    t_start = *previous;
+                }
             }
 
-            size_t format_signature = 0;
+            size_t signature = 0;
             {
                 VNM_PLOT_PROFILE_SCOPE(
                     profiler,
                     "renderer.frame.calculate_layout.impl.cache_miss.pass1.horizontal_axis."
                     "format_labels.signature_build");
-                format_signature = format_signature_cache().get_or_compute(step, t_range, params);
+                signature = format_signature(step, params);
             }
 
             {
@@ -946,12 +815,26 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                     advance,
                     params.monospace_advance_is_reliable,
                     params.adjusted_font_size_in_pixels,
-                    format_signature);
+                    signature);
             }
 
-            int64_t      tick_index          = 0;
-            double       t                   = t_start;
-            const double t_max_seconds       = static_cast<double>(params.t_max) * k_seconds_per_ns;
+            std::int64_t t = t_start;
+            const std::int64_t last_tick = saturating_add_ns(params.t_max, step_ns);
+            const auto advance_tick = [&](int count) {
+                const auto step_count = static_cast<std::uint64_t>(count);
+                const auto unsigned_step = static_cast<std::uint64_t>(step_ns);
+                if (step_count > std::numeric_limits<std::uint64_t>::max() / unsigned_step) {
+                    return false;
+                }
+                const auto distance = step_count * unsigned_step;
+                const auto remaining = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) -
+                    static_cast<std::uint64_t>(t);
+                if (distance > remaining) {
+                    return false;
+                }
+                t = saturating_add_duration_ns(t, distance);
+                return true;
+            };
             float        last_width          = estimated_label_width;
             bool         have_prev_candidate = false;
             float        prev_candidate_x1   = std::numeric_limits<float>::lowest();
@@ -961,7 +844,7 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                 VNM_PLOT_PROFILE_SCOPE(
                     profiler,
                     "renderer.frame.calculate_layout.impl.cache_miss.pass1.horizontal_axis.format_labels");
-                while (t <= t_max_seconds + step) {
+                while (t <= last_tick) {
                     VNM_PLOT_PROFILE_SCOPE(
                         profiler,
                         "renderer.frame.calculate_layout.impl.cache_miss.pass1.horizontal_axis."
@@ -979,8 +862,9 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                     // Skip only when visual right edge is fully offscreen (< 0).
                     if (x + k_text_margin_px + skip_width <= 0.f) {
                         const int skip  = std::max(1, int(std::ceil(skip_width / pixel_step)));
-                        tick_index     += skip;
-                        t               = t_start + tick_index * step;
+                        if (!advance_tick(skip)) {
+                            break;
+                        }
                         continue;
                     }
 
@@ -995,8 +879,9 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
 
                     if (anchor_taken) {
                         const int skip  = std::max(1, int(std::ceil(min_gap / pixel_step)));
-                        tick_index     += skip;
-                        t               = t_start + tick_index * step;
+                        if (!advance_tick(skip)) {
+                            break;
+                        }
                         continue;
                     }
 
@@ -1070,8 +955,9 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                     // Cull only when visual right edge is fully offscreen (< 0).
                     if (x + k_text_margin_px + w <= 0.f) {
                         const int skip  = std::max(1, int(std::ceil(w / pixel_step)));
-                        tick_index     += skip;
-                        t               = t_start + tick_index * step;
+                        if (!advance_tick(skip)) {
+                            break;
+                        }
                         continue;
                     }
                     if (have_prev_candidate && x < prev_candidate_x1 + min_gap) {
@@ -1087,8 +973,9 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
 
                     const float required_spacing = w + min_gap;
                     const int   skip             = std::max(1, int(std::ceil(required_spacing / pixel_step)));
-                    tick_index += skip;
-                    t = t_start + tick_index * step;
+                    if (!advance_tick(skip)) {
+                        break;
+                    }
                 }
             }
 
@@ -1182,7 +1069,7 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                     }
 
                     res.h_labels.push_back({
-                        seconds_to_ns(candidate.t),
+                        candidate.t,
                         glm::vec2(
                             candidate.x_anchor,
                             float(params.usable_height + params.h_label_vertical_nudge_factor *

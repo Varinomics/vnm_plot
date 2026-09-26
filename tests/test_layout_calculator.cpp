@@ -200,6 +200,58 @@ bool test_format_timestamp_step_matches_nanosecond_seconds_grid()
     return true;
 }
 
+bool test_subsecond_ticks_are_exact_epoch_nanoseconds()
+{
+    constexpr std::int64_t k_step_ns = 1'000'000;
+    for (const std::int64_t start : {1'758'000'000'000'000'000LL,
+                                   -1'758'000'000'000'000'000LL,
+                                   std::numeric_limits<std::int64_t>::min() + 13,
+                                   std::numeric_limits<std::int64_t>::max() - 50 * k_step_ns})
+    {
+        std::vector<Recorded_call> calls;
+        auto params = make_minimal_params(start, start + 40 * k_step_ns, calls);
+        params.usable_width = 1600.0;
+        params.format_timestamp_func = [](std::int64_t timestamp_ns, std::int64_t) {
+            return std::to_string(plot::floor_div_int64(timestamp_ns, k_step_ns) % 1000);
+        };
+        plot::Layout_calculator calculator;
+        const auto result = calculator.calculate(params);
+        TEST_ASSERT(result.h_labels.size() > 2,
+            "subsecond window should emit multiple ticks");
+        for (const auto& label : result.h_labels) {
+            TEST_ASSERT(label.value % k_step_ns == 0,
+                "epoch ticks must remain exact multiples of the integer nanosecond step");
+        }
+    }
+    return true;
+}
+
+bool test_formatter_capture_change_matches_fresh_signature()
+{
+    std::vector<Recorded_call> calls;
+    auto params = make_minimal_params(0, 60 * k_ns_per_second, calls);
+    const auto formatter = [](const std::string& prefix) {
+        return [prefix](std::int64_t timestamp_ns, std::int64_t) {
+            return prefix + std::to_string(timestamp_ns / k_ns_per_second);
+        };
+    };
+    plot::Layout_calculator calculator;
+    params.format_timestamp_func = formatter("");
+    calculator.calculate(params);
+    params.format_timestamp_func = formatter("elapsed seconds: ");
+    const auto replaced = calculator.calculate(params);
+    ++params.format_timestamp_revision;
+    const auto fresh = calculator.calculate(params);
+    TEST_ASSERT(replaced.h_labels.size() == fresh.h_labels.size(),
+        "formatter replacement must select the same ticks as a fresh format signature");
+    for (std::size_t index = 0; index < fresh.h_labels.size(); ++index) {
+        TEST_ASSERT(replaced.h_labels[index].value == fresh.h_labels[index].value &&
+            replaced.h_labels[index].text == fresh.h_labels[index].text,
+            "formatter cache must not reuse widths from a different capture");
+    }
+    return true;
+}
+
 bool test_horizontal_axis_handles_full_int64_time_span()
 {
     constexpr std::int64_t k_int64_min = std::numeric_limits<std::int64_t>::min();
@@ -224,24 +276,18 @@ bool test_horizontal_axis_handles_full_int64_time_span()
     bool saw_signature_zero      = false;
     bool saw_signature_subsecond = false;
     bool saw_signature_large     = false;
-    bool saw_saturated_step      = false;
     for (const auto& call : recorded) {
         saw_signature_zero = saw_signature_zero || call.timestamp_ns == 0;
         saw_signature_subsecond =
             saw_signature_subsecond || call.timestamp_ns == 123'456'789;
         saw_signature_large =
             saw_signature_large || call.timestamp_ns == 12'345'678'900'000;
-        saw_saturated_step = saw_saturated_step || call.step_ns == k_int64_max;
-
         TEST_ASSERT(call.step_ns > 0,
-            "formatter step_ns should remain positive after saturated conversion");
+            "formatter step_ns should remain a positive representable duration");
     }
 
     TEST_ASSERT(saw_signature_zero && saw_signature_subsecond && saw_signature_large,
         "formatter-enabled full int64 range should exercise format-signature probes");
-    TEST_ASSERT(saw_saturated_step,
-        "full int64 range should saturate formatter step_ns instead of converting out of range");
-
     return true;
 }
 
@@ -526,6 +572,8 @@ int main()
 
     RUN_TEST(test_format_timestamp_receives_nanosecond_units);
     RUN_TEST(test_format_timestamp_step_matches_nanosecond_seconds_grid);
+    RUN_TEST(test_subsecond_ticks_are_exact_epoch_nanoseconds);
+    RUN_TEST(test_formatter_capture_change_matches_fresh_signature);
     RUN_TEST(test_horizontal_axis_handles_full_int64_time_span);
     RUN_TEST(test_horizontal_axis_suppresses_only_consecutive_equal_text);
     RUN_TEST(test_horizontal_axis_hides_duplicate_run_entering_viewport);

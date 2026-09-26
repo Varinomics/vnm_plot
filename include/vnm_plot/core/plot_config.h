@@ -122,9 +122,8 @@ struct Plot_config
     // Returns: formatted string for display
     // If null, a default formatter is used.
     std::function<std::string(std::int64_t timestamp_ns, std::int64_t step_ns)> format_timestamp;
-    // Revision for formatter behavior. Caller contract: increment when the
-    // effective output of format_timestamp changes without replacing the
-    // callback identity (e.g. captured/stateful data updates).
+    // Revision for formatter behavior. Increment when mutable state used by
+    // format_timestamp changes its output (e.g. captured/stateful data updates).
     std::uint64_t                              format_timestamp_revision = 0;
     // Direction used to traverse duplicate horizontal-label runs. This
     // retention policy does not reverse the time-to-X mapping.
