@@ -1,7 +1,7 @@
 #pragma once
 
 // VNM Plot Library - Asset Loader
-// Qt-free asset loading with embedded defaults and optional file overrides.
+// Asset loading with embedded defaults and optional file overrides.
 
 #include <vnm_plot/core/types.h>
 
@@ -17,7 +17,7 @@ namespace vnm::plot {
 // -----------------------------------------------------------------------------
 // Asset_loader
 // -----------------------------------------------------------------------------
-// Loads assets (shaders, fonts) with support for:
+// Loads named assets with support for:
 // - Embedded defaults (compiled into the binary)
 // - Optional file system overrides (for development/debugging)
 class Asset_loader
@@ -57,7 +57,7 @@ private:
 };
 
 // Initialize embedded assets into the given loader.
-// (Defined in generated embedded_assets.cpp)
+// The bundled font uses Qt resources; registered replacements remain supported.
 void init_embedded_assets(Asset_loader& loader);
 
 } // namespace vnm::plot

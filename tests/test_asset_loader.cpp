@@ -68,6 +68,21 @@ bool test_embedded_asset_returns_registered_bytes()
     return true;
 }
 
+bool test_bundled_font_can_be_replaced()
+{
+    plot::Asset_loader loader;
+    plot::init_embedded_assets(loader);
+#if defined(VNM_PLOT_ENABLE_TEXT)
+    const auto bundled = loader.load("fonts/monospace.ttf");
+    TEST_ASSERT(bundled && !bundled->empty(), "Qt resource must provide the bundled font");
+#endif
+    loader.register_embedded("fonts/monospace.ttf", "custom-font");
+    const auto replacement = loader.load("fonts/monospace.ttf");
+    TEST_ASSERT(replacement && *replacement == "custom-font",
+        "hosts must still be able to replace the default font bytes");
+    return true;
+}
+
 bool test_override_directory_beats_embedded_asset()
 {
     Scoped_temp_dir tmp;
@@ -109,6 +124,7 @@ int main()
 
     RUN_TEST(test_missing_asset_logs_and_returns_nullopt);
     RUN_TEST(test_embedded_asset_returns_registered_bytes);
+    RUN_TEST(test_bundled_font_can_be_replaced);
     RUN_TEST(test_override_directory_beats_embedded_asset);
     RUN_TEST(test_override_directory_falls_back_to_embedded_when_missing);
 

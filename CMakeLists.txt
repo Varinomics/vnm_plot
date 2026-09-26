@@ -19,7 +19,6 @@ option(VNM_PLOT_BUILD_TESTS "Build test suite" OFF)
 option(VNM_PLOT_USE_SYSTEM_LIBS "Prefer find_package dependencies over FetchContent when available" OFF)
 
 include(FetchContent)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedAssets.cmake)
 
 if(VNM_PLOT_DEP_OVERRIDES_FILE AND EXISTS "${VNM_PLOT_DEP_OVERRIDES_FILE}")
     message(STATUS "vnm_plot: Loading dependency overrides from ${VNM_PLOT_DEP_OVERRIDES_FILE}")
@@ -296,6 +295,7 @@ set(VNM_PLOT_LAYOUT_HEADERS
 
 set(VNM_PLOT_RHI_SOURCES
     src/core/asset_loader.cpp
+    src/core/embedded_assets.cpp
     src/core/primitive_renderer.cpp
     src/core/chrome_renderer.cpp
     src/core/series_renderer.cpp
@@ -352,30 +352,6 @@ set(VNM_PLOT_QTQUICK_HEADERS
     src/qt/plot_renderer.h
     src/qt/lcd_resolver.h
 )
-
-# -----------------------------------------------------------------------------
-# Generate embedded assets (shaders, fonts) for the RHI library
-# -----------------------------------------------------------------------------
-
-set(VNM_PLOT_EMBEDDED_ASSETS_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_assets.cpp")
-set(VNM_PLOT_RHI_ASSETS)
-
-if(VNM_PLOT_ENABLE_TEXT)
-    # "fonts/monospace.ttf" is the asset name Font_renderer asks the loader for,
-    # not the name of a font: it is vnm_plot's own asset namespace, and a
-    # consumer substitutes its own typeface by registering other bytes under it.
-    list(APPEND VNM_PLOT_RHI_ASSETS
-        "${VNM_PLOT_MONOSPACE_FONT_FILE}:fonts/monospace.ttf"
-    )
-endif()
-
-embed_assets(
-    OUTPUT "${VNM_PLOT_EMBEDDED_ASSETS_OUTPUT}"
-    NAMESPACE "vnm::plot"
-    ASSETS ${VNM_PLOT_RHI_ASSETS}
-)
-
-list(APPEND VNM_PLOT_RHI_SOURCES "${VNM_PLOT_EMBEDDED_ASSETS_OUTPUT}")
 
 function(vnm_plot_configure_library_target target_name)
     target_include_directories(${target_name}
@@ -450,11 +426,6 @@ add_library(vnm_plot::rhi ALIAS vnm_plot_rhi)
 set_target_properties(vnm_plot_rhi PROPERTIES EXPORT_NAME rhi)
 vnm_plot_configure_library_target(vnm_plot_rhi)
 
-target_include_directories(vnm_plot_rhi
-    PRIVATE
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
-)
-
 target_compile_definitions(vnm_plot_rhi PUBLIC VNM_PLOT_WITH_RHI=1)
 
 target_link_libraries(vnm_plot_rhi
@@ -466,6 +437,13 @@ target_link_libraries(vnm_plot_rhi
 )
 
 if(VNM_PLOT_ENABLE_TEXT)
+    set_source_files_properties("${VNM_PLOT_MONOSPACE_FONT_FILE}" PROPERTIES
+        QT_RESOURCE_ALIAS "fonts/monospace.ttf")
+    qt_add_resources(vnm_plot_rhi "vnm_plot_fonts"
+        PREFIX "/vnm_plot"
+        FILES "${VNM_PLOT_MONOSPACE_FONT_FILE}"
+        OUTPUT_TARGETS VNM_PLOT_FONT_RESOURCE_TARGETS
+    )
     target_compile_definitions(vnm_plot_rhi PUBLIC VNM_PLOT_ENABLE_TEXT=1)
     target_link_libraries(vnm_plot_rhi
         PRIVATE
@@ -526,6 +504,7 @@ qt_add_shaders(vnm_plot_rhi "vnm_plot_qsb_shaders"
     OUTPUT_TARGETS VNM_PLOT_RHI_RESOURCE_TARGETS
     FILES  ${VNM_PLOT_QSB_SHADERS}
 )
+list(APPEND VNM_PLOT_RHI_RESOURCE_TARGETS ${VNM_PLOT_FONT_RESOURCE_TARGETS})
 
 # -----------------------------------------------------------------------------
 # Qt Resources (only if building Qt wrapper)
