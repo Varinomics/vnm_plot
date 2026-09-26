@@ -9,6 +9,13 @@
 
 namespace vnm::plot {
 
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
+std::uint64_t Font_renderer::atlas_upload_enqueues_for_test() const
+{
+    return 0;
+}
+#endif
+
 namespace {
 
 std::atomic<bool> s_disk_cache_enabled{true};

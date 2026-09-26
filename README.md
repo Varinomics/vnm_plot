@@ -44,7 +44,8 @@ vnm_plot_qtquick
 - `Plot_renderer` runs on the Qt RHI render thread and coordinates the sub-renderers
 - `Series_renderer` handles lines, dots, and area fills with VBO management
 - `Chrome_renderer` draws the grid and axes
-- `Font_renderer` generates MSDF glyph atlases from FreeType
+- `Font_renderer` owns plot font assets, metric policy, and disk caching;
+  `vnm_msdf_text::rhi` owns immutable baked fonts, text geometry, and QRhi drawing
 
 ## Usage
 
@@ -248,11 +249,23 @@ cmake --build build
 
 Qt 6 (Core, Gui, Quick, GuiPrivate, ShaderTools) is required. The build fetches
 glm when it is not already available. Public vnm_plot headers use the
-dependency-light `vnm_msdf_text` LCD contract component. When text rendering is
-enabled, vnm_plot also uses the full `vnm_msdf_text` MSDF atlas path. CMake uses
+dependency-light `vnm_msdf_text` LCD contract component, and the Qt wrapper uses
+its `qt_lcd` display resolver. Text-enabled builds use `vnm_msdf_text::rhi` for
+atlas ownership and rendering. CMake uses
 a sibling `../vnm_msdf_text` checkout when present, otherwise it fetches the
 GitHub `master` branch. The atlas path fetches FreeType and msdfgen when they
 are not already available as targets.
+
+Text is laid out in framebuffer pixels. Queued batches are uploaded together
+before the pass, then recorded in cursor ranges; every range draws its shadows
+before its foregrounds and rebinds the text pipeline. Draw-size changes share
+the baked font and its GPU atlas. Disk caches retain the complete build result,
+including partial-coverage diagnostics, and include the provider's bake
+compatibility version in their key.
+
+The shared MTSDF shader treats zero alpha as a valid negative signed distance.
+This corrects stray shadow pixels produced by the former RGB fallback at zero
+alpha; zero does not signal a missing alpha channel in an MTSDF atlas.
 
 The fonts vnm_plot ships come from
 [vnm_fonts](https://github.com/Varinomics/vnm_fonts): the monospace face
