@@ -29,10 +29,9 @@ layout(std140, binding = 0) uniform Block
     int   snap_to_pixels;
 } u;
 
-layout(location = 0) flat out vec2 fs_p_prev;
-layout(location = 1) flat out vec2 fs_p0;
-layout(location = 2) flat out vec2 fs_p1;
-layout(location = 3) flat out vec2 fs_p_next;
+layout(location = 0) flat out vec4 fs_segment;
+layout(location = 1) flat out vec4 fs_prev_segment;
+layout(location = 2) flat out vec4 fs_next_segment;
 
 vec2 sample_to_pos(vec2 sample_xy)
 {
@@ -49,6 +48,30 @@ vec2 sample_to_pos(vec2 sample_xy)
     return vec2(x, y);
 }
 
+bool clip_segment(inout vec2 a, inout vec2 b, vec2 lower, vec2 upper)
+{
+    for (int axis = 0; axis < 2; ++axis) {
+        if (max(a[axis], b[axis]) < lower[axis] || min(a[axis], b[axis]) > upper[axis]) {
+            return false;
+        }
+        if (a[axis] < lower[axis] || a[axis] > upper[axis]) {
+            float edge = clamp(a[axis], lower[axis], upper[axis]);
+            float t = (edge - a[axis]) / (b[axis] - a[axis]);
+            a = mix(a, b, t);
+            // Write the clipped coordinate directly. Reconstructing it with
+            // a + t * (b - a) loses whole pixels for sparse, distant samples.
+            a[axis] = edge;
+        }
+        if (b[axis] < lower[axis] || b[axis] > upper[axis]) {
+            float edge = clamp(b[axis], lower[axis], upper[axis]);
+            float t = (edge - a[axis]) / (b[axis] - a[axis]);
+            b = mix(a, b, t);
+            b[axis] = edge;
+        }
+    }
+    return true;
+}
+
 void main()
 {
     vec2 p_prev = sample_to_pos(in_prev);
@@ -56,9 +79,30 @@ void main()
     vec2 p1     = sample_to_pos(in_p1);
     vec2 p_next = sample_to_pos(in_next);
 
+    float half_px = max(u.line_px * 0.5, 0.5);
+    // Keep synthetic clipped caps beyond the stroke and antialiasing support.
+    // Each neighbor is clipped independently: a shared original endpoint may
+    // be replaced by different intersections on its two incident segments.
+    float margin = half_px + 2.0;
+    vec2 lower = vec2(-margin, u.view.y_offset - margin);
+    vec2 upper = vec2(u.view.width + margin, u.view.y_offset + u.view.height + margin);
+    vec2 prev_end   = p0;
+    vec2 next_begin = p1;
+    if (!clip_segment(p0, p1, lower, upper)) {
+        gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
+        return;
+    }
+    if (!clip_segment(p_prev, prev_end, lower, upper)) {
+        p_prev = p0;
+        prev_end = p0;
+    }
+    if (!clip_segment(next_begin, p_next, lower, upper)) {
+        next_begin = p1;
+        p_next = p1;
+    }
+
     vec2  seg_v   = p1 - p0;
     float seg_len = length(seg_v);
-    float half_px = max(u.line_px * 0.5, 0.5);
 
     vec2 pos;
     if (seg_len <= 1e-6) {
@@ -78,9 +122,8 @@ void main()
         pos = base + n * (half_px * n_sign);
     }
 
-    fs_p_prev   = p_prev;
-    fs_p0       = p0;
-    fs_p1       = p1;
-    fs_p_next   = p_next;
+    fs_segment      = vec4(p0, p1);
+    fs_prev_segment = vec4(p_prev, prev_end);
+    fs_next_segment = vec4(next_begin, p_next);
     gl_Position = u.view.pmv * vec4(pos, 0.0, 1.0);
 }

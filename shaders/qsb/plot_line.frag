@@ -10,10 +10,9 @@ layout(std140, binding = 0) uniform Block
     int   snap_to_pixels;
 } u;
 
-layout(location = 0) flat in vec2 fs_p_prev;
-layout(location = 1) flat in vec2 fs_p0;
-layout(location = 2) flat in vec2 fs_p1;
-layout(location = 3) flat in vec2 fs_p_next;
+layout(location = 0) flat in vec4 fs_segment;
+layout(location = 1) flat in vec4 fs_prev_segment;
+layout(location = 2) flat in vec4 fs_next_segment;
 
 layout(location = 0) out vec4 frag_color;
 
@@ -35,9 +34,9 @@ void main()
         : gl_FragCoord.y;
     vec2 frag = vec2(gl_FragCoord.x, frag_y);
 
-    float d0     = dist_to_segment(frag, fs_p0, fs_p1);
-    float d_prev = dist_to_segment(frag, fs_p_prev, fs_p0);
-    float d_next = dist_to_segment(frag, fs_p1, fs_p_next);
+    float d0     = dist_to_segment(frag, fs_segment.xy, fs_segment.zw);
+    float d_prev = dist_to_segment(frag, fs_prev_segment.xy, fs_prev_segment.zw);
+    float d_next = dist_to_segment(frag, fs_next_segment.xy, fs_next_segment.zw);
     float dist   = min(d0, min(d_prev, d_next));
 
     float half_px = max(u.line_px * 0.5, 0.5);
