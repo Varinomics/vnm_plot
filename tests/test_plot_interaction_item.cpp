@@ -1162,6 +1162,12 @@ bool test_opt_in_preview_collapse()
     TEST_ASSERT(widget.preview_height() == 90.0, "half visibility should interpolate 30 and 150 DIPs");
     widget.set_preview_visibility(0.0);
     TEST_ASSERT(widget.preview_height() == 30.0, "hidden preview should retain its collapsed height");
+    int height_notifications = 0;
+    QObject::connect(&widget, &plot::Plot_widget::preview_height_changed,
+        [&height_notifications] { ++height_notifications; });
+    widget.set_preview_height_min(35.0);
+    TEST_ASSERT(widget.preview_height() == 35.0 && height_notifications > 0,
+        "collapsed minimum changes should notify dependent geometry even with a stable full target");
 
     auto config = widget.config();
     config.preview_height_px = 45.0;

@@ -1023,21 +1023,31 @@ void Plot_widget::set_relative_preview_height(float relative)
 
 void Plot_widget::set_preview_height_min(double v)
 {
-    set_if_changed(m_preview_height_min, std::max(0.0, v), [this] {
+    const double previous_height = preview_height();
+    set_if_changed(m_preview_height_min, std::max(0.0, v), [this, previous_height] {
         if (m_preview_height_max < m_preview_height_min) {
             m_preview_height_max = m_preview_height_min;
         }
         recalculate_preview_height();
+        if (preview_height() != previous_height) {
+            emit preview_height_changed();
+            update();
+        }
     });
 }
 
 void Plot_widget::set_preview_height_max(double v)
 {
-    set_if_changed(m_preview_height_max, std::max(0.0, v), [this] {
+    const double previous_height = preview_height();
+    set_if_changed(m_preview_height_max, std::max(0.0, v), [this, previous_height] {
         if (m_preview_height_max < m_preview_height_min) {
             m_preview_height_min = m_preview_height_max;
         }
         recalculate_preview_height();
+        if (preview_height() != previous_height) {
+            emit preview_height_changed();
+            update();
+        }
     });
 }
 
