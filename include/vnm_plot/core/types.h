@@ -140,6 +140,9 @@ access_policy_cache_key_t make_access_policy_cache_key(
 sample_semantics_key_t make_sample_semantics_key(
     const Data_access_policy*      policy);
 
+template<typename Arg, typename Policy>
+class Access_policy_base;
+
 template<typename Signature>
 class access_function_slot_t;
 
@@ -215,9 +218,8 @@ public:
     }
 
 private:
-    friend struct ::vnm::plot::Data_access_policy;
-    template<typename>
-    friend struct ::vnm::plot::Data_access_policy_typed;
+    template<typename, typename>
+    friend class Access_policy_base;
 
     void bind_internal_access(
         erased_access_policy_t*    access,
@@ -260,6 +262,111 @@ inline sample_semantics_key_t make_explicit_sample_semantics_key(
     }
     return key;
 }
+
+// Each slot points into its owning policy. Whole-policy moves use the copy
+// operations too, retaining the source's bindings and rebinding the destination.
+template<typename Arg, typename Policy>
+class Access_policy_base
+{
+public:
+    using timestamp_accessor_t = access_function_slot_t<std::int64_t(Arg)>;
+    using value_accessor_t     = access_function_slot_t<float(Arg)>;
+    using range_accessor_t     = access_function_slot_t<std::pair<float, float>(Arg)>;
+
+    // --- Sample value extraction ---
+    // Values narrow to float before upload. For large-biased signals, subtract
+    // the bias inside the accessor so the remaining dynamic range survives.
+    // Timestamps are int64_t nanoseconds (by API convention; the unit is the
+    // accessor's contract with vnm_plot).
+    timestamp_accessor_t   get_timestamp; ///< Extract timestamp (ns)
+    value_accessor_t       get_value;     ///< Extract primary value
+    range_accessor_t       get_range;     ///< Extract min/max range
+
+    ///< Byte-layout cache key for renderer-internal caches. It is not a
+    ///< unique sample type identity and does not describe accessor semantics.
+    uint64_t               layout_key = 0;
+
+    ///< Accessor-transform identity for source query caches. Member-pointer
+    ///< typed policies populate a stable key; callable policies stay
+    ///< conservative unless the caller supplies a non-zero value and maintains
+    ///< revision when the callable semantics change.
+    sample_semantics_key_t semantics_key;
+
+    bool is_valid() const
+    {
+        return get_timestamp && (get_value || get_range);
+    }
+
+    Policy& set_semantics_key(
+        std::uint64_t  value,
+        std::uint64_t  revision = 0) noexcept
+    {
+        semantics_key =
+            make_explicit_sample_semantics_key(value, revision);
+        return static_cast<Policy&>(*this);
+    }
+
+protected:
+    Access_policy_base()
+    {
+        bind_accessor_slots();
+    }
+
+    Access_policy_base(const Access_policy_base& other)
+    :
+        get_timestamp(other.get_timestamp),
+        get_value(other.get_value),
+        get_range(other.get_range),
+        layout_key(other.layout_key),
+        semantics_key(other.semantics_key),
+        m_internal_access(other.m_internal_access),
+        m_access_revision(other.m_access_revision)
+    {
+        bind_accessor_slots();
+    }
+
+    Access_policy_base& operator=(const Access_policy_base& other)
+    {
+        if (this != &other) {
+            get_timestamp     = other.get_timestamp;
+            get_value         = other.get_value;
+            get_range         = other.get_range;
+            layout_key        = other.layout_key;
+            semantics_key     = other.semantics_key;
+            m_internal_access = other.m_internal_access;
+            ++m_access_revision;
+            bind_accessor_slots();
+        }
+        return *this;
+    }
+
+    void set_internal_access(erased_access_policy_t access)
+    {
+        m_internal_access = access;
+        ++m_access_revision;
+        bind_accessor_slots();
+    }
+
+    erased_access_policy_t m_internal_access;
+    std::uint64_t          m_access_revision = 1;
+
+private:
+    void bind_accessor_slots() noexcept
+    {
+        get_timestamp.bind_internal_access(
+            &m_internal_access,
+            &m_access_revision,
+            &semantics_key);
+        get_value.bind_internal_access(
+            &m_internal_access,
+            &m_access_revision,
+            &semantics_key);
+        get_range.bind_internal_access(
+            &m_internal_access,
+            &m_access_revision,
+            &semantics_key);
+    }
+};
 
 } // namespace detail
 
@@ -365,108 +472,9 @@ struct snapshot_result_t
 // -----------------------------------------------------------------------------
 // Defines how the renderer extracts meaningful values from opaque sample data.
 // This enables rendering of arbitrary sample types without template explosion.
-struct Data_access_policy
+struct Data_access_policy : detail::Access_policy_base<const void*, Data_access_policy>
 {
-    using timestamp_accessor_t =
-        detail::access_function_slot_t<std::int64_t(const void*)>;
-    using value_accessor_t     =
-        detail::access_function_slot_t<float(const void*)>;
-    using range_accessor_t     =
-        detail::access_function_slot_t<std::pair<float, float>(const void*)>;
-
-    Data_access_policy()
-    {
-        bind_accessor_slots();
-    }
-
-    Data_access_policy(const Data_access_policy& other)
-    :
-        get_timestamp(other.get_timestamp),
-        get_value(other.get_value),
-        get_range(other.get_range),
-        layout_key(other.layout_key),
-        semantics_key(other.semantics_key),
-        internal_access(other.internal_access),
-        access_revision(other.access_revision)
-    {
-        bind_accessor_slots();
-    }
-
-    Data_access_policy(Data_access_policy&& other)
-    :
-        get_timestamp(other.get_timestamp),
-        get_value(other.get_value),
-        get_range(other.get_range),
-        layout_key(other.layout_key),
-        semantics_key(other.semantics_key),
-        internal_access(other.internal_access),
-        access_revision(other.access_revision)
-    {
-        bind_accessor_slots();
-    }
-
-    Data_access_policy& operator=(const Data_access_policy& other)
-    {
-        if (this != &other) {
-            get_timestamp   = other.get_timestamp;
-            get_value       = other.get_value;
-            get_range       = other.get_range;
-            layout_key      = other.layout_key;
-            semantics_key   = other.semantics_key;
-            internal_access = other.internal_access;
-            ++access_revision;
-            bind_accessor_slots();
-        }
-        return *this;
-    }
-
-    Data_access_policy& operator=(Data_access_policy&& other)
-    {
-        if (this != &other) {
-            get_timestamp   = other.get_timestamp;
-            get_value       = other.get_value;
-            get_range       = other.get_range;
-            layout_key      = other.layout_key;
-            semantics_key   = other.semantics_key;
-            internal_access = other.internal_access;
-            ++access_revision;
-            bind_accessor_slots();
-        }
-        return *this;
-    }
-
-    // --- Sample value extraction ---
-    // Values narrow to float before upload. For large-biased signals, subtract
-    // the bias inside the accessor so the remaining dynamic range survives.
-    // Timestamps are int64_t nanoseconds (by API convention; the unit is the
-    // accessor's contract with vnm_plot).
-    timestamp_accessor_t   get_timestamp; ///< Extract timestamp (ns)
-    value_accessor_t       get_value;     ///< Extract primary value
-    range_accessor_t       get_range;     ///< Extract min/max range
-
-    ///< Byte-layout cache key for renderer-internal caches. It is not a
-    ///< unique sample type identity and does not describe accessor semantics.
-    uint64_t               layout_key = 0;
-
-    ///< Accessor-transform identity for source query caches. Member-pointer
-    ///< typed policies populate a stable key; callable policies stay
-    ///< conservative unless the caller supplies a non-zero value and maintains
-    ///< revision when the callable semantics change.
-    sample_semantics_key_t semantics_key;
-
-    bool is_valid() const
-    {
-        return get_timestamp && (get_value || get_range);
-    }
-
-    Data_access_policy& set_semantics_key(
-        std::uint64_t  value,
-        std::uint64_t  revision = 0) noexcept
-    {
-        semantics_key =
-            detail::make_explicit_sample_semantics_key(value, revision);
-        return *this;
-    }
+    Data_access_policy() {}
 
 private:
     friend detail::erased_access_policy_t detail::make_erased_access_policy_view(
@@ -480,32 +488,6 @@ private:
         const Data_access_policy*      policy);
     template<typename>
     friend struct Data_access_policy_typed;
-
-    void set_internal_access(detail::erased_access_policy_t access)
-    {
-        internal_access = access;
-        ++access_revision;
-        bind_accessor_slots();
-    }
-
-    void bind_accessor_slots() noexcept
-    {
-        get_timestamp.bind_internal_access(
-            &internal_access,
-            &access_revision,
-            &semantics_key);
-        get_value.bind_internal_access(
-            &internal_access,
-            &access_revision,
-            &semantics_key);
-        get_range.bind_internal_access(
-            &internal_access,
-            &access_revision,
-            &semantics_key);
-    }
-
-    detail::erased_access_policy_t internal_access; ///< Renderer/planner fast-path view
-    std::uint64_t access_revision = 1;
 };
 
 namespace detail {
@@ -545,7 +527,7 @@ inline std::pair<float, float> std_function_access_range(
 inline erased_access_policy_t make_erased_access_policy_view(
     const Data_access_policy& policy)
 {
-    erased_access_policy_t view              = policy.internal_access;
+    erased_access_policy_t view              = policy.m_internal_access;
     bool                   uses_std_function = false;
 
     if (!view.get_timestamp && policy.get_timestamp) {
@@ -581,7 +563,7 @@ inline access_policy_cache_key_t make_access_policy_cache_key(
     access_policy_cache_key_t key;
     key.identity      = policy;
     key.layout_key    = policy ? policy->layout_key : 0;
-    key.revision      = policy ? policy->access_revision : 0;
+    key.revision      = policy ? policy->m_access_revision : 0;
     key.dispatch_kind = view.dispatch_kind;
     key.has_timestamp = view.has_timestamp();
     key.has_value     = view.has_value();
@@ -599,8 +581,8 @@ inline sample_semantics_key_t make_sample_semantics_key(
     sample_semantics_key_t key = policy->semantics_key;
     if (key.conservative || key.value == 0) {
         key.value = 0;
-        if (key.revision < policy->access_revision) {
-            key.revision = policy->access_revision;
+        if (key.revision < policy->m_access_revision) {
+            key.revision = policy->m_access_revision;
         }
         key.conservative = true;
     }

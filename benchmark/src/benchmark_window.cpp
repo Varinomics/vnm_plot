@@ -1093,7 +1093,7 @@ bool Benchmark_rhi_offscreen_runner::render_frame(
             error_message = "measure.pixel_readback: QRhi returned no pixel data";
             return false;
         }
-        std::uint64_t checksum = 1'469'598'103'934'665'603ull;
+        std::uint64_t checksum = 14'695'981'039'346'656'037ull;
         for (const unsigned char byte : readback.data) {
             checksum ^= byte;
             checksum *= 1'099'511'628'211ull;

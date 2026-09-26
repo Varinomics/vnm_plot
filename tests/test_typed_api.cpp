@@ -73,6 +73,136 @@ static_assert(std::is_same_v<
         set_semantics_key(std::uint64_t{0x54595045}, std::uint64_t{3})),
     plot::Data_access_policy_typed<sample_t>&>);
 
+bool test_fnv64_word_hash()
+{
+    // RFC 9923 basis/prime; independent byte-wise reference over ASCII "policies".
+    TEST_ASSERT(plot::detail::fnv1a_mix(
+        plot::detail::k_fnv_offset_basis, 0x73656963696c6f70ULL) == 0x22d1fbc6bf4bd197ULL,
+        "FNV-1a word mixing should use the standard 64-bit basis and little-endian bytes");
+    return true;
+}
+
+const plot::Data_access_policy& erased_policy(const plot::Data_access_policy& policy)
+{
+    return policy;
+}
+
+template<typename Sample>
+plot::Data_access_policy erased_policy(const plot::Data_access_policy_typed<Sample>& policy)
+{
+    return policy.erase();
+}
+
+template<typename Policy>
+bool check_policy_transfer_ownership(const Policy& original)
+{
+    const sample_t sample{12'500'000'000, 3.5f, 0, 1.0f, 6.0f};
+    for (int changed_slot = 0; changed_slot < 3; ++changed_slot) {
+        Policy source(original);
+        Policy copied(source);
+        Policy moved(std::move(source));
+        Policy assigned{};
+        Policy move_assigned{};
+        assigned = source;
+        move_assigned = std::move(source);
+        Policy* destinations[] = {&copied, &moved, &assigned, &move_assigned};
+        for (Policy* destination : destinations) {
+            TEST_ASSERT(destination->is_valid(), "transferred policy should remain valid");
+            TEST_ASSERT(destination->layout_key == original.layout_key &&
+                destination->semantics_key.value == original.semantics_key.value &&
+                destination->semantics_key.revision == original.semantics_key.revision &&
+                !destination->semantics_key.conservative,
+                "copy/move should preserve layout and explicit semantics");
+            const auto& before = erased_policy(*destination);
+            const auto before_view = plot::detail::make_erased_access_policy_view(before);
+            const auto before_key = plot::detail::make_access_policy_cache_key(&before, before_view);
+            TEST_ASSERT(before_view.dispatch_kind == plot::detail::access_dispatch_kind_t::MEMBER_POINTER,
+                "copy/move should preserve member-pointer dispatch");
+
+            if (changed_slot == 0) {
+                destination->get_timestamp = [](const auto&) { return std::int64_t{13'000'000'000}; };
+            }
+            else
+            if (changed_slot == 1) {
+                destination->get_value = [](const auto&) { return 8.5f; };
+            }
+            else {
+                destination->get_range = [](const auto&) { return std::make_pair(2.0f, 9.0f); };
+            }
+
+            TEST_ASSERT(destination->semantics_key.conservative && destination->semantics_key.value == 0,
+                "each transferred slot must invalidate its destination semantics");
+            const auto& after = erased_policy(*destination);
+            const auto after_view = plot::detail::make_erased_access_policy_view(after);
+            TEST_ASSERT(after_view.dispatch_kind == plot::detail::access_dispatch_kind_t::STD_FUNCTION,
+                "each transferred slot must invalidate its destination fast path");
+            TEST_ASSERT(after_view.timestamp(&sample) ==
+                (changed_slot == 0 ? 13'000'000'000 : sample.t),
+                "transferred timestamp slot should call the destination accessor");
+            TEST_ASSERT(after_view.value(&sample) == (changed_slot == 1 ? 8.5f : sample.v),
+                "transferred value slot should call the destination accessor");
+            const auto expected_range = changed_slot == 2
+                ? std::make_pair(2.0f, 9.0f)
+                : std::make_pair(sample.v_min, sample.v_max);
+            TEST_ASSERT(after_view.range(&sample) == expected_range,
+                "transferred range slot should call the destination accessor");
+            if constexpr (std::is_same_v<Policy, plot::Data_access_policy>) {
+                const auto after_key = plot::detail::make_access_policy_cache_key(&after, after_view);
+                TEST_ASSERT(after_key.revision > before_key.revision,
+                    "transferred slot mutation must advance its destination cache revision");
+            }
+            TEST_ASSERT(!source.semantics_key.conservative &&
+                source.semantics_key.value == original.semantics_key.value,
+                "destination mutation must not invalidate the copy/move source");
+            const auto& erased_source = erased_policy(source);
+            const auto source_view = plot::detail::make_erased_access_policy_view(erased_source);
+            TEST_ASSERT(source_view.dispatch_kind == plot::detail::access_dispatch_kind_t::MEMBER_POINTER &&
+                source_view.timestamp(&sample) == sample.t && source_view.value(&sample) == sample.v &&
+                source_view.range(&sample) == std::make_pair(sample.v_min, sample.v_max),
+                "destination mutation must leave source accessors and fast path intact");
+        }
+    }
+    return true;
+}
+
+bool test_policy_copy_move_ownership()
+{
+    auto typed = plot::make_access_policy<sample_t>(
+        &sample_t::t, &sample_t::v, &sample_t::v_min, &sample_t::v_max);
+    typed.set_semantics_key(0x53414D504C45, 7);
+    TEST_ASSERT(check_policy_transfer_ownership(typed), "typed policy transfers should own their slots");
+    TEST_ASSERT(check_policy_transfer_ownership(typed.erase()), "erased policy transfers should own their slots");
+    return true;
+}
+
+bool test_policy_assignment_preserves_destination_revision()
+{
+    const auto typed = plot::make_access_policy<sample_t>(&sample_t::t, &sample_t::v);
+    auto source = typed.erase();
+    auto destination = source;
+    for (int i = 0; i < 12; ++i) {
+        destination.get_value = [](const void*) { return 8.5f; };
+    }
+    auto cache_key = [](const plot::Data_access_policy& policy) {
+        return plot::detail::make_access_policy_cache_key(
+            &policy, plot::detail::make_erased_access_policy_view(policy));
+    };
+    const auto before_copy = cache_key(destination);
+    destination = source;
+    const auto after_copy = cache_key(destination);
+    TEST_ASSERT(after_copy.revision > before_copy.revision,
+        "copy assignment must advance destination revision even when source revision is older");
+    destination = std::move(source);
+    const auto after_move = cache_key(destination);
+    TEST_ASSERT(after_move.revision > after_copy.revision,
+        "move assignment must advance destination revision");
+    destination = destination;
+    TEST_ASSERT(cache_key(destination) == after_move, "self-copy must preserve cache identity");
+    destination = std::move(destination);
+    TEST_ASSERT(cache_key(destination) == after_move, "self-move must preserve cache identity");
+    return true;
+}
+
 bool test_member_offset_matches_offsetof()
 {
     TEST_ASSERT(plot::detail::member_offset(&sample_t::t) == offsetof(sample_t, t),
@@ -615,6 +745,9 @@ int main()
     int passed = 0;
     int failed = 0;
 
+    RUN_TEST(test_fnv64_word_hash);
+    RUN_TEST(test_policy_copy_move_ownership);
+    RUN_TEST(test_policy_assignment_preserves_destination_revision);
     RUN_TEST(test_member_offset_matches_offsetof);
     RUN_TEST(test_layout_key_distinguishes_sample_types);
     RUN_TEST(test_member_pointer_semantics_key_is_distinct_from_layout_key);

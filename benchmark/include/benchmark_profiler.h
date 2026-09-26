@@ -169,7 +169,7 @@ private:
         auto [stats_it, inserted] = m_observations.try_emplace(name);
         auto& stats = stats_it->second;
         if (inserted) {
-            std::uint64_t seed = 1'469'598'103'934'665'603ull;
+            std::uint64_t seed = 14'695'981'039'346'656'037ull;
             for (const unsigned char byte : std::string(name)) {
                 seed ^= byte;
                 seed *= 1'099'511'628'211ull;
