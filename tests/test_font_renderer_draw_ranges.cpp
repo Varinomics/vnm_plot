@@ -439,6 +439,8 @@ bool test_changing_draw_height_rescales_the_rendered_glyphs(Offscreen_frames& fr
     const QImage small = render_at(18);
     const QImage large = render_at(24);
     const QImage restored = render_at(18);
+    TEST_ASSERT(fonts.atlas_upload_enqueues_for_test() == 1,
+        "draw-size changes must share one GPU atlas upload through the plot adapter");
     TEST_ASSERT(!small.isNull() && !large.isNull() && !restored.isNull(),
         "each draw size must render a readable frame");
     const auto ink_bounds = [&](const QImage& image) {

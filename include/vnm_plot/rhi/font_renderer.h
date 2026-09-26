@@ -123,6 +123,11 @@ public:
     // changed the loader's font bytes in place picks them up.
     void initialize_metrics(int pixel_height, bool force_rebuild = false);
 
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
+    // Counts offered atlas uploads at the actual plot/provider boundary.
+    [[nodiscard]] std::uint64_t atlas_upload_enqueues_for_test() const;
+#endif
+
     void set_log_callbacks(
         std::function<void(const std::string&)>    log_error,
         std::function<void(const std::string&)>    log_debug_info);
@@ -174,7 +179,8 @@ public:
     // frame state.
     void rhi_begin_frame();
 
-    // Uploads the current QRhi CPU batch into this frame's draw plan and clears it.
+    // Queues the CPU batch in framebuffer pixel coordinates and clears it.
+    // The shared renderer derives the backend-correct pixel transform from ctx.
     void rhi_queue_draw(
         const frame_context_t& ctx,
         const glm::vec4&       color,
@@ -188,7 +194,7 @@ public:
         const text_shadow_t&   shadow,
         const text_lcd_t&      lcd);
 
-    // Uploads the accumulated QRhi text geometry after all draw batches are queued.
+    // Uploads accumulated text geometry before the render pass opens.
     void rhi_finalize_frame(const frame_context_t& ctx);
 
     // Number of draw ops queued so far this frame. A shadowed rhi_queue_draw()

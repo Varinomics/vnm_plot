@@ -835,6 +835,13 @@ float Font_renderer::measure_text_px(const char* text) const
         *atlas, m_impl->current_draw_pixel_height(), text);
 }
 
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
+std::uint64_t Font_renderer::atlas_upload_enqueues_for_test() const
+{
+    return m_impl->m_renderer.diagnostics().atlas_upload_enqueues;
+}
+#endif
+
 bool Font_renderer::text_visual_bounds_px(
     const char*    text,
     float          x,
