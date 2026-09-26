@@ -44,16 +44,11 @@ sample_draw_status_t include_sample_range(
     return sample_draw_status_t::DRAWABLE;
 }
 
-bool scan_series_range(
+bool scan_global_series_range(
     Data_source&               source,
     const Data_access_policy&  access,
     std::size_t                level,
-    Series_interpolation       interpolation,
-    Empty_window_behavior      empty_window_behavior,
     Nonfinite_sample_policy    nonfinite_policy,
-    bool                       visible_only,
-    std::int64_t               t_min,
-    std::int64_t               t_max,
     float&                     out_min,
     float&                     out_max)
 {
@@ -62,87 +57,12 @@ bool scan_series_range(
         return false;
     }
 
-    bool         have_any            = false;
-    const void*  held_sample         = nullptr;
-    bool         have_held_sample    = false;
-    bool         have_held_candidate = false;
-    std::int64_t held_timestamp_ns   = 0;
-
-    bool have_sample_at_or_after_visible_start = false;
+    bool have_any = false;
     for (std::size_t i = 0; i < snapshot.count; ++i) {
         const void* sample = snapshot.at(i);
-        if (!sample) {
-            return false;
-        }
-        if (visible_only) {
-            if (!access.get_timestamp) {
-                return false;
-            }
-            const std::int64_t t = access.get_timestamp(sample);
-            if (interpolation == Series_interpolation::STEP_AFTER && t < t_min) {
-                sample_draw_value_t ignored;
-                const sample_draw_status_t status = read_sample_draw_value(
-                    access,
-                    sample,
-                    nonfinite_policy,
-                    ignored);
-                if (status == sample_draw_status_t::FAILED) {
-                    return false;
-                }
-                if (status == sample_draw_status_t::DRAWABLE) {
-                    if (!have_held_candidate || t > held_timestamp_ns) {
-                        held_sample         = sample;
-                        have_held_sample    = true;
-                        have_held_candidate = true;
-                        held_timestamp_ns   = t;
-                    }
-                }
-                else
-                if (nonfinite_policy == Nonfinite_sample_policy::BREAK_SEGMENT) {
-                    if (!have_held_candidate || t > held_timestamp_ns) {
-                        held_sample         = nullptr;
-                        have_held_sample    = false;
-                        have_held_candidate = true;
-                        held_timestamp_ns   = t;
-                    }
-                }
-                continue;
-            }
-            if (interpolation == Series_interpolation::STEP_AFTER && t >= t_min) {
-                have_sample_at_or_after_visible_start = true;
-            }
-            if (t < t_min || t > t_max) {
-                continue;
-            }
-        }
-        if (include_sample_range(
-                access,
-                sample,
-                nonfinite_policy,
-                out_min,
-                out_max,
-                have_any) == sample_draw_status_t::FAILED)
-        {
-            return false;
-        }
-    }
-
-    const bool held_sample_reaches_visible_window =
-        have_sample_at_or_after_visible_start ||
-        empty_window_behavior == Empty_window_behavior::HOLD_LAST_FORWARD;
-    if (visible_only &&
-        interpolation == Series_interpolation::STEP_AFTER &&
-        have_held_sample &&
-        held_sample &&
-        held_sample_reaches_visible_window)
-    {
-        if (include_sample_range(
-                access,
-                held_sample,
-                nonfinite_policy,
-                out_min,
-                out_max,
-                have_any) == sample_draw_status_t::FAILED)
+        if (!sample || include_sample_range(
+                access, sample, nonfinite_policy, out_min, out_max, have_any) ==
+                sample_draw_status_t::FAILED)
         {
             return false;
         }
@@ -381,23 +301,12 @@ bool query_or_scan_series_range(
         return false;
     }
 
-    if (query_result.status == Data_query_status::UNSUPPORTED) {
+    if (query_result.status == Data_query_status::UNSUPPORTED && !visible_only) {
         if (profiler) {
             profiler->record_counter("renderer.auto_range.range_scan_count");
         }
-        return
-            scan_series_range(
-                source,
-                access,
-                level,
-                interpolation,
-                empty_window_behavior,
-                nonfinite_policy,
-                visible_only,
-                time_window.min_ns,
-                time_window.max_ns,
-                out_min,
-                out_max);
+        return scan_global_series_range(
+            source, access, level, nonfinite_policy, out_min, out_max);
     }
 
     return false;

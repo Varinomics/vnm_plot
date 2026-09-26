@@ -532,6 +532,40 @@ bool test_query_time_window_reject_window_fails_on_nonfinite_held_sample()
     return true;
 }
 
+bool test_step_after_draw_nothing_includes_visible_held_sample()
+{
+    const auto access = make_value_access();
+    for (const auto order : {plot::Time_order::UNKNOWN,
+                            plot::Time_order::ASCENDING,
+                            plot::Time_order::DESCENDING})
+    {
+        std::vector<sample_t> samples = {{0, 5.0f}, {10, 1.0f}};
+        if (order == plot::Time_order::DESCENDING) {
+            std::reverse(samples.begin(), samples.end());
+        }
+        Query_source source(std::move(samples));
+        source.set_time_order(order);
+        auto query = make_draw_query(access, 5, 15);
+        query.interpolation = plot::Series_interpolation::STEP_AFTER;
+        const auto range = source.query_v_range(0, query);
+        TEST_ASSERT(range.status == plot::Data_query_status::READY &&
+            range.value.min == 1.0f && range.value.max == 5.0f,
+            "STEP_AFTER range must include the step drawn from the left window edge");
+
+        query.time_window = {5, 9};
+        const auto between = source.query_v_range(0, query);
+        TEST_ASSERT(between.status == plot::Data_query_status::READY &&
+            between.value.min == 5.0f && between.value.max == 5.0f,
+            "STEP_AFTER range must include a held step whose endpoint is beyond the window");
+
+        query.time_window = {11, 15};
+        const auto after = source.query_v_range(0, query);
+        TEST_ASSERT(after.status == plot::Data_query_status::EMPTY,
+            "DRAW_NOTHING must not extend the last step beyond the source");
+    }
+    return true;
+}
+
 bool test_hold_forward_value_range_includes_pre_window_sample()
 {
     Query_source source(
@@ -674,6 +708,7 @@ int main()
     RUN_TEST(test_query_time_window_does_not_hold_nonfinite_break_segment_sample);
     RUN_TEST(test_query_time_window_skip_holds_latest_drawable_sample);
     RUN_TEST(test_query_time_window_reject_window_fails_on_nonfinite_held_sample);
+    RUN_TEST(test_step_after_draw_nothing_includes_visible_held_sample);
     RUN_TEST(test_hold_forward_value_range_includes_pre_window_sample);
     RUN_TEST(test_hold_forward_value_range_ready_from_held_sample_only);
     RUN_TEST(test_hold_forward_does_not_use_nonfinite_break_segment_sample);

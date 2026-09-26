@@ -508,6 +508,26 @@ bool test_nonnegative_auto_range_floor_policy_includes_zero()
     return true;
 }
 
+bool test_visible_step_after_draw_nothing_contributes_held_sample()
+{
+    auto source = std::make_shared<Query_range_source>();
+    source->query_status = Data_query_status::UNSUPPORTED;
+    source->samples = {{0, 5.0f}, {10, 1.0f}};
+    auto series = make_series(source);
+    series->interpolation = Series_interpolation::STEP_AFTER;
+    series->empty_window_behavior = Empty_window_behavior::DRAW_NOTHING;
+    auto data = make_data_config();
+    data.t_min = 5;
+    data.t_max = 15;
+    Plot_config config;
+    config.auto_v_range_mode = Auto_v_range_mode::VISIBLE;
+    const auto range = plot::detail::resolve_main_v_range(
+        make_series_map(series), data, config, true);
+    TEST_ASSERT(range.first == 1.0f && range.second == 5.0f,
+        "visible auto-range must include the held STEP_AFTER value drawn in the window");
+    return true;
+}
+
 bool test_visible_step_after_hold_forward_contributes_held_sample()
 {
     auto source = std::make_shared<Query_range_source>();
@@ -536,7 +556,7 @@ bool test_visible_step_after_hold_forward_contributes_held_sample()
     TEST_ASSERT(source->query_calls == 1,
         "visible STEP_AFTER auto-range should try query_v_range before fallback");
     TEST_ASSERT(source->snapshot_calls == 1,
-        "unsupported STEP_AFTER query should fall back to one snapshot scan");
+        "unsupported STEP_AFTER override should use one snapshot through the base query");
 
     return true;
 }
@@ -1217,6 +1237,7 @@ int main()
     RUN_TEST(test_positive_auto_range_excludes_zero_by_default);
     RUN_TEST(test_negative_auto_range_excludes_zero_by_default);
     RUN_TEST(test_nonnegative_auto_range_floor_policy_includes_zero);
+    RUN_TEST(test_visible_step_after_draw_nothing_contributes_held_sample);
     RUN_TEST(test_visible_step_after_hold_forward_contributes_held_sample);
     RUN_TEST(test_visible_step_after_skip_fallback_keeps_earlier_drawable_held_sample);
     RUN_TEST(test_global_value_only_access_falls_back_to_snapshot_scan);

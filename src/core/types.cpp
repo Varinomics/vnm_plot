@@ -267,7 +267,8 @@ std::size_t descending_first_lt(
 time_window_candidates_t ascending_candidates(
     const data_snapshot_t&         snapshot,
     const Data_access_policy&      access,
-    const data_query_context_t&    query)
+    const data_query_context_t&    query,
+    bool                           include_visible_step)
 {
     bool valid = true;
     time_window_candidates_t out;
@@ -281,7 +282,10 @@ time_window_candidates_t ascending_candidates(
         out.valid = false;
         return out;
     }
-    if (wants_hold_forward(query) && out.match_first > 0) {
+    const bool held_step_reaches_window = wants_hold_forward(query) ||
+        (include_visible_step && query.interpolation == Series_interpolation::STEP_AFTER &&
+            out.match_first < snapshot.count);
+    if (held_step_reaches_window && out.match_first > 0) {
         out.has_held   = true;
         out.held_index = out.match_first - 1;
     }
@@ -291,7 +295,8 @@ time_window_candidates_t ascending_candidates(
 time_window_candidates_t descending_candidates(
     const data_snapshot_t&         snapshot,
     const Data_access_policy&      access,
-    const data_query_context_t&    query)
+    const data_query_context_t&    query,
+    bool                           include_visible_step)
 {
     bool valid = true;
     time_window_candidates_t out;
@@ -305,7 +310,10 @@ time_window_candidates_t descending_candidates(
         out.valid = false;
         return out;
     }
-    if (wants_hold_forward(query) && out.match_last_exclusive < snapshot.count) {
+    const bool held_step_reaches_window = wants_hold_forward(query) ||
+        (include_visible_step && query.interpolation == Series_interpolation::STEP_AFTER &&
+            out.match_last_exclusive > 0);
+    if (held_step_reaches_window && out.match_last_exclusive < snapshot.count) {
         out.has_held   = true;
         out.held_index = out.match_last_exclusive;
     }
@@ -382,11 +390,14 @@ time_window_candidates_t time_window_candidates(
     const data_snapshot_t&         snapshot,
     const Data_access_policy&      access,
     std::size_t                    lod,
-    const data_query_context_t&    query)
+    const data_query_context_t&    query,
+    bool                           include_visible_step = false)
 {
     switch (source.time_order(lod)) {
-        case Time_order::ASCENDING:  return ascending_candidates(snapshot, access, query);
-        case Time_order::DESCENDING: return descending_candidates(snapshot, access, query);
+        case Time_order::ASCENDING:
+            return ascending_candidates(snapshot, access, query, include_visible_step);
+        case Time_order::DESCENDING:
+            return descending_candidates(snapshot, access, query, include_visible_step);
         case Time_order::UNKNOWN:
         case Time_order::UNORDERED:  return linear_candidates(snapshot, access, query);
     }
@@ -426,7 +437,8 @@ bool scan_value_range(
     bool         has_held_value        = false;
     bool         held_candidate_failed = false;
     std::int64_t held_timestamp_ns     = 0;
-    const bool   hold_forward          = wants_hold_forward(query);
+    const bool   step_after            = query.interpolation == Series_interpolation::STEP_AFTER;
+    bool         have_following_sample = false;
 
     for (std::size_t index = 0; index < snapshot.count; ++index) {
         const void* sample = snapshot.at(index);
@@ -437,11 +449,12 @@ bool scan_value_range(
         const std::int64_t timestamp_ns  = query.access->get_timestamp(sample);
         const bool         in_window     = time_window_contains(query.time_window, timestamp_ns);
         const bool         before_window = timestamp_ns < query.time_window.min_ns;
-        if (!in_window && !(hold_forward && before_window)) {
+        have_following_sample = have_following_sample || !before_window;
+        if (!in_window && !(step_after && before_window)) {
             continue;
         }
 
-        if (hold_forward && before_window &&
+        if (step_after && before_window &&
             has_held_candidate && timestamp_ns <= held_timestamp_ns)
         {
             continue;
@@ -487,11 +500,12 @@ bool scan_value_range(
         }
     }
 
-    if (held_candidate_failed) {
+    const bool held_step_reaches_window = have_following_sample || wants_hold_forward(query);
+    if (held_step_reaches_window && held_candidate_failed) {
         return false;
     }
 
-    if (has_held_value) {
+    if (held_step_reaches_window && has_held_value) {
         include_range(range, has_value, held_range.min, held_range.max);
     }
     return true;
@@ -894,7 +908,8 @@ data_query_result_t<value_range_t> Data_source::query_v_range(
         snapshot_result.snapshot,
         *query.access,
         lod,
-        query);
+        query,
+        true);
     const validated_time_window_t window = validated_time_window(
         snapshot_result.snapshot,
         *query.access,

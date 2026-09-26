@@ -787,6 +787,11 @@ public:
         std::size_t                    lod,
         const data_query_context_t&    query);
 
+    /// Resolve drawable values in the time window. STEP_AFTER also includes
+    /// the drawable value held in from before its left edge when a following
+    /// sample exists, even if that sample is beyond the right edge. With no
+    /// following sample, only HOLD_LAST_FORWARD extends the last value.
+    /// Overrides must apply the query's nonfinite policy to held values too.
     virtual data_query_result_t<value_range_t> query_v_range(
         std::size_t                    lod,
         const data_query_context_t&    query);
