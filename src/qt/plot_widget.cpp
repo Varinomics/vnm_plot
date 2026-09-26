@@ -1,5 +1,6 @@
 #include <vnm_plot/qt/plot_widget.h>
 #include "plot_renderer.h"
+#include "lcd_resolver.h"
 #include "plot_render_feedback.h"
 #include "qml_resources.h"
 #include "t_axis_adjust.h"
@@ -146,6 +147,9 @@ Plot_widget::Plot_widget()
         this, [this](const QVariant& value) { apply_preview_height(value.toDouble()); });
 
     update_dpi_scaling_factor();
+    m_lcd_settings_observer = observe_lcd_settings([this] { invalidate_display_context(); });
+    observe_screen();
+    refresh_lcd_order();
 
     // Keep the compositor texture coordinates unmirrored. Backend clip-space
     // and framebuffer orientation are handled by the renderer's QRhi
@@ -167,6 +171,10 @@ Plot_widget::Plot_widget()
 
 Plot_widget::~Plot_widget()
 {
+    m_lcd_settings_observer.reset();
+    for (const auto& connection : m_screen_connections) {
+        QObject::disconnect(connection);
+    }
     // ~QQuickItem detaches from its parent item and emits windowChanged from
     // inside the base destructor, long after this subobject and its mutexes
     // are gone. Drop the connection before anything else so that path cannot
@@ -261,10 +269,12 @@ void Plot_widget::set_config(const Plot_config& config)
     bool        preview_changed = false;
     bool        line_changed    = false;
     bool        resume_automatic_preview = false;
+    bool        lcd_mode_changed = false;
 
     {
         std::unique_lock lock(m_config_mutex);
         dark_changed    = m_config.dark_mode != config.dark_mode;
+        lcd_mode_changed = m_config.lcd_request.automatic != config.lcd_request.automatic;
         grid_changed    = m_config.grid_visibility != config.grid_visibility;
         preview_changed = m_config.preview_visibility != config.preview_visibility;
         line_changed    = m_config.line_width_px != config.line_width_px;
@@ -273,6 +283,9 @@ void Plot_widget::set_config(const Plot_config& config)
         m_config        = config;
         m_config_revision.fetch_add(1, std::memory_order_relaxed);
         effective_config = m_config;
+    }
+    if (lcd_mode_changed) {
+        refresh_lcd_order();
     }
     if (dark_changed) {
         emit dark_mode_changed();
@@ -915,7 +928,32 @@ double Plot_widget::update_dpi_scaling_factor()
 
 void Plot_widget::invalidate_display_context()
 {
+    refresh_lcd_order();
     update_dpi_scaling_factor();
+}
+
+void Plot_widget::refresh_lcd_order()
+{
+    const auto request = config().lcd_request;
+    m_auto_lcd_order = request.automatic
+        ? resolve_lcd_subpixel_order_for_window(request, window())
+        : lcd_subpixel_order_t::NONE;
+}
+
+void Plot_widget::observe_screen()
+{
+    for (const auto& connection : m_screen_connections) {
+        QObject::disconnect(connection);
+    }
+    m_screen_connections.clear();
+    auto* screen = window() ? window()->screen() : QGuiApplication::primaryScreen();
+    if (screen) {
+        const auto changed = [this] { invalidate_display_context(); };
+        m_screen_connections.push_back(connect(screen, &QScreen::geometryChanged, this, changed));
+        m_screen_connections.push_back(connect(screen, &QScreen::orientationChanged, this, changed));
+        m_screen_connections.push_back(connect(screen, &QScreen::physicalDotsPerInchChanged, this, changed));
+        m_screen_connections.push_back(connect(screen, &QScreen::logicalDotsPerInchChanged, this, changed));
+    }
 }
 
 void Plot_widget::handle_window_changed(QQuickWindow* window)
@@ -929,10 +967,12 @@ void Plot_widget::handle_window_changed(QQuickWindow* window)
             &QWindow::screenChanged,
             this,
             [this](QScreen*) {
+                observe_screen();
                 invalidate_display_context();
             });
     }
 
+    observe_screen();
     invalidate_display_context();
 }
 

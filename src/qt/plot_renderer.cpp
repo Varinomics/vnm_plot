@@ -1,6 +1,5 @@
 #include "plot_renderer.h"
 #include "plot_frame_renderer.h"
-#include "lcd_resolver.h"
 #include "plot_render_feedback.h"
 #include <vnm_plot/qt/plot_widget.h>
 
@@ -105,15 +104,8 @@ void Plot_renderer::synchronize(QQuickRhiItem* item)
     if (QQuickWindow* window = widget->window()) {
         m_impl->snapshot.window_background = qcolor_to_vec4(window->color());
     }
-    // Only AUTO needs platform probing here. The core renderers combine this
-    // with the request again so direct-RHI explicit requests need no
-    // prefilled frame order.
-    m_impl->snapshot.auto_lcd_subpixel_order =
-        m_impl->snapshot.config.lcd_request.automatic
-            ? resolve_lcd_subpixel_order_for_window(
-                m_impl->snapshot.config.lcd_request,
-                widget->window())
-            : lcd_subpixel_order_t::NONE;
+    // GUI display notifications own detection; synchronization only copies it.
+    m_impl->snapshot.auto_lcd_subpixel_order = widget->m_auto_lcd_order;
     m_impl->snapshot.config_revision = widget->m_config_revision.load(std::memory_order_acquire);
 }
 

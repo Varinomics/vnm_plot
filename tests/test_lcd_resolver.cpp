@@ -1,5 +1,20 @@
 #include "test_macros.h"
 #include "lcd_resolver.h"
+#include "plot_renderer.h"
+#include <vnm_plot/qt/plot_widget.h>
+
+#include <QGuiApplication>
+#include <QQuickWindow>
+#include <QQuickRenderControl>
+#include <QQuickRenderTarget>
+#include <QImage>
+#include <QAbstractEventDispatcher>
+#include <QScreen>
+
+#if defined(_WIN32)
+#include <qt_windows.h>
+#include <QtGui/qscreen_platform.h>
+#endif
 
 #include <qpa/qplatformscreen.h>
 
@@ -11,6 +26,133 @@ namespace {
 
 using request_t  = plot::lcd_request_t;
 using resolved_t = plot::lcd_subpixel_order_t;
+
+class Test_lcd_renderer : public plot::Plot_renderer
+{
+public:
+    using plot::Plot_renderer::synchronize;
+};
+
+bool test_display_probe_is_cached_across_synchronizations()
+{
+    QQuickRenderControl control;
+    QQuickWindow window(&control);
+    QImage image(800, 600, QImage::Format_ARGB32_Premultiplied);
+    auto target = QQuickRenderTarget::fromPaintDevice(&image);
+    target.setDevicePixelRatio(window.devicePixelRatio());
+    window.setRenderTarget(target);
+    plot::Plot_widget widget;
+    widget.setParentItem(window.contentItem());
+    Test_lcd_renderer renderer;
+    const auto initial_count = plot::lcd_platform_probe_count_for_test();
+    renderer.synchronize(&widget);
+    renderer.synchronize(&widget);
+    renderer.synchronize(&widget);
+    TEST_ASSERT(plot::lcd_platform_probe_count_for_test() == initial_count,
+        "render synchronization must reuse the GUI display-context result");
+
+    auto config = widget.config();
+    config.dark_mode = !config.dark_mode;
+    widget.set_config(config);
+    TEST_ASSERT(plot::lcd_platform_probe_count_for_test() == initial_count,
+        "unrelated configuration changes must not probe the display");
+    config.lcd_request = plot::lcd_explicit_request(resolved_t::BGR);
+    widget.set_config(config);
+    TEST_ASSERT(plot::lcd_platform_probe_count_for_test() == initial_count,
+        "explicit LCD requests must not probe the display");
+    config.lcd_request = plot::lcd_auto_request();
+    widget.set_config(config);
+    TEST_ASSERT(plot::lcd_platform_probe_count_for_test() == initial_count + 1,
+        "returning to automatic must resolve the current display");
+
+    const auto before_change = plot::lcd_platform_probe_count_for_test();
+    target.setDevicePixelRatio(window.devicePixelRatio() * 2.0);
+    window.setRenderTarget(target);
+    QEvent changed(QEvent::DevicePixelRatioChange);
+    QCoreApplication::sendEvent(&window, &changed);
+    TEST_ASSERT(plot::lcd_platform_probe_count_for_test() > before_change,
+        "a display-context notification must refresh automatic detection");
+    const auto before_screen = plot::lcd_platform_probe_count_for_test();
+    window.screen()->geometryChanged(window.screen()->geometry());
+    TEST_ASSERT(plot::lcd_platform_probe_count_for_test() > before_screen,
+        "screen geometry notifications must refresh automatic detection");
+    QQuickWindow second_window;
+    const auto before_window = plot::lcd_platform_probe_count_for_test();
+    widget.setParentItem(second_window.contentItem());
+    TEST_ASSERT(plot::lcd_platform_probe_count_for_test() > before_window,
+        "moving to another window must refresh automatic detection");
+#if defined(_WIN32)
+    MSG message{};
+    message.message = WM_SETTINGCHANGE;
+    qintptr result = 0;
+    const auto before_settings = plot::lcd_platform_probe_count_for_test();
+    QAbstractEventDispatcher::instance()->filterNativeEvent("windows_generic_MSG", &message, &result);
+    TEST_ASSERT(plot::lcd_platform_probe_count_for_test() > before_settings,
+        "Windows settings notifications must refresh automatic detection");
+    config.lcd_request = plot::lcd_explicit_request(resolved_t::VRGB);
+    widget.set_config(config);
+    const auto explicit_count = plot::lcd_platform_probe_count_for_test();
+    message.message = WM_DISPLAYCHANGE;
+    QAbstractEventDispatcher::instance()->filterNativeEvent("windows_generic_MSG", &message, &result);
+    renderer.synchronize(&widget);
+    TEST_ASSERT(plot::lcd_platform_probe_count_for_test() == explicit_count,
+        "display notifications and synchronization must preserve explicit requests without probing");
+#endif
+    return true;
+}
+
+bool test_windows_display_identity_and_rotation()
+{
+    TEST_ASSERT(plot::lcd_windows_registry_key(QStringLiteral("\\\\.\\DISPLAY1")) ==
+        QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Avalon.Graphics\\DISPLAY1"),
+        "monitor one must use its own PixelStructure registry key");
+    TEST_ASSERT(plot::lcd_windows_registry_key(QStringLiteral("\\\\.\\DISPLAY12")) ==
+        QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Avalon.Graphics\\DISPLAY12"),
+        "monitor twelve must not inherit monitor one's PixelStructure");
+    TEST_ASSERT(plot::lcd_windows_registry_key(QStringLiteral("unknown")).isEmpty(),
+        "unknown display identifiers must fail closed");
+    // Microsoft DEVMODE defines counter-clockwise rotation; the shared LCD
+    // contract defines vertical orders from top to bottom.
+    const resolved_t rgb[] = {resolved_t::RGB, resolved_t::VBGR, resolved_t::BGR, resolved_t::VRGB};
+    const resolved_t bgr[] = {resolved_t::BGR, resolved_t::VRGB, resolved_t::RGB, resolved_t::VBGR};
+    for (unsigned int rotation = 0; rotation != 4; ++rotation) {
+        TEST_ASSERT(plot::lcd_from_windows_display_settings(1U, rotation, resolved_t::NONE) == rgb[rotation],
+            "physical RGB stripes must follow counter-clockwise display rotation");
+        TEST_ASSERT(plot::lcd_from_windows_display_settings(2U, rotation, resolved_t::NONE) == bgr[rotation],
+            "physical BGR stripes must follow counter-clockwise display rotation");
+        TEST_ASSERT(plot::lcd_from_windows_display_settings(0U, rotation, resolved_t::RGB) == resolved_t::NONE,
+            "Flat is an explicit grayscale setting, not missing detection");
+        TEST_ASSERT(plot::lcd_from_windows_display_settings(std::nullopt, rotation, resolved_t::RGB) == rgb[rotation],
+            "missing PixelStructure may use the system fallback with current rotation");
+    }
+    TEST_ASSERT(plot::lcd_from_windows_display_settings(42U, 0U, resolved_t::RGB) == resolved_t::NONE,
+        "unknown PixelStructure must fail closed");
+    TEST_ASSERT(plot::lcd_from_windows_display_settings(1U, 42U, resolved_t::RGB) == resolved_t::NONE,
+        "unknown rotation must fail closed");
+    return true;
+}
+
+bool test_native_screen_device_identity()
+{
+#if defined(_WIN32)
+    for (auto* screen : QGuiApplication::screens()) {
+        const auto* native_screen = screen->nativeInterface<QNativeInterface::QWindowsScreen>();
+        if (!native_screen) {
+            continue;
+        }
+        MONITORINFOEXW info{};
+        info.cbSize = sizeof(info);
+        TEST_ASSERT(GetMonitorInfoW(native_screen->handle(), &info), "native screen must identify its display device");
+        const auto expected = QString::fromWCharArray(info.szDevice);
+        const auto actual = plot::lcd_windows_device_name(screen);
+        std::cout << "screen='" << screen->name().toStdString() << "' device='"
+                  << actual.toStdString() << "' native='" << expected.toStdString() << "'\n";
+        TEST_ASSERT(actual == expected, "resolver must use the native GDI device identity, not the friendly monitor label");
+        TEST_ASSERT(!plot::lcd_windows_registry_key(actual).isEmpty(), "native display identity must select a registry key");
+    }
+#endif
+    return true;
+}
 
 struct explicit_request_case_t
 {
@@ -266,13 +408,17 @@ bool test_windows_font_smoothing_mapping()
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+    QGuiApplication application(argc, argv);
     std::cout << "LCD resolver tests" << std::endl;
 
     int passed = 0;
     int failed = 0;
 
+    RUN_TEST(test_display_probe_is_cached_across_synchronizations);
+    RUN_TEST(test_windows_display_identity_and_rotation);
+    RUN_TEST(test_native_screen_device_identity);
     RUN_TEST(test_default_null_probes_return_none);
     RUN_TEST(test_auto_prefers_qt_probe_and_skips_windows);
     RUN_TEST(test_auto_falls_back_to_windows);

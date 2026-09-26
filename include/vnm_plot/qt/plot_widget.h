@@ -426,6 +426,8 @@ private:
     void clear_time_axis();
     void handle_window_changed(QQuickWindow* window);
     void invalidate_display_context();
+    void observe_screen();
+    void refresh_lcd_order();
     void apply_vbar_width_target(double px, bool publish_shared = false);
 
     QPointer<Plot_time_axis>       m_time_axis;
@@ -435,6 +437,9 @@ private:
     QMetaObject::Connection        m_time_axis_sync_vbar_connection;
     QMetaObject::Connection        m_window_changed_connection;
     QMetaObject::Connection        m_window_screen_connection;
+    std::vector<QMetaObject::Connection> m_screen_connections;
+    std::unique_ptr<QObject>       m_lcd_settings_observer;
+    lcd_subpixel_order_t           m_auto_lcd_order = lcd_subpixel_order_t::NONE;
 };
 
 } // namespace vnm::plot
