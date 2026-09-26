@@ -92,7 +92,7 @@ endif()
 if(TARGET test_font_atlas_cache)
     # The cache header carries the built atlas type, so the test needs the
     # atlas builder's headers as well as the library it is linked against.
-    target_link_libraries(test_font_atlas_cache PRIVATE vnm_msdf_text::vnm_msdf_text)
+    target_link_libraries(test_font_atlas_cache PRIVATE vnm_msdf_text::rhi)
     if(TARGET Threads::Threads)
         target_link_libraries(test_font_atlas_cache PRIVATE Threads::Threads)
     endif()

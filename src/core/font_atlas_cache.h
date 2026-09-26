@@ -3,7 +3,7 @@
 // VNM Plot Library - MSDF Font Atlas Cache
 // Process-wide memo of built MSDF atlases, keyed by font identity and bake size.
 
-#include <vnm_msdf_text/msdf_text.h>
+#include <vnm_msdf_text/rhi/font_snapshot.h>
 
 #include <array>
 #include <condition_variable>
@@ -18,7 +18,7 @@ namespace vnm::plot::detail {
 
 struct cached_font_data_t
 {
-    vnm::msdf_text::atlas_t        atlas;
+    std::shared_ptr<const vnm::msdf_text::rhi::Baked_font> font;
     std::uint64_t                  cache_epoch       = 0;
     std::array<std::uint8_t, 32>   font_digest{};
 };

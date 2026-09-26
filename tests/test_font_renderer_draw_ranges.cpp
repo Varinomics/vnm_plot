@@ -155,7 +155,7 @@ void queue_text(
     const text_draw_t&              draw)
 {
     fonts.batch_text(draw.x, draw.y, draw.text);
-    fonts.rhi_queue_draw(ctx, ctx.pmv, draw.color, draw.scissor, draw.shadow);
+    fonts.rhi_queue_draw(ctx, draw.color, draw.scissor, draw.shadow);
 }
 
 void prepare_whole_frame(

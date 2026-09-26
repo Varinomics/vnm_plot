@@ -177,14 +177,12 @@ public:
     // Uploads the current QRhi CPU batch into this frame's draw plan and clears it.
     void rhi_queue_draw(
         const frame_context_t& ctx,
-        const glm::mat4&       pmv,
         const glm::vec4&       color,
         const text_scissor_t&  scissor = {},
         const text_shadow_t&   shadow = {});
 
     void rhi_queue_draw(
         const frame_context_t& ctx,
-        const glm::mat4&       pmv,
         const glm::vec4&       color,
         const text_scissor_t&  scissor,
         const text_shadow_t&   shadow,

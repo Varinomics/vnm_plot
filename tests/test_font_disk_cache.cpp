@@ -23,8 +23,8 @@ namespace plot = vnm::plot;
 namespace {
 
 constexpr std::uint32_t k_magic                  = 0x4d534446; // 'MSDF'
-constexpr std::uint32_t k_cache_version          = 4;
-constexpr std::uint32_t k_previous_cache_version = 3;
+constexpr std::uint32_t k_cache_version          = 5;
+constexpr std::uint32_t k_previous_cache_version = 4;
 constexpr std::uint32_t k_pixel_height           = 48;
 constexpr std::uint32_t k_atlas_texture_size     = 2048;
 constexpr std::uint32_t k_expected_atlas_bytes   =
@@ -199,10 +199,12 @@ struct cache_file_options_t
     std::uint32_t  cache_version       = k_cache_version;
     std::uint32_t  pixel_height        = k_pixel_height;
     std::uint32_t  atlas_size          = k_atlas_texture_size;
-    std::uint32_t  glyph_count         = 0;
+    std::uint32_t  glyph_count         = 1;
     std::uint32_t  kerning_count       = 0;
     std::uint32_t  atlas_bytes         = k_expected_atlas_bytes;
     bool           write_atlas_payload = false;
+    std::uint32_t  build_status = 2;
+    bool           missing_codepoint = false;
 };
 
 digest_t make_digest(std::uint8_t seed)
@@ -319,6 +321,17 @@ bool write_cache_file(
         write_zero_bytes(out, options.atlas_bytes);
     }
 
+    write_value(out, options.build_status);
+    write_value(out, std::uint32_t{0}); // Empty build message.
+    for (int i = 0; i < 5; ++i) {
+        const bool missing = i == 1 && options.missing_codepoint;
+        write_value(out, std::uint32_t{missing ? 1u : 0u});
+        if (missing) {
+            write_value(out, std::uint32_t{0x4e00});
+        }
+    }
+    write_value(out, std::uint8_t{0}); // Atlas is not full.
+
     return bool(out);
 }
 
@@ -406,6 +419,25 @@ bool test_same_height_changed_digest_does_not_reuse_old_cache()
     return true;
 }
 
+bool test_partial_build_diagnostics_survive_cache_loading()
+{
+    Scoped_temp_dir tmp;
+    cache_file_options_t options;
+    options.digest = make_digest(0x60u);
+    options.write_atlas_payload = true;
+    options.build_status = 1; // PARTIAL_SUCCESS requires the original diagnostics.
+    options.missing_codepoint = true;
+    const auto path = tmp.path / "partial_coverage.bin";
+    TEST_ASSERT(write_cache_file(path, options), "partial cache fixture must write");
+    TEST_ASSERT(cache_file_is_valid(path, options.digest),
+        "partial coverage and its missing-codepoint diagnostic must be restored together");
+    options.missing_codepoint = false;
+    TEST_ASSERT(write_cache_file(path, options), "incomplete cache fixture must write");
+    TEST_ASSERT(!cache_file_is_valid(path, options.digest),
+        "partial coverage cannot silently lose its diagnostics during adoption");
+    return true;
+}
+
 bool test_previous_cache_version_is_rejected()
 {
     Scoped_temp_dir tmp;
@@ -437,6 +469,7 @@ int main()
     RUN_TEST(test_corrupt_atlas_size_and_bytes_are_rejected);
     RUN_TEST(test_same_height_changed_digest_does_not_reuse_old_cache);
     RUN_TEST(test_previous_cache_version_is_rejected);
+    RUN_TEST(test_partial_build_diagnostics_survive_cache_loading);
     RUN_TEST(test_cache_prunes_owned_files_and_stale_temporaries);
     RUN_TEST(test_renderer_publishes_within_host_directory_and_budget);
     RUN_TEST(test_draw_heights_share_one_baked_atlas);

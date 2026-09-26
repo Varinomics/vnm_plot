@@ -146,9 +146,9 @@ endfunction()
 set(_vnm_plot_msdf_text_components lcd_contract)
 set(_vnm_plot_msdf_text_required_targets vnm_msdf_text::lcd_contract)
 if(VNM_PLOT_ENABLE_TEXT)
-    list(APPEND _vnm_plot_msdf_text_components atlas)
+    list(APPEND _vnm_plot_msdf_text_components rhi)
     list(APPEND _vnm_plot_msdf_text_required_targets
-        vnm_msdf_text::vnm_msdf_text
+        vnm_msdf_text::rhi
     )
 endif()
 
@@ -186,6 +186,7 @@ if(_vnm_plot_missing_msdf_text_targets)
             "${CMAKE_CURRENT_SOURCE_DIR}/../vnm_msdf_text"
             ABSOLUTE)
         if(VNM_PLOT_ENABLE_TEXT)
+            set(VNM_MSDF_TEXT_BUILD_RHI ON CACHE BOOL "" FORCE)
             unset(VNM_MSDF_TEXT_USE_SYSTEM_LIBS CACHE)
             set(VNM_MSDF_TEXT_FETCH_DEPS
                 "${_vnm_plot_msdf_text_fetch_deps}"
@@ -449,7 +450,7 @@ if(VNM_PLOT_ENABLE_TEXT)
     target_compile_definitions(vnm_plot_rhi PUBLIC VNM_PLOT_ENABLE_TEXT=1)
     target_link_libraries(vnm_plot_rhi
         PRIVATE
-            vnm_msdf_text::vnm_msdf_text
+            vnm_msdf_text::rhi
     )
 endif()
 
@@ -476,13 +477,6 @@ set(VNM_PLOT_QSB_SHADERS
     shaders/qsb/plot_area.vert
     shaders/qsb/plot_area.frag
 )
-
-if(VNM_PLOT_ENABLE_TEXT)
-    list(APPEND VNM_PLOT_QSB_SHADERS
-        shaders/qsb/msdf_text.vert
-        shaders/qsb/msdf_text.frag
-    )
-endif()
 
 # Each input shader yields :/vnm_plot/shaders/qsb/<name>.<ext>.qsb.
 # The RHI shaders use vertex attributes and std140 uniform blocks, so retain
@@ -628,7 +622,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         endif()
     endforeach()
     if(VNM_PLOT_ENABLE_TEXT)
-        foreach(_dep IN ITEMS vnm_msdf_text::vnm_msdf_text)
+        foreach(_dep IN ITEMS vnm_msdf_text::rhi)
             if(TARGET ${_dep})
                 get_target_property(_dep_imported ${_dep} IMPORTED)
                 if(NOT _dep_imported)

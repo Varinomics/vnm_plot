@@ -30,9 +30,18 @@ detail::font_atlas_key_t make_key(std::uint8_t digest_fill, int pixel_height)
 std::shared_ptr<detail::cached_font_data_t> make_font(const detail::font_atlas_key_t& key)
 {
     auto font = std::make_shared<detail::cached_font_data_t>();
-    font->atlas.baked_pixel_height = key.baked_pixel_height;
+    vnm::msdf_text::build_result_t build;
+    build.status = vnm::msdf_text::Build_status::SUCCESS;
+    build.atlas.baked_pixel_height = key.baked_pixel_height;
+    build.atlas.atlas_size = 32;
+    build.atlas.atlas_px_range = 10;
+    build.atlas.bitmap_scale = 1;
+    build.atlas.sharpness_bias = 1;
+    build.atlas.font_metrics_units.ascender = 18;
+    build.atlas.glyphs.emplace(U' ', vnm::msdf_text::glyph_t{});
     font->font_digest       = key.font_digest;
-    font->atlas.rgba.resize(k_atlas_bytes);
+    build.atlas.rgba.resize(k_atlas_bytes);
+    font->font = vnm::msdf_text::rhi::adopt_baked_font(std::move(build)).font;
     return font;
 }
 

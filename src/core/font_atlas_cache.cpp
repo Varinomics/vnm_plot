@@ -107,7 +107,7 @@ void Font_atlas_cache::evict_least_recently_used()
             // eviction until its producer publishes it.
             continue;
         }
-        const std::size_t bytes = entry.font->atlas.rgba.size();
+        const std::size_t bytes = entry.font->font->atlas().rgba.size();
         retained += bytes;
         candidates.push_back({key, entry.last_used, bytes});
     }
