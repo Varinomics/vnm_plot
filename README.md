@@ -273,7 +273,7 @@ The fonts vnm_plot ships come from
 tree that has already added vnm_fonts has published the verbatim files in
 `VNM_FONTS_DIRECTORY`, and that is used as it stands; otherwise CMake uses a
 sibling `../vnm_fonts` checkout when present and fetches the GitHub `master`
-branch when it is not, and `VNM_PLOT_VNM_FONTS_SOURCE_DIR` overrides that pair.
+branch when it is not, and `FETCHCONTENT_SOURCE_DIR_VNM_FONTS` overrides that pair.
 
 Only the file contract is used. vnm_fonts also builds a `vnm::fonts` library
 that marks a family name on the way into `QFontDatabase`, which is what a font
