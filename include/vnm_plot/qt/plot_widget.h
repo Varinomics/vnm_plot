@@ -136,7 +136,7 @@ public:
     // are notified when their values change.
     void set_config(const Plot_config& config);
     Plot_config config() const;
-    // Reset renderer-side view state (e.g., skip auto-range smoothing once).
+    // Invalidate cached rendered ranges and request a fresh frame.
     Q_INVOKABLE void reset_view_state();
 
     // Dark mode
@@ -297,7 +297,7 @@ protected:
     // Applies a completed render pass to the rendered-state mirror that QML
     // reads. The renderer delivers its passes through the feedback channel,
     // which ends here.
-    void apply_render_feedback(const detail::plot_render_feedback_t& feedback);
+    void apply_render_feedback(detail::plot_render_feedback_t feedback);
 
 private:
     enum class Indicator_sample_mode
@@ -347,49 +347,33 @@ private:
     // UI state
     std::atomic<bool>              m_v_auto{true};
     std::atomic<int>               m_visible_info_flags{k_visible_info_all};
-    std::atomic<bool>              m_view_state_reset_requested{false};
-    mutable std::atomic<float>     m_rendered_v_min{0.0f};
-    mutable std::atomic<float>     m_rendered_v_max{1.0f};
-    mutable std::atomic<bool>      m_rendered_v_range_valid{false};
+    // GUI-thread mirror. The feedback channel owns cross-thread transfer.
+    float                         m_rendered_v_min = 0.0f;
+    float                         m_rendered_v_max = 1.0f;
+    bool                          m_rendered_v_range_valid = false;
     // Rendered time range cached for QML/tooltips, in int64 nanoseconds.
-    mutable std::atomic<qint64>    m_rendered_t_min{0};
-    mutable std::atomic<qint64>    m_rendered_t_max{1};
-    mutable std::atomic<bool>      m_rendered_t_range_valid{false};
+    qint64                        m_rendered_t_min = 0;
+    qint64                        m_rendered_t_max = 1;
+    bool                          m_rendered_t_range_valid = false;
     std::shared_ptr<detail::plot_render_feedback_channel_t>
                                    m_render_feedback_channel;
     QMetaObject::Connection        m_render_feedback_completion_connection;
     QMetaObject::Connection        m_render_feedback_delivery_connection;
     std::uint64_t                  m_render_feedback_generation = 0;
-    struct rendered_stack_source_revision_t
-    {
-        int                    series_id     = 0;
-        const Data_source*     source        = nullptr;
-        std::size_t            lod           = 0;
-        std::uint64_t          sequence      = 0;
-        Series_interpolation   interpolation = Series_interpolation::LINEAR;
-        data_snapshot_t        cumulative;
-    };
-    mutable std::mutex             m_rendered_stack_validity_mutex;
-    mutable std::map<int, std::vector<rendered_stack_source_revision_t>>
+    std::map<int, std::vector<detail::Rendered_stack_source>>
                                    m_rendered_stack_validity;
-    struct rendered_stack_status_t
-    {
-        Stack_view_status                              status;
-        std::vector<rendered_stack_source_revision_t>  sources;
-    };
-    mutable std::map<std::pair<int, Series_view_kind>, rendered_stack_status_t>
+    std::map<std::pair<int, Series_view_kind>, detail::Rendered_stack_status>
                                    m_rendered_stack_statuses;
-    mutable qint64                 m_rendered_stack_t_min                        = 0;
-    mutable qint64                 m_rendered_stack_t_max                        = 0;
-    mutable qint64                 m_rendered_stack_available_t_min              = 0;
-    mutable qint64                 m_rendered_stack_available_t_max              = 0;
-    mutable std::uint64_t          m_rendered_stack_series_revision              = 0;
+    qint64                         m_rendered_stack_t_min           = 0;
+    qint64                         m_rendered_stack_t_max           = 0;
+    qint64                         m_rendered_stack_available_t_min = 0;
+    qint64                         m_rendered_stack_available_t_max = 0;
+    std::uint64_t                  m_rendered_stack_series_revision = 0;
     std::atomic<double>            m_vbar_width_px{0.0};
     QBasicTimer                    m_vbar_width_timer;
     QElapsedTimer                  m_vbar_width_anim_elapsed;
     double                         m_vbar_width_anim_start_px                    = 0.0;
     double                         m_vbar_width_anim_target_px                   = 0.0;
-    std::atomic<bool>              m_sync_vbar_width_active{false};
 
     double                         m_preview_height                              = 0.0;
     double                         m_preview_height_target                       = 0.0;
@@ -430,13 +414,12 @@ private:
         return true;
     }
 
-    bool consume_view_state_reset_request();
     void arm_render_feedback_delivery(
         const std::shared_ptr<detail::plot_render_feedback_channel_t>& channel);
     void deliver_render_feedback(
         const std::shared_ptr<detail::plot_render_feedback_channel_t>& channel);
-    void set_rendered_v_range(float v_min, float v_max) const;
-    void set_rendered_t_range(qint64 t_min_ns, qint64 t_max_ns) const;
+    void set_rendered_v_range(float v_min, float v_max);
+    void set_rendered_t_range(qint64 t_min_ns, qint64 t_max_ns);
     template<typename Update>
     void apply_time_update(Update&& update_time);
     void sync_time_axis_state();

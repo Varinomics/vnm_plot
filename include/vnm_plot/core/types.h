@@ -1000,6 +1000,8 @@ struct data_config_t
     std::int64_t   t_available_min = 0;
     std::int64_t   t_available_max = std::int64_t{10} * 1'000'000'000;
 
+    // Deprecated: this field is ignored by rendering. Use the widget's
+    // vbar_width_qml()/vbar_width_pixels() or explicit layout parameters.
     double vbar_width = 150.;
 };
 

@@ -13,23 +13,6 @@
 
 namespace vnm::plot::detail {
 
-struct render_stack_source_feedback_t
-{
-    int                    series_id     = 0;
-    const Data_source*     source        = nullptr;
-    std::size_t            lod           = 0;
-    std::uint64_t          sequence      = 0;
-    Series_interpolation   interpolation = Series_interpolation::LINEAR;
-    data_snapshot_t        cumulative;
-};
-
-struct render_stack_status_feedback_t
-{
-    Stack_view_status      status;
-    std::vector<render_stack_source_feedback_t>
-                           sources;
-};
-
 struct plot_render_feedback_t
 {
     double                 measured_vbar_width = 0.0;
@@ -41,9 +24,9 @@ struct plot_render_feedback_t
     std::int64_t           t_available_max      = 1;
     std::uint64_t          series_revision      = 0;
     std::uint64_t          generation           = 0;
-    std::map<int, std::vector<render_stack_source_feedback_t>>
+    std::map<int, std::vector<Rendered_stack_source>>
                            stack_validity;
-    std::map<std::pair<int, Series_view_kind>, render_stack_status_feedback_t>
+    std::map<std::pair<int, Series_view_kind>, Rendered_stack_status>
                            stack_statuses;
     bool                   stack_validity_ready = false;
 };

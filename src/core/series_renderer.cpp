@@ -1191,7 +1191,7 @@ void Series_renderer::prepare(
                 continue;
             }
             std::size_t output_samples = 0;
-            std::vector<stack_source_revision_t>* main_validity = nullptr;
+            std::vector<detail::Rendered_stack_source>* main_validity = nullptr;
             if (view_kind == Series_view_kind::MAIN) {
                 auto& validity = m_main_stack_validity[group];
                 validity.reserve(plans.size());

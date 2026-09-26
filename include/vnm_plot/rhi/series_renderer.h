@@ -25,7 +25,6 @@ namespace vnm::plot {
 
 class Asset_loader;
 class Profiler;
-class Plot_renderer;
 class Series_renderer;
 
 namespace detail {
@@ -93,33 +92,15 @@ public:
                                series);
 
 private:
-    friend class Plot_renderer;
     friend class Test_series_renderer;
     friend void detail::fill_stack_feedback(
         const Series_renderer&              series,
         detail::plot_render_feedback_t&     feedback);
 
-    struct stack_source_revision_t
-    {
-        int                    series_id     = 0;
-        const Data_source*     source        = nullptr;
-        std::size_t            lod           = 0;
-        std::uint64_t          sequence      = 0;
-        Series_interpolation   interpolation = Series_interpolation::LINEAR;
-        data_snapshot_t        cumulative;
-    };
-
-    struct stack_view_status_t
-    {
-        Stack_view_status      status;
-        std::vector<stack_source_revision_t>
-                               sources;
-    };
-
-    const std::map<int, std::vector<stack_source_revision_t>>&
+    const std::map<int, std::vector<detail::Rendered_stack_source>>&
     main_stack_validity() const { return m_main_stack_validity; }
 
-    const std::map<std::pair<int, Series_view_kind>, stack_view_status_t>&
+    const std::map<std::pair<int, Series_view_kind>, detail::Rendered_stack_status>&
     stack_view_statuses() const { return m_stack_view_statuses; }
 
     struct gpu_sample_t
@@ -240,8 +221,10 @@ private:
     // Consolidated once-per-series error log deduplication.
     // Key encodes (series_id, error_category) as uint64_t.
     std::unordered_set<uint64_t>                                       m_logged_errors;
-    std::map<int, std::vector<stack_source_revision_t>>                m_main_stack_validity;
-    std::map<std::pair<int, Series_view_kind>, stack_view_status_t>    m_stack_view_statuses;
+    std::map<int, std::vector<detail::Rendered_stack_source>>
+                                                                      m_main_stack_validity;
+    std::map<std::pair<int, Series_view_kind>, detail::Rendered_stack_status>
+                                                                      m_stack_view_statuses;
     // Private test instrumentation for the QRhi prepare/render split.
 #if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
     std::vector<int>                                                   m_last_recorded_draw_z_orders;

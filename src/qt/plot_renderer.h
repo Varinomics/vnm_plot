@@ -2,8 +2,8 @@
 
 // VNM Plot Library - Plot Renderer
 // QQuickRhiItem renderer for Plot_widget. Synchronizes widget state on the
-// render thread and issues an RHI render pass that clears to the configured
-// background color.
+// render thread, runs the production plot frame, and publishes completed
+// range and stack feedback to the GUI thread.
 
 #include <QQuickRhiItem>
 

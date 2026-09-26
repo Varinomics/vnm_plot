@@ -49,6 +49,28 @@ struct Stack_view_status
     std::vector<int>           affected_series_ids;
 };
 
+namespace detail {
+
+// Revision and cumulative geometry of one source in a completed stack pass.
+// The renderer, feedback channel, and GUI mirror share this representation.
+struct Rendered_stack_source
+{
+    int                    series_id     = 0;
+    const Data_source*     source        = nullptr;
+    std::size_t            lod           = 0;
+    std::uint64_t          sequence      = 0;
+    Series_interpolation   interpolation = Series_interpolation::LINEAR;
+    data_snapshot_t        cumulative;
+};
+
+struct Rendered_stack_status
+{
+    Stack_view_status                 status;
+    std::vector<Rendered_stack_source> sources;
+};
+
+} // namespace detail
+
 struct drawable_sample_span_t
 {
     std::size_t                source_first = 0;

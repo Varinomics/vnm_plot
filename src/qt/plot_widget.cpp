@@ -195,7 +195,6 @@ Plot_widget::~Plot_widget()
         m_time_axis_destroyed_connection = {};
         m_time_axis_vbar_connection      = {};
         m_time_axis_sync_vbar_connection = {};
-        m_sync_vbar_width_active.store(false, std::memory_order_release);
         m_time_axis = nullptr;
     }
 }
@@ -306,9 +305,8 @@ Plot_config Plot_widget::config() const
 
 void Plot_widget::reset_view_state()
 {
-    m_view_state_reset_requested.store(true, std::memory_order_release);
-    m_rendered_v_range_valid.store(false, std::memory_order_release);
-    m_rendered_t_range_valid.store(false, std::memory_order_release);
+    m_rendered_v_range_valid = false;
+    m_rendered_t_range_valid = false;
     update();
 }
 
@@ -546,15 +544,11 @@ void Plot_widget::set_time_axis(Plot_time_axis* axis)
         m_time_axis_destroyed_connection = {};
         m_time_axis_vbar_connection      = {};
         m_time_axis_sync_vbar_connection = {};
-        m_sync_vbar_width_active.store(false, std::memory_order_release);
     }
 
     m_time_axis = axis;
 
     if (m_time_axis) {
-        m_sync_vbar_width_active.store(
-            m_time_axis->sync_vbar_width(),
-            std::memory_order_release);
         m_time_axis_connection           = QObject::connect(
             m_time_axis,
             &Plot_time_axis::t_limits_changed,
@@ -580,10 +574,8 @@ void Plot_widget::set_time_axis(Plot_time_axis* axis)
             this,
             [this]() {
                 if (!m_time_axis || !m_time_axis->sync_vbar_width()) {
-                    m_sync_vbar_width_active.store(false, std::memory_order_release);
                     return;
                 }
-                m_sync_vbar_width_active.store(true, std::memory_order_release);
                 const double current_px =
                     m_vbar_width_px.load(std::memory_order_acquire);
                 if (std::isfinite(current_px) && current_px > 0.0) {
@@ -754,11 +746,6 @@ double Plot_widget::vbar_width_qml() const
 
 void Plot_widget::set_vbar_width(double vbar_width)
 {
-    {
-        std::unique_lock lock(m_data_cfg_mutex);
-        m_data_cfg.vbar_width = vbar_width;
-    }
-
     const double px = vbar_width * m_scaling_factor;
     m_vbar_width_px.store(px, std::memory_order_release);
     emit vbar_width_changed();
@@ -878,10 +865,10 @@ void Plot_widget::deliver_render_feedback(
     }
 
     m_render_feedback_generation = feedback->generation;
-    apply_render_feedback(*feedback);
+    apply_render_feedback(std::move(*feedback));
 }
 
-void Plot_widget::apply_render_feedback(const detail::plot_render_feedback_t& feedback)
+void Plot_widget::apply_render_feedback(detail::plot_render_feedback_t feedback)
 {
     apply_vbar_width_target(feedback.measured_vbar_width, true);
     set_rendered_v_range(feedback.v_min, feedback.v_max);
@@ -891,41 +878,13 @@ void Plot_widget::apply_render_feedback(const detail::plot_render_feedback_t& fe
         return;
     }
 
-    std::lock_guard lock(m_rendered_stack_validity_mutex);
-    m_rendered_stack_validity.clear();
-    m_rendered_stack_statuses.clear();
     m_rendered_stack_t_min           = feedback.t_min;
     m_rendered_stack_t_max           = feedback.t_max;
     m_rendered_stack_available_t_min = feedback.t_available_min;
     m_rendered_stack_available_t_max = feedback.t_available_max;
     m_rendered_stack_series_revision = feedback.series_revision;
-    for (const auto& [group, revisions] : feedback.stack_validity) {
-        auto& stored = m_rendered_stack_validity[group];
-        stored.reserve(revisions.size());
-        for (const auto& revision : revisions) {
-            stored.push_back({
-                revision.series_id,
-                revision.source,
-                revision.lod,
-                revision.sequence,
-                revision.interpolation,
-                revision.cumulative});
-        }
-    }
-    for (const auto& [key, rendered] : feedback.stack_statuses) {
-        auto& stored  = m_rendered_stack_statuses[key];
-        stored.status = rendered.status;
-        stored.sources.reserve(rendered.sources.size());
-        for (const auto& source : rendered.sources) {
-            stored.sources.push_back({
-                source.series_id,
-                source.source,
-                source.lod,
-                source.sequence,
-                source.interpolation,
-                source.cumulative});
-        }
-    }
+    m_rendered_stack_validity = std::move(feedback.stack_validity);
+    m_rendered_stack_statuses = std::move(feedback.stack_statuses);
 }
 
 double Plot_widget::update_dpi_scaling_factor()
@@ -1168,7 +1127,6 @@ void Plot_widget::auto_adjust_view(bool adjust_t, double extra_v_scale, bool anc
     }
 
     {
-        std::lock_guard lock(m_rendered_stack_validity_mutex);
         const bool current =
             m_series_revision.load(std::memory_order_acquire) ==
                 m_rendered_stack_series_revision &&
@@ -1696,7 +1654,6 @@ Stack_view_status Plot_widget::stack_status(
         ? cfg.t_max
         : cfg.t_available_max;
 
-    std::lock_guard lock(m_rendered_stack_validity_mutex);
     const qint64 rendered_min = view_kind == Series_view_kind::MAIN
         ? m_rendered_stack_t_min
         : m_rendered_stack_available_t_min;
@@ -1810,28 +1767,27 @@ void Plot_widget::clear_time_axis()
     m_time_axis_destroyed_connection = {};
     m_time_axis_vbar_connection      = {};
     m_time_axis_sync_vbar_connection = {};
-    m_sync_vbar_width_active.store(false, std::memory_order_release);
     emit time_axis_changed();
     update();
 }
 
 bool Plot_widget::rendered_v_range(float& out_min, float& out_max) const
 {
-    if (!m_rendered_v_range_valid.load(std::memory_order_acquire)) {
+    if (!m_rendered_v_range_valid) {
         return false;
     }
-    out_min = m_rendered_v_min.load(std::memory_order_acquire);
-    out_max = m_rendered_v_max.load(std::memory_order_acquire);
+    out_min = m_rendered_v_min;
+    out_max = m_rendered_v_max;
     return true;
 }
 
 bool Plot_widget::rendered_t_range(qint64& out_min_ns, qint64& out_max_ns) const
 {
-    if (!m_rendered_t_range_valid.load(std::memory_order_acquire)) {
+    if (!m_rendered_t_range_valid) {
         return false;
     }
-    out_min_ns = m_rendered_t_min.load(std::memory_order_acquire);
-    out_max_ns = m_rendered_t_max.load(std::memory_order_acquire);
+    out_min_ns = m_rendered_t_min;
+    out_max_ns = m_rendered_t_max;
     return true;
 }
 
@@ -1847,7 +1803,6 @@ std::optional<std::vector<std::pair<int, double>>> Plot_widget::rendered_stack_v
     qint64         t_max_ns,
     qint64         x_ns) const
 {
-    std::lock_guard lock(m_rendered_stack_validity_mutex);
     if (m_series_revision.load(std::memory_order_acquire) != m_rendered_stack_series_revision ||
         t_min_ns                                          != m_rendered_stack_t_min           ||
         t_max_ns                                          != m_rendered_stack_t_max)
@@ -1917,34 +1872,27 @@ std::optional<std::vector<std::pair<int, double>>> Plot_widget::rendered_stack_v
     return values;
 }
 
-bool Plot_widget::consume_view_state_reset_request()
-{
-    return m_view_state_reset_requested.exchange(false, std::memory_order_acq_rel);
-}
-
-void Plot_widget::set_rendered_v_range(float v_min, float v_max) const
+void Plot_widget::set_rendered_v_range(float v_min, float v_max)
 {
     if (!std::isfinite(v_min) || !std::isfinite(v_max) || v_min > v_max) {
-        m_rendered_v_range_valid.store(false, std::memory_order_release);
+        m_rendered_v_range_valid = false;
         return;
     }
-    m_rendered_v_range_valid.store(false, std::memory_order_release);
-    m_rendered_v_min.store(v_min, std::memory_order_relaxed);
-    m_rendered_v_max.store(v_max, std::memory_order_relaxed);
-    m_rendered_v_range_valid.store(true, std::memory_order_release);
+    m_rendered_v_min = v_min;
+    m_rendered_v_max = v_max;
+    m_rendered_v_range_valid = true;
 }
 
-void Plot_widget::set_rendered_t_range(qint64 t_min_ns, qint64 t_max_ns) const
+void Plot_widget::set_rendered_t_range(qint64 t_min_ns, qint64 t_max_ns)
 {
     // Time span must be strictly positive to keep time<->pixel conversions safe.
     if (t_max_ns <= t_min_ns) {
-        m_rendered_t_range_valid.store(false, std::memory_order_release);
+        m_rendered_t_range_valid = false;
         return;
     }
-    m_rendered_t_range_valid.store(false, std::memory_order_release);
-    m_rendered_t_min.store(t_min_ns, std::memory_order_relaxed);
-    m_rendered_t_max.store(t_max_ns, std::memory_order_relaxed);
-    m_rendered_t_range_valid.store(true, std::memory_order_release);
+    m_rendered_t_min = t_min_ns;
+    m_rendered_t_max = t_max_ns;
+    m_rendered_t_range_valid = true;
 }
 
 void Plot_widget::adjust_t_to_target(qint64 target_tmin_ns, qint64 target_tmax_ns)
