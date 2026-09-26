@@ -338,6 +338,7 @@ set(VNM_PLOT_QTQUICK_SOURCES
     src/qt/plot_widget.cpp
     src/qt/plot_interaction_item.cpp
     src/qt/plot_time_axis.cpp
+    src/qt/qml_registration.cpp
 )
 
 set(VNM_PLOT_QTQUICK_HEADERS
@@ -346,6 +347,8 @@ set(VNM_PLOT_QTQUICK_HEADERS
     include/vnm_plot/qt/plot_widget.h
     include/vnm_plot/qt/plot_interaction_item.h
     include/vnm_plot/qt/plot_time_axis.h
+    include/vnm_plot/qt/qml_registration.h
+    src/qt/qml_resources.h
     src/qt/plot_render_feedback.h
     src/qt/plot_renderer.h
     src/qt/lcd_resolver.h

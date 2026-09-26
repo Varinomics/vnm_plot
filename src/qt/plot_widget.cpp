@@ -1,6 +1,7 @@
 #include <vnm_plot/qt/plot_widget.h>
 #include "plot_renderer.h"
 #include "plot_render_feedback.h"
+#include "qml_resources.h"
 #include "t_axis_adjust.h"
 #include <vnm_plot/qt/plot_time_axis.h>
 #include <vnm_plot/core/constants.h>
@@ -27,19 +28,6 @@
 #include <tuple>
 #include <utility>
 #include <vector>
-
-// Forward declare the Qt-generated resource init function (at global scope)
-int qInitResources_vnm_plot();
-
-// Call resource init at global scope before any namespace
-inline void vnm_plot_init_qt_resources()
-{
-    static bool done = false;
-    if (!done) {
-        qInitResources_vnm_plot();
-        done = true;
-    }
-}
 
 namespace {
 
@@ -145,7 +133,7 @@ const char* stack_reason_name(Stack_rejection_reason reason)
 Plot_widget::Plot_widget()
     : QQuickRhiItem()
 {
-    vnm_plot_init_qt_resources();
+    detail::initialize_qml_resources();
 
     m_relative_preview_height                     = 0.3f;
     m_preview_height_min                          = 30.0;

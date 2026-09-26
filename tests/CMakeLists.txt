@@ -117,6 +117,9 @@ if(TARGET test_msdf_lcd_shader_reference)
 endif()
 
 if(TARGET vnm_plot_qtquick)
+    add_executable(test_qml_module test_qml_module.cpp)
+    target_link_libraries(test_qml_module PRIVATE vnm_plot::qtquick)
+
     add_executable(test_plot_interaction_item test_plot_interaction_item.cpp)
     target_link_libraries(test_plot_interaction_item PRIVATE vnm_plot::qtquick)
 
@@ -148,6 +151,7 @@ endif()
 
 if(TARGET vnm_plot_qtquick)
     set_target_properties(
+        test_qml_module
         test_plot_interaction_item
         test_plot_renderer_lifecycle
         test_plot_time_axis
@@ -229,6 +233,7 @@ if(TARGET test_msdf_lcd_shader_reference)
 endif()
 
 if(TARGET vnm_plot_qtquick)
+    vnm_plot_add_test(QmlModule test_qml_module)
     vnm_plot_add_test(PlotInteractionItem test_plot_interaction_item)
     vnm_plot_add_test(PlotRendererLifecycle test_plot_renderer_lifecycle)
     vnm_plot_add_test(PlotTimeAxis test_plot_time_axis)
@@ -350,7 +355,7 @@ if(WIN32)
         endif()
     endforeach()
 
-    set(_vnm_plot_windows_test_targets ${_vnm_plot_rhi_tests})
+    set(_vnm_plot_windows_test_targets ${_vnm_plot_rhi_tests} test_qml_module)
     if(TARGET test_plot_interaction_item)
         list(APPEND _vnm_plot_windows_test_targets test_plot_interaction_item)
     endif()

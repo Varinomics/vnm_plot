@@ -31,9 +31,7 @@ int main(int argc, char* argv[])
     app.setWindowIcon(QIcon("qrc:/rc/varinomics.ico"));
 
     // Register QML types
-    qmlRegisterType<vnm::plot::Plot_widget>("VnmPlot", 1, 0, "PlotWidget");
-    qmlRegisterType<vnm::plot::Plot_interaction_item>("VnmPlot", 1, 0, "PlotInteractionItem");
-    qmlRegisterType<vnm::plot::Plot_time_axis>("VnmPlot", 1, 0, "PlotTimeAxis");
+    vnm::plot::register_qml_types();
     qmlRegisterUncreatableType<Function_entry>("FunctionPlotter", 1, 0, "FunctionEntry",
         "Function entries are created by Function_plotter");
 
@@ -45,9 +43,6 @@ int main(int argc, char* argv[])
 
     // Set up QML engine
     QQmlApplicationEngine engine;
-
-    // Add vnm_plot QML module import path
-    engine.addImportPath("qrc:/vnm_plot/qml");
 
     // Expose the plotter to QML
     engine.rootContext()->setContextProperty("functionPlotter", &plotter);

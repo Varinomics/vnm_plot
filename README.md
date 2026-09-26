@@ -171,14 +171,17 @@ stack geometry, including `AREA` bases.
 
 ### QML Quickstart
 
-Register the type in C++:
+Register the module on the GUI thread before creating the QML engine:
 
 ```cpp
 #include <vnm_plot/vnm_plot.h>
 
-qmlRegisterType<vnm::plot::Plot_widget>("VnmPlot", 1, 0, "PlotWidget");
-qmlRegisterType<vnm::plot::Plot_time_axis>("VnmPlot", 1, 0, "PlotTimeAxis");
+vnm::plot::register_qml_types();
 ```
+
+This registers `PlotWidget`, `PlotTimeAxis`, `PlotInteractionItem`, `PlotView`,
+and `PlotIndicator` and loads their embedded resources. No extra QML import path
+is required. Link the application to `vnm_plot::qtquick`.
 
 Use it in QML:
 
