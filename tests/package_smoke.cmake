@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
+include("${VNM_TOOLCHAIN_CONTEXT}")
 
 foreach(_required_var IN ITEMS
     VNM_PLOT_BINARY_DIR
@@ -136,40 +137,13 @@ function(vnm_plot_consumer_configure_command out_var consumer_source_dir consume
         -DCMAKE_FIND_USE_PACKAGE_REGISTRY=FALSE
         -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=FALSE)
 
-    if(DEFINED VNM_PLOT_TEST_BUILD_TYPE AND
-       NOT VNM_PLOT_TEST_BUILD_TYPE STREQUAL "")
-        list(APPEND _command "-DCMAKE_BUILD_TYPE=${VNM_PLOT_TEST_BUILD_TYPE}")
-    endif()
-    if(DEFINED VNM_PLOT_TEST_GENERATOR AND
-       NOT VNM_PLOT_TEST_GENERATOR STREQUAL "")
-        list(APPEND _command -G "${VNM_PLOT_TEST_GENERATOR}")
-    endif()
-    if(DEFINED VNM_PLOT_TEST_GENERATOR_PLATFORM AND
-       NOT VNM_PLOT_TEST_GENERATOR_PLATFORM STREQUAL "")
-        list(APPEND _command -A "${VNM_PLOT_TEST_GENERATOR_PLATFORM}")
-    endif()
-    if(DEFINED VNM_PLOT_TEST_GENERATOR_TOOLSET AND
-       NOT VNM_PLOT_TEST_GENERATOR_TOOLSET STREQUAL "")
-        list(APPEND _command -T "${VNM_PLOT_TEST_GENERATOR_TOOLSET}")
-    endif()
-    if(DEFINED VNM_PLOT_TEST_MAKE_PROGRAM AND
-       NOT VNM_PLOT_TEST_MAKE_PROGRAM STREQUAL "")
-        list(APPEND _command "-DCMAKE_MAKE_PROGRAM=${VNM_PLOT_TEST_MAKE_PROGRAM}")
-    endif()
-    foreach(_toolchain_var IN ITEMS
-        CXX_COMPILER TOOLCHAIN_FILE LINKER RC_COMPILER MT)
-        if(DEFINED VNM_PLOT_TEST_${_toolchain_var} AND
-           NOT "${VNM_PLOT_TEST_${_toolchain_var}}" STREQUAL "")
-            list(APPEND _command
-                "-DCMAKE_${_toolchain_var}=${VNM_PLOT_TEST_${_toolchain_var}}")
-        endif()
-    endforeach()
+    vnm_append_toolchain_args(_command)
     if(DEFINED VNM_PLOT_TEST_QT6_DIR AND
        NOT VNM_PLOT_TEST_QT6_DIR STREQUAL "")
         list(APPEND _command "-DQt6_DIR=${VNM_PLOT_TEST_QT6_DIR}")
     endif()
 
-    set(${out_var} ${_command} PARENT_SCOPE)
+    set(${out_var} "${_command}" PARENT_SCOPE)
 endfunction()
 
 set(_consumer_source_dir "${_work_dir}/consumer")
@@ -258,7 +232,7 @@ if(NOT _configure_result EQUAL 0)
         "${_configure_output}\n${_configure_error}")
 endif()
 
-set(_build_command "${CMAKE_COMMAND}" --build "${_consumer_build_dir}")
+set(_build_command "${CMAKE_COMMAND}" --build "${_consumer_build_dir}" --parallel 1)
 if(DEFINED VNM_PLOT_TEST_CONFIG AND
    NOT VNM_PLOT_TEST_CONFIG STREQUAL "")
     list(APPEND _build_command --config "${VNM_PLOT_TEST_CONFIG}")

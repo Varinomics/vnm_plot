@@ -298,23 +298,16 @@ if(_vnm_plot_package_smoke_viable)
 endif()
 
 if(_vnm_plot_package_smoke_viable)
+    include("${PROJECT_SOURCE_DIR}/cmake/vnm_cmake_dependency.cmake")
+    vnm_write_toolchain_context("${CMAKE_CURRENT_BINARY_DIR}/nested-toolchain.cmake")
     add_test(
         NAME PackageSmoke
         COMMAND ${CMAKE_COMMAND}
             "-DVNM_PLOT_BINARY_DIR=${PROJECT_BINARY_DIR}"
             "-DVNM_PLOT_GLM_INCLUDE_DIR=${_vnm_plot_glm_include_dir}"
             "-DVNM_PLOT_MSDF_TEXT_INCLUDE_DIR=${_vnm_plot_msdf_text_include_dir}"
-            "-DVNM_PLOT_TEST_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
             "-DVNM_PLOT_TEST_CONFIG=$<CONFIG>"
-            "-DVNM_PLOT_TEST_GENERATOR=${CMAKE_GENERATOR}"
-            "-DVNM_PLOT_TEST_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
-            "-DVNM_PLOT_TEST_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
-            "-DVNM_PLOT_TEST_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-            "-DVNM_PLOT_TEST_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-            "-DVNM_PLOT_TEST_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
-            "-DVNM_PLOT_TEST_LINKER=${CMAKE_LINKER}"
-            "-DVNM_PLOT_TEST_RC_COMPILER=${CMAKE_RC_COMPILER}"
-            "-DVNM_PLOT_TEST_MT=${CMAKE_MT}"
+            "-DVNM_TOOLCHAIN_CONTEXT=${CMAKE_CURRENT_BINARY_DIR}/nested-toolchain.cmake"
             "-DVNM_PLOT_TEST_QT6_DIR=${Qt6_DIR}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/package_smoke.cmake")
     list(APPEND _vnm_plot_test_names PackageSmoke)
