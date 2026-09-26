@@ -6,9 +6,7 @@
 #include <vnm_plot/core/algo.h>
 #include <vnm_plot/rhi/asset_loader.h>
 #include "../src/core/series_window_planner.h"
-#define private public
-#include <vnm_plot/rhi/series_renderer.h>
-#undef private
+#include "test_series_renderer.h"
 #include <vnm_plot/core/plot_config.h>
 #include <vnm_plot/core/time_units.h>
 
@@ -29,7 +27,7 @@ using plot::Data_source;
 using plot::Display_style;
 using plot::Empty_window_behavior;
 using plot::Plot_config;
-using plot::Series_renderer;
+using Series_renderer = plot::Test_series_renderer;
 using plot::data_snapshot_t;
 using plot::frame_context_t;
 using plot::frame_layout_result_t;

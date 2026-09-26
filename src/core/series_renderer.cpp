@@ -14,6 +14,7 @@
 #include <rhi/qrhi.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -25,7 +26,6 @@
 
 namespace vnm::plot {
 using detail::choose_origin_ns;
-using detail::compute_lod_scales;
 using detail::k_scissor_pad_px;
 using detail::positive_span_ns_for_signed_api;
 
@@ -69,7 +69,7 @@ std::vector<std::size_t> source_lod_scales(const Data_source& source)
     const std::size_t        level_count = source.lod_levels();
     std::vector<std::size_t> scales      = source.lod_scales();
     if (scales.size() != level_count) {
-        scales = compute_lod_scales(source);
+        scales = source.Data_source::lod_scales();
     }
     for (std::size_t& scale : scales) {
         scale = std::max<std::size_t>(1, scale);
@@ -279,7 +279,6 @@ series_view_uniform_std140_t make_series_view_uniform(
 struct Series_renderer::vbo_view_state_t::rhi_buffers_t
 {
     std::unique_ptr<QRhiBuffer>    vbo;
-    std::unique_ptr<QRhiBuffer>    ubo;
     // LINE-specific per-frame buffer that holds the active sample window
     // padded with leading and trailing duplicates. Bound four times as a
     // vertex buffer at consecutive gpu_sample_t offsets with per-instance
@@ -306,6 +305,17 @@ struct Series_renderer::vbo_view_state_t::rhi_buffers_t
     srb_entry_t                    line_srb;
     srb_entry_t                    stack_sum_line_srb;
     srb_entry_t                    area_fill_srb;
+
+    srb_entry_t& bindings_for(Display_style style, bool stack_sum_overlay)
+    {
+        if (style == Display_style::DOTS) {
+            return dots_srb;
+        }
+        if (style == Display_style::AREA) {
+            return area_fill_srb;
+        }
+        return stack_sum_overlay ? stack_sum_line_srb : line_srb;
+    }
 
 };
 
@@ -345,36 +355,9 @@ Series_renderer::vbo_state_t::operator=(vbo_state_t&&) noexcept = default;
 
 struct Series_renderer::rhi_state_t
 {
-    enum class pipeline_kind_t : uint32_t
-    {
-        DOTS = 0,
-        LINE = 1,
-        AREA = 2
-    };
-
-    struct pipeline_key_t
-    {
-        pipeline_kind_t kind;
-
-        bool operator==(const pipeline_key_t& o) const noexcept
-        {
-            return kind == o.kind;
-        }
-    };
-
-    struct pipeline_key_hash_t
-    {
-        std::size_t operator()(const pipeline_key_t& k) const noexcept
-        {
-            return static_cast<std::size_t>(k.kind);
-        }
-    };
-
     struct rhi_pipeline_t
     {
         std::unique_ptr<QRhiGraphicsPipeline>  pipeline;
-        QShader                                vert;
-        QShader                                frag;
         // Render-pass descriptor captured at pipeline creation. If the host's
         // current render target carries a different descriptor (e.g. resize
         // recreated the FBO with a different color format or sample count),
@@ -517,7 +500,7 @@ struct Series_renderer::rhi_state_t
         std::size_t                series_order      = 0;
         std::size_t                insertion_order   = 0;
         Qrhi_series_layer_state*   state             = nullptr;
-        const series_data_t*       series            = nullptr;
+        std::shared_ptr<const series_data_t> series;
         sample_window_t            window;
         QRhiBuffer*                view_ubo          = nullptr;
         Display_style              primitive_style   = Display_style::LINE;
@@ -531,7 +514,7 @@ struct Series_renderer::rhi_state_t
                                    builtin_segment_spans;
     };
 
-    std::unordered_map<pipeline_key_t, rhi_pipeline_t, pipeline_key_hash_t>    pipelines;
+    std::array<rhi_pipeline_t, 3>                                            pipelines;
     std::unordered_map<view_ubo_key_t, view_ubo_state_t, view_ubo_key_hash_t>  view_ubos;
     std::unordered_map<
         qrhi_layer_program_key_t,
@@ -547,20 +530,30 @@ struct Series_renderer::rhi_state_t
     bool                                                                       shaders_loaded = false;
 
     QRhi*                                                                      last_rhi = nullptr;
-    QRhiResourceUpdateBatch*                                                   pending_updates = nullptr;
-
-    // Per-frame draw plan computed in prepare() and replayed in render().
-    // The vector lives on the renderer rather than in a stack
-    // frame because the prepare() / render() split happens across two host
-    // calls, with cb->beginPass(batch) sandwiched in between. The fp32
-    // origins computed in prepare() ride inside the per-view UBO/staging
-    // bytes already submitted to the resource-update batch, so they do
-    // not need to be cached here for render() to read back.
-    std::vector<series_draw_state_t>                                           frame_draw_states;
-    bool                                                                       frame_preview_visible = false;
     // True if prepare() filled this plan. Reset after render() consumes it
     // so a stray render() without a matching prepare() is a no-op.
     bool                                                                       frame_plan_ready = false;
+
+    rhi_pipeline_t& pipeline_for(Display_style style)
+    {
+        switch (style) {
+            case Display_style::DOTS: return pipelines[0];
+            case Display_style::AREA: return pipelines[1];
+            default:                  return pipelines[2];
+        }
+    }
+
+    void clear_layer_resources()
+    {
+        for (auto& [key, entry] : qrhi_layer_cache) {
+            if (entry.state) {
+                entry.state->cleanup_qrhi_resources(key.rhi);
+            }
+        }
+        qrhi_layer_cache.clear();
+        view_ubos.clear();
+        prepared_draws.clear();
+    }
 };
 
 // -----------------------------------------------------------------------------
@@ -675,15 +668,8 @@ void Series_renderer::cleanup_resources()
     m_vbo_states.clear();
     m_logged_errors.clear();
 
-    m_rhi_state->pipelines.clear();
-    for (auto& [key, entry] : m_rhi_state->qrhi_layer_cache) {
-        if (entry.state) {
-            entry.state->cleanup_qrhi_resources(key.rhi);
-        }
-    }
-    m_rhi_state->qrhi_layer_cache.clear();
-    m_rhi_state->view_ubos.clear();
-    m_rhi_state->prepared_draws.clear();
+    m_rhi_state->pipelines = {};
+    m_rhi_state->clear_layer_resources();
     m_rhi_state->shaders_loaded   = false;
     m_rhi_state->cached_dot_vert  = {};
     m_rhi_state->cached_dot_frag  = {};
@@ -692,10 +678,8 @@ void Series_renderer::cleanup_resources()
     m_rhi_state->cached_area_vert = {};
     m_rhi_state->cached_area_frag = {};
     m_rhi_state->last_rhi         = nullptr;
-    m_rhi_state->pending_updates  = nullptr;
-    m_rhi_state->frame_draw_states.clear();
-    m_rhi_state->prepared_draws.clear();
     m_rhi_state->frame_plan_ready = false;
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
     m_last_recorded_draw_z_orders.clear();
     m_last_recorded_draw_styles.clear();
     m_last_recorded_draw_series_ids.clear();
@@ -704,6 +688,7 @@ void Series_renderer::cleanup_resources()
     m_last_recorded_draw_colors.clear();
     m_last_recorded_line_widths.clear();
     m_last_qrhi_layer_cache_size = 0;
+#endif
 }
 
 void Series_renderer::clear_frame_snapshot_caches()
@@ -722,9 +707,9 @@ void Series_renderer::prepare(
 {
     m_main_stack_validity.clear();
     m_stack_view_statuses.clear();
-    m_rhi_state->frame_draw_states.clear();
     m_rhi_state->prepared_draws.clear();
     m_rhi_state->frame_plan_ready = false;
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
     m_last_recorded_draw_z_orders.clear();
     m_last_recorded_draw_styles.clear();
     m_last_recorded_draw_series_ids.clear();
@@ -733,19 +718,15 @@ void Series_renderer::prepare(
     m_last_recorded_draw_colors.clear();
     m_last_recorded_line_widths.clear();
     m_last_qrhi_layer_cache_size = m_rhi_state->qrhi_layer_cache.size();
+#endif
 
     const auto clear_retired_series_resources = [&]() {
         clear_frame_snapshot_caches();
         m_vbo_states.clear();
-        for (auto& [key, entry] : m_rhi_state->qrhi_layer_cache) {
-            if (entry.state) {
-                entry.state->cleanup_qrhi_resources(key.rhi);
-            }
-        }
-        m_rhi_state->qrhi_layer_cache.clear();
-        m_rhi_state->view_ubos.clear();
-        m_rhi_state->prepared_draws.clear();
+        m_rhi_state->clear_layer_resources();
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
         m_last_qrhi_layer_cache_size = 0;
+#endif
     };
 
     if (series.empty()) {
@@ -766,15 +747,8 @@ void Series_renderer::prepare(
     QRhi* rhi = ctx.rhi;
     QRhiResourceUpdateBatch* rhi_updates = ctx.rhi_updates;
     if (m_rhi_state->last_rhi != rhi) {
-        for (auto& [key, entry] : m_rhi_state->qrhi_layer_cache) {
-            if (entry.state) {
-                entry.state->cleanup_qrhi_resources(key.rhi);
-            }
-        }
-        m_rhi_state->qrhi_layer_cache.clear();
-        m_rhi_state->view_ubos.clear();
-        m_rhi_state->pipelines.clear();
-        m_rhi_state->prepared_draws.clear();
+        m_rhi_state->clear_layer_resources();
+        m_rhi_state->pipelines = {};
         for (auto& [_, state] : m_vbo_states) {
             state.main_view.reset();
             state.preview_view.reset();
@@ -782,10 +756,11 @@ void Series_renderer::prepare(
                 *state.snapshot_cache = detail::Series_window_snapshot_cache{};
             }
         }
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
         m_last_qrhi_layer_cache_size = 0;
+#endif
     }
     m_rhi_state->last_rhi        = rhi;
-    m_rhi_state->pending_updates = rhi_updates;
 
     for (auto it = m_vbo_states.begin(); it != m_vbo_states.end(); ) {
         if (series.find(it->first) == series.end()) {
@@ -796,12 +771,11 @@ void Series_renderer::prepare(
         }
     }
 
-    auto& draw_states = m_rhi_state->frame_draw_states;
+    std::vector<series_draw_state_t> draw_states;
     draw_states.reserve(series.size());
 
     const double preview_visibility = ctx.config ? ctx.config->preview_visibility : 1.0;
     const bool   preview_visible    = ctx.adjusted_preview_height > 0.0 && preview_visibility > 0.0;
-    m_rhi_state->frame_preview_visible = preview_visible;
 
     const std::int64_t main_span_ns = positive_span_ns_for_signed_api(ctx.t0, ctx.t1);
     const std::int64_t preview_span_ns = positive_span_ns_for_signed_api(
@@ -1315,8 +1289,10 @@ void Series_renderer::prepare(
 
     const auto invalidate_view_upload_state = [](vbo_view_state_t& view_state) {
         view_state.has_uploaded_vbo              = false;
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
         view_state.last_sample_buffer            = nullptr;
         view_state.last_staged_sample_count      = 0;
+#endif
         view_state.last_sample_upload_bytes      = 0;
         view_state.last_line_window_upload_bytes = 0;
         view_state.last_line_window_upload_count = 0;
@@ -1460,6 +1436,7 @@ void Series_renderer::prepare(
         view_state.last_line_window_upload_count    = 0;
         view_state.last_uniform_upload_bytes        = 0;
         view_state.last_uniform_upload_count        = 0;
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
         view_state.last_primitive_prepare_count     = 0;
         view_state.last_line_window_sample_count    = 0;
         view_state.last_recorded_line_span_count    = 0;
@@ -1470,6 +1447,7 @@ void Series_renderer::prepare(
         view_state.last_sample_access_dispatch_kind =
             detail::access_dispatch_kind_t::NONE;
         view_state.last_sample_buffer = nullptr;
+#endif
 
         if (!draw_state.series) {
             return;
@@ -1665,7 +1643,7 @@ void Series_renderer::prepare(
                     command.view_kind         = plan.view_kind;
                     command.series_order      = draw_state.series_order;
                     command.insertion_order   = next_draw_insertion_order++;
-                    command.series            = draw_state.series.get();
+                    command.series            = draw_state.series;
                     command.window            = window;
                     command.primitive_style   = planned_draw.primitive_style;
                     command.view_state        = &view_state;
@@ -1763,7 +1741,7 @@ void Series_renderer::prepare(
                 command.series_order    = draw_state.series_order;
                 command.insertion_order = next_draw_insertion_order++;
                 command.state           = cache_entry.state.get();
-                command.series          = draw_state.series.get();
+                command.series          = draw_state.series;
                 command.window          = window;
                 command.view_ubo        = view_ubo;
                 m_rhi_state->prepared_draws.push_back(std::move(command));
@@ -1931,7 +1909,9 @@ void Series_renderer::prepare(
         }
         it = m_rhi_state->qrhi_layer_cache.erase(it);
     }
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
     m_last_qrhi_layer_cache_size = m_rhi_state->qrhi_layer_cache.size();
+#endif
 
     for (auto it = m_rhi_state->view_ubos.begin();
         it != m_rhi_state->view_ubos.end();)
@@ -1953,8 +1933,6 @@ void Series_renderer::render(
 {
     if (!ctx.rhi) {
         prepare(ctx, series);
-        m_rhi_state->pending_updates = nullptr;
-        m_rhi_state->frame_draw_states.clear();
         m_rhi_state->prepared_draws.clear();
         m_rhi_state->frame_plan_ready = false;
         clear_frame_snapshot_caches();
@@ -1986,6 +1964,7 @@ void Series_renderer::render(
 
     for (auto& command : m_rhi_state->prepared_draws) {
         apply_band_scissor(command.window);
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
         m_last_recorded_draw_z_orders.push_back(command.z_order);
         m_last_recorded_draw_styles.push_back(
             command.kind ==
@@ -1997,6 +1976,7 @@ void Series_renderer::render(
         m_last_recorded_stack_sum_overlays.push_back(command.stack_sum_overlay);
         m_last_recorded_draw_colors.push_back(command.draw_color);
         m_last_recorded_line_widths.push_back(command.line_width_px);
+#endif
 
         if (command.kind ==
             rhi_state_t::prepared_draw_command_t::kind_t::BUILTIN)
@@ -2020,14 +2000,12 @@ void Series_renderer::render(
         record_ctx.cb            = ctx.cb;
         record_ctx.render_target = ctx.render_target;
         record_ctx.frame         = &ctx;
-        record_ctx.series        = command.series;
+        record_ctx.series        = command.series.get();
         record_ctx.window        = command.window;
         record_ctx.view_ubo      = command.view_ubo;
         command.state->record(record_ctx);
     }
 
-    m_rhi_state->pending_updates = nullptr;
-    m_rhi_state->frame_draw_states.clear();
     m_rhi_state->prepared_draws.clear();
     m_rhi_state->frame_plan_ready = false;
     clear_frame_snapshot_caches();
@@ -2048,17 +2026,21 @@ bool Series_renderer::rhi_prepare_series_view_samples(
                 detail::series_window_planner_state_t::k_no_timestamp;
         }
         view_state.staging.clear();
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
         view_state.last_staged_sample_count      = 0;
+#endif
         view_state.last_sample_upload_bytes      = 0;
         view_state.last_line_window_upload_bytes = 0;
         view_state.last_line_window_upload_count = 0;
         view_state.last_uniform_upload_bytes     = 0;
         view_state.last_uniform_upload_count     = 0;
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
         view_state.last_line_window_sample_count = 0;
         view_state.last_prepared_t_min_ns        = 0;
         view_state.last_prepared_t_max_ns        = 0;
         view_state.last_prepared_width_px        = 0.0;
         view_state.last_sample_buffer            = nullptr;
+#endif
         view_state.line_window_geometry_dirty    = true;
         view_state.line_draw_spans.clear();
     };
@@ -2080,7 +2062,9 @@ bool Series_renderer::rhi_prepare_series_view_samples(
     const detail::erased_access_policy_t access_view = window.access
         ? detail::make_erased_access_policy_view(*window.access)
         : detail::erased_access_policy_t{};
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
     view_state.last_sample_access_dispatch_kind = access_view.dispatch_kind;
+#endif
     if (snapshot) {
         if (!access_view.has_timestamp() || !updates) {
             invalidate_uploaded_vbo();
@@ -2218,7 +2202,9 @@ bool Series_renderer::rhi_prepare_series_view_samples(
                 qrhi_alloc_bytes));
             if (view_state.rhi->vbo && view_state.rhi->vbo->create()) {
                 view_state.rhi_vbo_capacity_bytes = alloc_bytes;
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
                 ++view_state.last_vbo_generation;
+#endif
                 if (ctx.config && ctx.config->profiler) {
                     ctx.config->profiler->record_observation(
                         "renderer.frame.gpu_buffer_allocation_bytes",
@@ -2239,7 +2225,9 @@ bool Series_renderer::rhi_prepare_series_view_samples(
             0,
             upload_bytes,
             staging.data());
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
         view_state.last_staged_sample_count = needed_elements;
+#endif
         view_state.last_sample_upload_bytes = upload_bytes;
         ++view_state.last_sample_upload_count;
         view_state.has_uploaded_vbo = true;
@@ -2248,10 +2236,12 @@ bool Series_renderer::rhi_prepare_series_view_samples(
     if (!view_state.rhi->vbo) {
         return false;
     }
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
     view_state.last_sample_buffer     = view_state.rhi->vbo.get();
     view_state.last_prepared_t_min_ns = window.t_min_ns;
     view_state.last_prepared_t_max_ns = window.t_max_ns;
     view_state.last_prepared_width_px = window.width_px;
+#endif
     return true;
 }
 
@@ -2341,13 +2331,7 @@ bool Series_renderer::rhi_prepare_series_primitive(
         return true;
     };
 
-    auto& primary_srb_entry = is_dots
-        ? view_state.rhi->dots_srb
-        : (is_area
-            ? view_state.rhi->area_fill_srb
-            : (stack_sum_overlay
-                ? view_state.rhi->stack_sum_line_srb
-                : view_state.rhi->line_srb));
+    auto& primary_srb_entry = view_state.rhi->bindings_for(primitive_style, stack_sum_overlay);
     if (!ensure_ubo(primary_srb_entry)) {
         return false;
     }
@@ -2506,7 +2490,9 @@ bool Series_renderer::rhi_prepare_series_primitive(
                 0,
                 upload_bytes,
                 padded.data());
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
             view_state.last_line_window_sample_count = total_window_count;
+#endif
             view_state.last_line_window_upload_bytes = upload_bytes;
             ++view_state.last_line_window_upload_count;
             view_state.line_window_geometry_dirty = false;
@@ -2517,14 +2503,7 @@ bool Series_renderer::rhi_prepare_series_primitive(
     // shader-resource-binding LAYOUT (which slots, which stages), not on the
     // concrete buffer handles. Per-series binding handles ride the SRB,
     // which is rebuilt per view below.
-    rhi_state_t::pipeline_key_t key{
-        is_dots
-            ? rhi_state_t::pipeline_kind_t::DOTS
-            : (is_area
-                ? rhi_state_t::pipeline_kind_t::AREA
-                : rhi_state_t::pipeline_kind_t::LINE)
-    };
-    auto& cached = m_rhi_state->pipelines[key];
+    auto& cached = m_rhi_state->pipeline_for(primitive_style);
 
     // The pipeline state object captures the render-pass descriptor and
     // sample count of the target it was built for. A resize that recreates
@@ -2539,9 +2518,6 @@ bool Series_renderer::rhi_prepare_series_primitive(
     }
 
     if (!cached.pipeline) {
-        cached.vert = vert;
-        cached.frag = frag;
-
         QRhiVertexInputLayout vlayout;
         if (is_dots) {
             QRhiVertexInputBinding ib0(
@@ -2623,8 +2599,8 @@ bool Series_renderer::rhi_prepare_series_primitive(
         // rides vertex attributes instead of SSBOs so the D3D11 backend's
         // SM 5.0 vertex shader has zero UAVs.
         detail::alpha_blended_pipeline_desc_t desc;
-        desc.vert       = cached.vert;
-        desc.frag       = cached.frag;
+        desc.vert       = vert;
+        desc.frag       = frag;
         desc.vlayout    = vlayout;
         desc.ubo_bytes  = k_series_ubo_bytes;
         desc.ubo_stages = QRhiShaderResourceBinding::VertexStage
@@ -2730,7 +2706,9 @@ bool Series_renderer::rhi_prepare_series_primitive(
             ++view_state.last_uniform_upload_count;
         }
     }
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
     ++view_state.last_primitive_prepare_count;
+#endif
     return true;
 }
 
@@ -2764,26 +2742,12 @@ void Series_renderer::rhi_record_series_primitive(
         return;
     }
 
-    rhi_state_t::pipeline_key_t key{
-        is_dots
-            ? rhi_state_t::pipeline_kind_t::DOTS
-            : (is_area
-                ? rhi_state_t::pipeline_kind_t::AREA
-                : rhi_state_t::pipeline_kind_t::LINE)
-    };
-    auto pipe_it = m_rhi_state->pipelines.find(key);
-    if (pipe_it == m_rhi_state->pipelines.end() || !pipe_it->second.pipeline) {
+    auto& cached = m_rhi_state->pipeline_for(primitive_style);
+    if (!cached.pipeline) {
         return;
     }
-    auto& cached = pipe_it->second;
 
-    auto& srb_entry = is_dots
-        ? view_state.rhi->dots_srb
-        : (is_area
-            ? view_state.rhi->area_fill_srb
-            : (stack_sum_overlay
-                ? view_state.rhi->stack_sum_line_srb
-                : view_state.rhi->line_srb));
+    auto& srb_entry = view_state.rhi->bindings_for(primitive_style, stack_sum_overlay);
     if (!srb_entry.srb) {
         return;
     }
@@ -2801,7 +2765,9 @@ void Series_renderer::rhi_record_series_primitive(
             return;
         }
         cb->draw(4, instance_count);
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
         view_state.last_recorded_dot_sample_count += count;
+#endif
     }
     else
     if (is_area) {
@@ -2832,8 +2798,10 @@ void Series_renderer::rhi_record_series_primitive(
             cb->setVertexInput(0, 2, inputs);
             cb->setShaderResources(srb_entry.srb.get());
             cb->draw(6, instance_count);
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
             ++view_state.last_recorded_area_span_count;
             view_state.last_recorded_area_segment_count += span.gpu_count - 1u;
+#endif
         }
     }
     else {
@@ -2878,9 +2846,11 @@ void Series_renderer::rhi_record_series_primitive(
             };
             cb->setVertexInput(0, 4, inputs);
             cb->draw(4, instance_count);
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
             ++view_state.last_recorded_line_span_count;
             view_state.last_recorded_line_segment_count +=
                 line_span.line_count - 1u;
+#endif
         }
     }
 }

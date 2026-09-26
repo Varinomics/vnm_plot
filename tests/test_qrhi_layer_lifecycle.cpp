@@ -5,9 +5,7 @@
 #include <vnm_plot/core/access_policy.h>
 #include <vnm_plot/rhi/asset_loader.h>
 #include <vnm_plot/core/plot_config.h>
-#define private public
-#include <vnm_plot/rhi/series_renderer.h>
-#undef private
+#include "test_series_renderer.h"
 #include <vnm_plot/rhi/qrhi_series_layer.h>
 #include <vnm_plot/rhi/series_data.h>
 
@@ -432,7 +430,7 @@ public:
     QRhiTextureRenderTarget* render_target() const { return m_render_target.get(); }
 
     bool render_layer_frame(
-        plot::Series_renderer& renderer,
+        plot::Test_series_renderer& renderer,
         plot::frame_context_t& ctx,
         const std::map<int, std::shared_ptr<const plot::series_data_t>>&
                                series_map,
@@ -558,7 +556,7 @@ std::size_t find_event_index(
 }
 
 bool assert_compact_upload_state(
-    const plot::Series_renderer&       renderer,
+    const plot::Test_series_renderer&       renderer,
     int                                series_id,
     const layer_event_t&               prepare,
     std::size_t                        expected_line_window_sample_count,
@@ -654,7 +652,7 @@ bool test_layer_only_zero_style_prepare_record_order()
     std::map<int, std::shared_ptr<const plot::series_data_t>> series_map;
     series_map[7] = series;
 
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
 
     Offscreen_rhi_fixture rhi_fixture;
     std::string error_message;
@@ -726,7 +724,7 @@ bool test_style_none_without_layers_does_not_upload_samples()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -762,7 +760,7 @@ bool test_custom_sample_buffer_not_reused_when_current_access_cannot_stage()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -838,7 +836,7 @@ bool test_builtin_upload_stages_visible_window_only()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -904,7 +902,7 @@ bool test_builtin_upload_reuses_vbo_capacity_headroom()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -990,7 +988,7 @@ bool test_combined_builtin_uploads_samples_once_per_view()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -1096,7 +1094,7 @@ bool test_direct_member_policy_uses_member_dispatch_in_renderer_staging()
     series_map[fallback_series_id] = fallback_series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -1173,7 +1171,7 @@ bool test_access_policy_change_reuploads_builtin_samples()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -1243,7 +1241,7 @@ bool test_builtin_staging_normalizes_finite_reversed_ranges()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -1329,7 +1327,7 @@ bool test_nonfinite_break_and_skip_split_drawable_spans()
         series_map[test_case.series_id] = series;
 
         plot::Asset_loader asset_loader;
-        plot::Series_renderer renderer;
+        plot::Test_series_renderer renderer;
         renderer.initialize(asset_loader);
 
         Offscreen_rhi_fixture rhi_fixture;
@@ -1438,7 +1436,7 @@ bool test_nonfinite_replace_with_zero_keeps_contiguous_span()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -1520,7 +1518,7 @@ bool test_nonfinite_reject_window_suppresses_drawable_upload()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -1578,7 +1576,7 @@ bool test_nonfinite_reject_window_invalidates_prior_upload_before_busy()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -1664,7 +1662,7 @@ bool test_custom_layer_zero_gpu_window_invalidates_prior_upload_before_busy()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -1744,7 +1742,7 @@ bool test_non_drawable_window_invalidates_prior_upload_before_fast_path()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -1824,7 +1822,7 @@ bool test_non_rhi_prepare_invalidates_prior_upload_before_fast_path()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -1930,7 +1928,7 @@ bool test_nonfinite_hold_forward_policy_controls_held_sample()
         series_map[test_case.series_id] = series;
 
         plot::Asset_loader asset_loader;
-        plot::Series_renderer renderer;
+        plot::Test_series_renderer renderer;
         renderer.initialize(asset_loader);
 
         Offscreen_rhi_fixture rhi_fixture;
@@ -2019,7 +2017,7 @@ bool test_nonfinite_skip_hold_forward_preserves_earlier_held_sample_with_visible
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -2108,7 +2106,7 @@ bool test_nonfinite_skip_hold_forward_ignores_future_padding_without_visible_dat
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -2198,7 +2196,7 @@ bool test_global_draw_order_sorts_builtins_across_series_and_custom_layers()
     series_map[second_series_id] = second_series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -2291,7 +2289,7 @@ bool test_builtin_draw_commands_sort_relative_to_custom_layers()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -2367,7 +2365,7 @@ bool test_builtins_do_not_use_qrhi_layer_cache()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -2451,7 +2449,7 @@ bool test_builtin_upload_stages_visible_windows_for_dots_and_area()
         series_map[test_case.series_id] = series;
 
         plot::Asset_loader asset_loader;
-        plot::Series_renderer renderer;
+        plot::Test_series_renderer renderer;
         renderer.initialize(asset_loader);
 
         Offscreen_rhi_fixture rhi_fixture;
@@ -2522,7 +2520,7 @@ bool test_builtin_upload_stages_single_synthetic_hold_sample()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -2601,7 +2599,7 @@ bool test_builtin_upload_stages_hold_windows_for_dots_and_area()
         series_map[test_case.series_id] = series;
 
         plot::Asset_loader asset_loader;
-        plot::Series_renderer renderer;
+        plot::Test_series_renderer renderer;
         renderer.initialize(asset_loader);
 
         Offscreen_rhi_fixture rhi_fixture;
@@ -2654,7 +2652,7 @@ bool test_resources_changed_tracks_data_and_window_changes()
     series_map[9] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -2745,7 +2743,7 @@ bool test_resources_changed_tracks_hold_timestamp_changes()
     series_map[37] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -2890,7 +2888,7 @@ bool test_busy_stale_fallback_rejects_changed_request_shape()
         series_map[series_id] = series;
 
         plot::Asset_loader asset_loader;
-        plot::Series_renderer renderer;
+        plot::Test_series_renderer renderer;
         renderer.initialize(asset_loader);
 
         Offscreen_rhi_fixture rhi_fixture;
@@ -2981,7 +2979,7 @@ bool test_busy_hold_forward_does_not_prepare_stale_tmax()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -3051,7 +3049,7 @@ bool test_busy_hold_forward_does_not_reuse_non_hold_window()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -3111,7 +3109,7 @@ bool test_external_layer_gets_snapshot_on_builtin_cache_hit()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -3168,7 +3166,7 @@ bool test_external_layer_prepares_busy_stale_fallback_and_recovers()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -3249,7 +3247,7 @@ bool test_external_layer_replans_when_snapshot_advances_after_sequence_probe()
     series_map[series_id] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -3295,7 +3293,7 @@ bool test_layer_state_recreated_for_program_identity_changes()
     series_map[11] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -3388,7 +3386,7 @@ bool test_range_only_access_skips_builtin_value_styles()
     series_map[value_series_id] = value_series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -3493,7 +3491,7 @@ bool test_stacked_sum_overlay_uses_top_geometry_and_theme()
     series_map[70]                = rejected_upper;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
@@ -3683,7 +3681,7 @@ bool test_line_geometry_reuses_and_rebuilds_after_area_only_change()
     series_map[1] = series;
 
     plot::Asset_loader asset_loader;
-    plot::Series_renderer renderer;
+    plot::Test_series_renderer renderer;
     renderer.initialize(asset_loader);
     Offscreen_rhi_fixture rhi_fixture;
     std::string error_message;

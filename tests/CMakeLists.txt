@@ -14,6 +14,10 @@ set(_vnm_plot_layout_tests
     test_time_grid
 )
 
+# Series diagnostics affect the class layout; every consumer of this test build
+# must see the same definition, including when font rendering is disabled.
+target_compile_definitions(vnm_plot_rhi PUBLIC VNM_PLOT_ENABLE_TEST_HOOKS=1)
+
 set(_vnm_plot_rhi_tests
     test_snapshot_caching
     test_core_algo
@@ -35,7 +39,6 @@ if(VNM_PLOT_ENABLE_TEXT)
         test_font_renderer_draw_ranges
         test_msdf_lcd_shader_reference
     )
-    target_compile_definitions(vnm_plot_rhi PRIVATE VNM_PLOT_ENABLE_TEST_HOOKS=1)
 endif()
 
 foreach(_test IN LISTS _vnm_plot_data_tests)

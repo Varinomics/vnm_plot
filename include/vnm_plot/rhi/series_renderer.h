@@ -67,6 +67,8 @@ public:
     // from Qt resources, and prepare() also works without an asset loader.
     void initialize(Asset_loader& asset_loader);
 
+    // Release resources explicitly while the owning QRhi is still alive.
+    // This also calls each custom layer's cleanup_qrhi_resources hook.
     void cleanup_resources();
 
     // Two-phase rendering. Under RHI, the host opens a resource-update batch,
@@ -92,6 +94,7 @@ public:
 
 private:
     friend class Plot_renderer;
+    friend class Test_series_renderer;
     friend void detail::fill_stack_feedback(
         const Series_renderer&              series,
         detail::plot_render_feedback_t&     feedback);
@@ -144,13 +147,16 @@ private:
         // visible gpu_sample_t values rebased against the active origin.
         // Reused across uploads to avoid reallocation.
         std::vector<gpu_sample_t>      staging;
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
         std::size_t                    last_staged_sample_count         = 0;
+#endif
         std::size_t                    last_sample_upload_bytes         = 0;
         std::size_t                    last_sample_upload_count         = 0;
         std::size_t                    last_line_window_upload_bytes    = 0;
         std::size_t                    last_line_window_upload_count    = 0;
         std::size_t                    last_uniform_upload_bytes        = 0;
         std::size_t                    last_uniform_upload_count        = 0;
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
         std::size_t                    last_primitive_prepare_count     = 0;
         std::size_t                    last_line_window_sample_count    = 0;
         std::size_t                    last_recorded_line_span_count    = 0;
@@ -165,6 +171,7 @@ private:
         QRhiBuffer*                    last_sample_buffer               = nullptr;
         detail::access_dispatch_kind_t last_sample_access_dispatch_kind =
             detail::access_dispatch_kind_t::NONE;
+#endif
         std::vector<gpu_sample_t>      line_window_staging;
         std::vector<line_draw_span_t>  line_draw_spans;
         bool                           line_window_geometry_dirty = true;
@@ -210,10 +217,8 @@ private:
         vbo_state_t& operator=(vbo_state_t&&) noexcept;
     };
 
-    // Per-(series, view) draw plan computed in prepare() and consumed in
-    // render(). Pointer fields stay valid because the host passes the same
-    // series_map snapshot to both prepare() and render(), and the renderer's
-    // own state (vbo_state) is owned by m_vbo_states.
+    // Per-series planning scratch used within prepare(). Prepared draw commands
+    // retain their series and snapshot owners through the matching render().
     struct series_draw_state_t
     {
         int                id                               = 0;
@@ -238,6 +243,7 @@ private:
     std::map<int, std::vector<stack_source_revision_t>>                m_main_stack_validity;
     std::map<std::pair<int, Series_view_kind>, stack_view_status_t>    m_stack_view_statuses;
     // Private test instrumentation for the QRhi prepare/render split.
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
     std::vector<int>                                                   m_last_recorded_draw_z_orders;
     std::vector<Display_style>                                         m_last_recorded_draw_styles;
     std::vector<int>                                                   m_last_recorded_draw_series_ids;
@@ -246,6 +252,7 @@ private:
     std::vector<glm::vec4>                                             m_last_recorded_draw_colors;
     std::vector<float>                                                 m_last_recorded_line_widths;
     std::size_t                                                        m_last_qrhi_layer_cache_size = 0;
+#endif
 
     // The full implementation sits in series_renderer.cpp where the QRhi
     // types are complete.
