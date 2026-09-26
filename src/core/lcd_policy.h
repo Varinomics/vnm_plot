@@ -12,32 +12,9 @@ enum class text_lcd_draw_surface_t
 
 constexpr float k_lcd_opaque_alpha_cutoff = 0.999f;
 
-constexpr lcd_subpixel_order_t lcd_sanitize_resolved_order(lcd_subpixel_order_t order)
-{
-    return vnm::msdf_text::lcd::is_display_specific(order)
-        ? order
-        : lcd_subpixel_order_t::NONE;
-}
-
-constexpr lcd_subpixel_order_t lcd_auto_order_from_detections(
-    lcd_subpixel_order_t qt_order,
-    lcd_subpixel_order_t os_order)
-{
-    if (vnm::msdf_text::lcd::is_display_specific(qt_order)) { return qt_order; }
-    if (vnm::msdf_text::lcd::is_display_specific(os_order)) { return os_order; }
-    return lcd_subpixel_order_t::NONE;
-}
-
-constexpr lcd_subpixel_order_t lcd_effective_order(
-    lcd_request_t        requested,
-    lcd_subpixel_order_t auto_resolved)
-{
-    if (requested.automatic) {
-        return lcd_sanitize_resolved_order(auto_resolved);
-    }
-
-    return lcd_sanitize_resolved_order(requested.resolved_order);
-}
+using vnm::msdf_text::lcd::lcd_sanitize_resolved_order;
+using vnm::msdf_text::lcd::lcd_auto_order_from_detections;
+using vnm::msdf_text::lcd::lcd_effective_order;
 
 constexpr lcd_subpixel_order_t lcd_effective_order_for_frame(
     lcd_request_t        requested,
