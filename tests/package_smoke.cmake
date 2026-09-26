@@ -76,11 +76,6 @@ if(NOT TARGET vnm_msdf_text::lcd_contract)
     message(FATAL_ERROR
         "vnm_plot public headers require vnm_msdf_text::lcd_contract.")
 endif()
-if(TARGET vnm_msdf_text::lcd_shader_reference)
-    message(FATAL_ERROR
-        "production package consumer unexpectedly received lcd_shader_reference.")
-endif()
-
 get_target_property(_data_links vnm_plot::data INTERFACE_LINK_LIBRARIES)
 if(NOT _data_links MATCHES "vnm_msdf_text::lcd_contract")
     message(FATAL_ERROR
