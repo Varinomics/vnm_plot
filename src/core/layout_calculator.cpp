@@ -1,4 +1,5 @@
 #include <vnm_plot/core/layout_calculator.h>
+#include "grid_helpers.h"
 #include <vnm_plot/core/algo.h>
 #include <vnm_plot/core/constants.h>
 #include <vnm_plot/core/plot_config.h>
@@ -353,9 +354,7 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
             profiler,
             "renderer.frame.calculate_layout.impl.cache_miss.pass1.vertical_axis");
 
-        const int divs[2] = {5, 2};
         double step                = 1.0;
-        double test                = 0.0;
         int    i                   = 16;
         int    initial_level_index = 0;
 
@@ -380,8 +379,8 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                 if (!(seed_step > 0.0)) {
                     return false;
                 }
-                const double upper = seed_step * divs[seed_index & 1];
-                const double lower = seed_step / divs[(seed_index - 1) & 1];
+                const double upper = seed_step * detail::decade_step_factor(seed_index);
+                const double lower = seed_step / detail::decade_step_factor(seed_index - 1);
                 if (!std::isfinite(upper) || !std::isfinite(lower)) {
                     return false;
                 }
@@ -399,12 +398,7 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
             }
 
             if (!used_seed) {
-                for (; (test = step * divs[i & 1]) < v_span; ++i) {
-                    step = test;
-                }
-                for (; (test = step / divs[(i - 1) & 1]) > v_span; --i) {
-                    step = test;
-                }
+                detail::select_decade_step(v_span, step, i);
             }
 
             initial_level_index = i;
@@ -533,8 +527,7 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                 VNM_PLOT_PROFILE_SCOPE(
                     profiler,
                     "renderer.frame.calculate_layout.impl.cache_miss.pass1.vertical_axis.advance");
-                --i;
-                step /= divs[i & 1];
+                step /= detail::decade_step_factor(--i);
                 if (step * px_per_unit < 2.0) {
                     break;
                 }

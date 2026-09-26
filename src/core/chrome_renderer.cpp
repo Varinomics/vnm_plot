@@ -1,4 +1,5 @@
 #include <vnm_plot/rhi/chrome_renderer.h>
+#include "grid_helpers.h"
 #include <vnm_plot/rhi/primitive_renderer.h>
 #include <vnm_plot/rhi/text_renderer.h>
 #include <vnm_plot/core/color_palette.h>
@@ -13,11 +14,9 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 
 namespace vnm::plot {
-using detail::circular_index;
 using detail::get_shift;
 using detail::k_cell_span_max_factor;
 using detail::k_cell_span_min_factor;
@@ -26,27 +25,6 @@ using detail::k_preview_band_max_px;
 using detail::k_preview_min_window_px;
 
 namespace {
-
-float compute_grid_alpha(float spacing_px, double cell_span_min, double fade_den)
-{
-    const double fade = (double(spacing_px) - cell_span_min) / fade_den;
-    return static_cast<float>(std::clamp(fade, 0.0, 1.0) * k_grid_line_alpha_base);
-}
-
-void append_grid_level(
-    grid_layer_params_t&   levels,
-    float                  spacing_px,
-    float                  start_px,
-    double                 cell_span_min,
-    double                 fade_den)
-{
-    levels.spacing_px[levels.count] = spacing_px;
-    levels.start_px[levels.count]   = start_px;
-    const float alpha = compute_grid_alpha(spacing_px, cell_span_min, fade_den);
-    levels.alpha[levels.count]        = alpha;
-    levels.thickness_px[levels.count] = 0.6f + 0.6f * (alpha / k_grid_line_alpha_base);
-    ++levels.count;
-}
 
 grid_layer_params_t flip_grid_levels_y(const grid_layer_params_t& levels, float height_px)
 {
@@ -80,17 +58,9 @@ grid_layer_params_t Chrome_renderer::calculate_grid_params(
         return levels;
     }
 
-    static const std::array<int, 2> om_div = {5, 2};
-
-    double step  = 1.0;
-    int    idx   = 16;
-    double probe = 0.0;
-    for (; (probe = step * om_div[circular_index(om_div, idx)]) < range; ++idx) {
-        step = probe;
-    }
-    for (; (probe = step / om_div[circular_index(om_div, idx - 1)]) > range; --idx) {
-        step = probe;
-    }
+    double step = 0.0;
+    int idx = 0;
+    detail::select_decade_step(range, step, idx);
 
     const double cell_span_min = font_px * k_cell_span_min_factor;
     const double fade_den      = std::max<double>(1e-6, font_px * (k_cell_span_max_factor - k_cell_span_min_factor));
@@ -99,10 +69,10 @@ grid_layer_params_t Chrome_renderer::calculate_grid_params(
     while (levels.count < grid_layer_params_t::k_max_levels && step * px_per_unit >= cell_span_min) {
         const float  spacing_px  = static_cast<float>(step * px_per_unit);
         const double shift_units = get_shift(step, min);
-        append_grid_level(levels, spacing_px,
+        detail::append_grid_level(levels, spacing_px,
             static_cast<float>(pixel_span - shift_units * px_per_unit), cell_span_min, fade_den);
 
-        step /= om_div[circular_index(om_div, --idx)];
+        step /= detail::decade_step_factor(--idx);
     }
 
     return levels;

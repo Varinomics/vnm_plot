@@ -1,4 +1,5 @@
 #include <vnm_plot/core/time_grid.h>
+#include "grid_helpers.h"
 #include <vnm_plot/core/algo.h>
 #include <vnm_plot/core/constants.h>
 
@@ -22,27 +23,6 @@ bool is_integer_time_grid_multiple(double parent, double child)
 
     const double tol = std::min(1e-3, std::max(1e-8, std::abs(ratio) * 1e-12));
     return std::abs(ratio - rounded) <= tol;
-}
-
-float compute_grid_alpha(float spacing_px, double cell_span_min, double fade_den)
-{
-    const double fade = (double(spacing_px) - cell_span_min) / fade_den;
-    return static_cast<float>(std::clamp(fade, 0.0, 1.0) * detail::k_grid_line_alpha_base);
-}
-
-void append_grid_level(
-    grid_layer_params_t&   levels,
-    float                  spacing_px,
-    float                  start_px,
-    double                 cell_span_min,
-    double                 fade_den)
-{
-    levels.spacing_px[levels.count] = spacing_px;
-    levels.start_px[levels.count]   = start_px;
-    const float alpha = compute_grid_alpha(spacing_px, cell_span_min, fade_den);
-    levels.alpha[levels.count]        = alpha;
-    levels.thickness_px[levels.count] = 0.6f + 0.6f * (alpha / detail::k_grid_line_alpha_base);
-    ++levels.count;
 }
 
 } // anonymous namespace
@@ -93,7 +73,7 @@ grid_layer_params_t build_time_grid_layers(
         }
 
         const double shift_units = detail::get_shift(step, t_min_seconds);
-        append_grid_level(
+        detail::append_grid_level(
             levels,
             spacing_px,
             static_cast<float>(shift_units * px_per_unit),

@@ -1,4 +1,5 @@
 #include "series_window_planner.h"
+#include "checked_size.h"
 
 #include <vnm_plot/core/algo.h>
 #include <vnm_plot/core/plot_config.h>
@@ -19,24 +20,6 @@ namespace {
 void reset_snapshot_cache(Series_window_snapshot_cache& cache)
 {
     cache = Series_window_snapshot_cache{};
-}
-
-bool checked_size_add(std::size_t lhs, std::size_t rhs, std::size_t& out)
-{
-    if (lhs > std::numeric_limits<std::size_t>::max() - rhs) {
-        return false;
-    }
-    out = lhs + rhs;
-    return true;
-}
-
-bool checked_size_product(std::size_t lhs, std::size_t rhs, std::size_t& out)
-{
-    if (rhs != 0 && lhs > std::numeric_limits<std::size_t>::max() / rhs) {
-        return false;
-    }
-    out = lhs * rhs;
-    return true;
 }
 
 struct drawable_window_result_t

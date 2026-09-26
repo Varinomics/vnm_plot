@@ -1,4 +1,4 @@
-// Tests for origin-selection helpers (choose_snap_ns, floor_div_i64,
+// Tests for origin-selection helpers (choose_snap_ns, floor_div_int64,
 // choose_origin_ns).
 
 #include "test_macros.h"
@@ -64,18 +64,18 @@ bool test_choose_snap_ns_bucket_progression()
     return true;
 }
 
-bool test_floor_div_i64_rounds_toward_negative_infinity()
+bool test_floor_div_int64_rounds_toward_negative_infinity()
 {
-    using plot::detail::floor_div_i64;
+    using plot::floor_div_int64;
 
     // C++ integer division truncates toward zero: -7 / 3 == -2 with
     // remainder -1. Floor division must return -3.
-    TEST_ASSERT(floor_div_i64(-7,  3) == -3, "floor_div_i64(-7, 3) must be -3, not -2");
-    TEST_ASSERT(floor_div_i64(-1,  3) == -1, "floor_div_i64(-1, 3) must be -1, not 0");
-    TEST_ASSERT(floor_div_i64(-3,  3) == -1, "floor_div_i64(-3, 3) must be -1");
-    TEST_ASSERT(floor_div_i64( 0,  3) ==  0, "floor_div_i64(0, 3) must be 0");
-    TEST_ASSERT(floor_div_i64( 7,  3) ==  2, "floor_div_i64(7, 3) must be 2");
-    TEST_ASSERT(floor_div_i64( 9,  3) ==  3, "floor_div_i64(9, 3) must be 3");
+    TEST_ASSERT(floor_div_int64(-7,  3) == -3, "floor_div_int64(-7, 3) must be -3, not -2");
+    TEST_ASSERT(floor_div_int64(-1,  3) == -1, "floor_div_int64(-1, 3) must be -1, not 0");
+    TEST_ASSERT(floor_div_int64(-3,  3) == -1, "floor_div_int64(-3, 3) must be -1");
+    TEST_ASSERT(floor_div_int64( 0,  3) ==  0, "floor_div_int64(0, 3) must be 0");
+    TEST_ASSERT(floor_div_int64( 7,  3) ==  2, "floor_div_int64(7, 3) must be 2");
+    TEST_ASSERT(floor_div_int64( 9,  3) ==  3, "floor_div_int64(9, 3) must be 3");
     return true;
 }
 
@@ -312,7 +312,7 @@ int main()
 
     RUN_TEST(test_choose_snap_ns_is_positive_for_representative_spans);
     RUN_TEST(test_choose_snap_ns_bucket_progression);
-    RUN_TEST(test_floor_div_i64_rounds_toward_negative_infinity);
+    RUN_TEST(test_floor_div_int64_rounds_toward_negative_infinity);
     RUN_TEST(test_choose_origin_ns_floors_for_negative_timestamps);
     RUN_TEST(test_choose_origin_ns_aligns_for_positive_timestamps);
     RUN_TEST(test_fp32_round_trip_within_2e24_for_bounded_spans);

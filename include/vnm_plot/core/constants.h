@@ -22,9 +22,6 @@ constexpr float k_cell_span_max_factor = 6.0f;
 constexpr float k_v_label_vertical_nudge_px = 0.1f;
 constexpr float k_h_label_vertical_nudge_px = 1.05f;
 
-// Hit testing
-constexpr float  k_hit_test_px                    = 1.0f;
-
 // Grid appearance
 constexpr float  k_grid_line_alpha_base           = 0.75f;
 
@@ -42,10 +39,6 @@ constexpr float  k_scissor_pad_px                 = 1.0f;
 // Preview bar
 constexpr double k_preview_band_max_px   = 5.0;
 constexpr int    k_preview_min_window_px = 60;
-
-// Font defaults
-constexpr double k_default_font_px              = 10.0;
-constexpr double k_default_base_label_height_px = 14.0;
 
 // Internal constants
 constexpr double k_vbar_width_change_threshold_d = 0.5;

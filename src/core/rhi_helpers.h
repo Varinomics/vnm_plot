@@ -1,5 +1,7 @@
 #pragma once
 
+#include "checked_size.h"
+
 #include <vnm_plot/core/time_units.h>
 
 #include <QFile>
@@ -85,24 +87,6 @@ inline bool to_qrhi_count(std::size_t count, quint32& out)
 inline bool to_qrhi_byte_count(std::size_t bytes, quint32& out)
 {
     return to_qrhi_u32(bytes, out);
-}
-
-inline bool checked_size_add(std::size_t lhs, std::size_t rhs, std::size_t& out)
-{
-    if (lhs > std::numeric_limits<std::size_t>::max() - rhs) {
-        return false;
-    }
-    out = lhs + rhs;
-    return true;
-}
-
-inline bool checked_size_product(std::size_t lhs, std::size_t rhs, std::size_t& out)
-{
-    if (rhs != 0 && lhs > std::numeric_limits<std::size_t>::max() / rhs) {
-        return false;
-    }
-    out = lhs * rhs;
-    return true;
 }
 
 inline bool qrhi_byte_size(

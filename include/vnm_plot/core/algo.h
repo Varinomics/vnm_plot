@@ -178,26 +178,6 @@ inline int trim_trailing_zero_decimals(const std::vector<double>& values, int di
 }
 
 // -----------------------------------------------------------------------------
-// Circular Indexing
-// -----------------------------------------------------------------------------
-
-// Circular index into a container (wrap-around, supports negatives).
-template<typename ContainerT>
-inline std::size_t circular_index(const ContainerT& c, int index)
-{
-    if (c.empty()) {
-        return 0;
-    }
-
-    const auto size_as_int = static_cast<int>(c.size());
-    int        remainder   = index % size_as_int;
-    if (remainder < 0) {
-        remainder += size_as_int;
-    }
-    return static_cast<std::size_t>(remainder);
-}
-
-// -----------------------------------------------------------------------------
 // Grid Alignment
 // -----------------------------------------------------------------------------
 
@@ -719,17 +699,6 @@ inline std::int64_t choose_snap_ns(std::int64_t span_ns)
     return k_ns_per_day;
 }
 
-// Signed floor division of a by b, rounding toward negative infinity.
-// Required because C++ integer division truncates toward zero, which
-// rounds the wrong way for negative numerators and would push the origin
-// above t_view_min for negative timestamps.
-inline std::int64_t floor_div_i64(std::int64_t a, std::int64_t b)
-{
-    const std::int64_t q = a / b;
-    const std::int64_t r = a % b;
-    return r != 0 && ((r < 0) != (b < 0)) ? q - 1 : q;
-}
-
 // Pick a per-view time origin in nanoseconds. The result is the largest
 // multiple of choose_snap_ns(span_ns) that is <= t_view_min_ns, so the
 // origin lies on a stable bucket boundary and small camera moves within
@@ -743,7 +712,7 @@ inline std::int64_t floor_div_i64(std::int64_t a, std::int64_t b)
 inline std::int64_t choose_origin_ns(std::int64_t t_view_min_ns, std::int64_t span_ns)
 {
     const std::int64_t     snap_ns = choose_snap_ns(span_ns);
-    const std::int64_t     q       = floor_div_i64(t_view_min_ns, snap_ns);
+    const std::int64_t     q       = floor_div_int64(t_view_min_ns, snap_ns);
     constexpr std::int64_t k_min   = std::numeric_limits<std::int64_t>::min();
     if (snap_ns > 1 && q < k_min / snap_ns) {
         return k_min;

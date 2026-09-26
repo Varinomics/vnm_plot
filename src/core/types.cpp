@@ -1,10 +1,12 @@
 #include <vnm_plot/core/types.h>
+#include <vnm_plot/core/algo.h>
 #include <vnm_plot/core/plot_config.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -156,112 +158,22 @@ bool include_sample_range(
     return true;
 }
 
-std::size_t ascending_first_ge(
-    const data_snapshot_t&         snapshot,
-    const Data_access_policy&      access,
-    std::int64_t                   target_ns,
-    bool&                          valid)
+template<typename Compare>
+std::size_t timestamp_bound(
+    const data_snapshot_t&    snapshot,
+    const Data_access_policy& access,
+    std::int64_t              target_ns,
+    Compare                   compare,
+    bool&                     valid)
 {
-    std::size_t first = 0;
-    std::size_t count = snapshot.count;
-    while (count > 0) {
-        const std::size_t step         = count / 2;
-        const std::size_t index        = first + step;
-        std::int64_t      timestamp_ns = 0;
-        if (!timestamp_at(snapshot, access, index, timestamp_ns)) {
-            valid = false;
-            return 0;
-        }
-        if (timestamp_ns < target_ns) {
-            first = index + 1;
-            count -= step + 1;
-        }
-        else {
-            count = step;
-        }
-    }
-    return first;
-}
-
-std::size_t ascending_first_gt(
-    const data_snapshot_t&         snapshot,
-    const Data_access_policy&      access,
-    std::int64_t                   target_ns,
-    bool&                          valid)
-{
-    std::size_t first = 0;
-    std::size_t count = snapshot.count;
-    while (count > 0) {
-        const std::size_t step         = count / 2;
-        const std::size_t index        = first + step;
-        std::int64_t      timestamp_ns = 0;
-        if (!timestamp_at(snapshot, access, index, timestamp_ns)) {
-            valid = false;
-            return 0;
-        }
-        if (timestamp_ns <= target_ns) {
-            first = index + 1;
-            count -= step + 1;
-        }
-        else {
-            count = step;
-        }
-    }
-    return first;
-}
-
-std::size_t descending_first_le(
-    const data_snapshot_t&         snapshot,
-    const Data_access_policy&      access,
-    std::int64_t                   target_ns,
-    bool&                          valid)
-{
-    std::size_t first = 0;
-    std::size_t count = snapshot.count;
-    while (count > 0) {
-        const std::size_t step         = count / 2;
-        const std::size_t index        = first + step;
-        std::int64_t      timestamp_ns = 0;
-        if (!timestamp_at(snapshot, access, index, timestamp_ns)) {
-            valid = false;
-            return 0;
-        }
-        if (timestamp_ns > target_ns) {
-            first = index + 1;
-            count -= step + 1;
-        }
-        else {
-            count = step;
-        }
-    }
-    return first;
-}
-
-std::size_t descending_first_lt(
-    const data_snapshot_t&         snapshot,
-    const Data_access_policy&      access,
-    std::int64_t                   target_ns,
-    bool&                          valid)
-{
-    std::size_t first = 0;
-    std::size_t count = snapshot.count;
-    while (count > 0) {
-        const std::size_t step         = count / 2;
-        const std::size_t index        = first + step;
-        std::int64_t      timestamp_ns = 0;
-        if (!timestamp_at(snapshot, access, index, timestamp_ns)) {
-            valid = false;
-            return 0;
-        }
-        if (timestamp_ns >= target_ns) {
-            first = index + 1;
-            count -= step + 1;
-        }
-        else {
-            count = step;
-        }
-    }
-    return first;
+    const auto index = detail::bsearch_ts_impl(
+        snapshot.count,
+        [&snapshot](std::size_t index) { return snapshot.at(index); },
+        access.get_timestamp,
+        compare,
+        target_ns);
+    valid = index.has_value();
+    return index.value_or(0);
 }
 
 time_window_candidates_t ascending_candidates(
@@ -272,12 +184,12 @@ time_window_candidates_t ascending_candidates(
 {
     bool valid = true;
     time_window_candidates_t out;
-    out.match_first = ascending_first_ge(snapshot, access, query.time_window.min_ns, valid);
+    out.match_first = timestamp_bound(snapshot, access, query.time_window.min_ns, std::less<>{}, valid);
     if (!valid) {
         out.valid = false;
         return out;
     }
-    out.match_last_exclusive = ascending_first_gt(snapshot, access, query.time_window.max_ns, valid);
+    out.match_last_exclusive = timestamp_bound(snapshot, access, query.time_window.max_ns, std::less_equal<>{}, valid);
     if (!valid) {
         out.valid = false;
         return out;
@@ -300,12 +212,12 @@ time_window_candidates_t descending_candidates(
 {
     bool valid = true;
     time_window_candidates_t out;
-    out.match_first = descending_first_le(snapshot, access, query.time_window.max_ns, valid);
+    out.match_first = timestamp_bound(snapshot, access, query.time_window.max_ns, std::greater<>{}, valid);
     if (!valid) {
         out.valid = false;
         return out;
     }
-    out.match_last_exclusive = descending_first_lt(snapshot, access, query.time_window.min_ns, valid);
+    out.match_last_exclusive = timestamp_bound(snapshot, access, query.time_window.min_ns, std::greater_equal<>{}, valid);
     if (!valid) {
         out.valid = false;
         return out;
@@ -796,12 +708,7 @@ data_query_result_t<time_range_t> Data_source::time_range(std::size_t lod) const
 
 std::vector<std::size_t> Data_source::lod_scales() const
 {
-    std::vector<std::size_t> scales;
-    scales.reserve(lod_levels());
-    for (std::size_t level = 0; level < lod_levels(); ++level) {
-        scales.push_back(std::max<std::size_t>(1, lod_scale(level)));
-    }
-    return scales;
+    return detail::compute_lod_scales(*this);
 }
 
 data_query_result_t<sample_index_window_t> Data_source::query_time_window(
