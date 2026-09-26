@@ -294,6 +294,11 @@ if(_vnm_plot_package_smoke_viable)
             "-DVNM_PLOT_TEST_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
             "-DVNM_PLOT_TEST_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
             "-DVNM_PLOT_TEST_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+            "-DVNM_PLOT_TEST_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            "-DVNM_PLOT_TEST_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
+            "-DVNM_PLOT_TEST_LINKER=${CMAKE_LINKER}"
+            "-DVNM_PLOT_TEST_RC_COMPILER=${CMAKE_RC_COMPILER}"
+            "-DVNM_PLOT_TEST_MT=${CMAKE_MT}"
             "-DVNM_PLOT_TEST_QT6_DIR=${Qt6_DIR}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/package_smoke.cmake")
     list(APPEND _vnm_plot_test_names PackageSmoke)

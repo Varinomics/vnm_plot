@@ -156,6 +156,14 @@ function(vnm_plot_consumer_configure_command out_var consumer_source_dir consume
        NOT VNM_PLOT_TEST_MAKE_PROGRAM STREQUAL "")
         list(APPEND _command "-DCMAKE_MAKE_PROGRAM=${VNM_PLOT_TEST_MAKE_PROGRAM}")
     endif()
+    foreach(_toolchain_var IN ITEMS
+        CXX_COMPILER TOOLCHAIN_FILE LINKER RC_COMPILER MT)
+        if(DEFINED VNM_PLOT_TEST_${_toolchain_var} AND
+           NOT "${VNM_PLOT_TEST_${_toolchain_var}}" STREQUAL "")
+            list(APPEND _command
+                "-DCMAKE_${_toolchain_var}=${VNM_PLOT_TEST_${_toolchain_var}}")
+        endif()
+    endforeach()
     if(DEFINED VNM_PLOT_TEST_QT6_DIR AND
        NOT VNM_PLOT_TEST_QT6_DIR STREQUAL "")
         list(APPEND _command "-DQt6_DIR=${VNM_PLOT_TEST_QT6_DIR}")
