@@ -33,10 +33,10 @@ constexpr lcd_subpixel_order_t lcd_effective_order(
     lcd_subpixel_order_t auto_resolved)
 {
     if (requested.automatic) {
-        return lcd_sanitize_resolved_order(auto_resolved);
+        return vnm::plot::detail::lcd_sanitize_resolved_order(auto_resolved);
     }
 
-    return lcd_sanitize_resolved_order(requested.resolved_order);
+    return vnm::plot::detail::lcd_sanitize_resolved_order(requested.resolved_order);
 }
 
 constexpr lcd_subpixel_order_t lcd_effective_order_for_frame(
@@ -52,7 +52,7 @@ constexpr lcd_subpixel_order_t lcd_effective_order_for_frame(
 {
     return requested != nullptr
         ? lcd_effective_order(*requested, auto_resolved_order)
-        : lcd_sanitize_resolved_order(auto_resolved_order);
+        : vnm::plot::detail::lcd_sanitize_resolved_order(auto_resolved_order);
 }
 
 constexpr lcd_subpixel_order_t grid_lcd_subpixel_order(
