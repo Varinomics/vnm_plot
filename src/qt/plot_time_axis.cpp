@@ -9,47 +9,50 @@
 namespace vnm::plot {
 
 Plot_time_axis::Plot_time_axis(QObject* parent)
-    : QObject(parent)
+    : QObject(parent),
+      m_model(std::make_unique<detail::Time_axis_model>())
 {}
+
+Plot_time_axis::~Plot_time_axis() = default;
 
 qint64 Plot_time_axis::t_min() const
 {
-    return m_t_min;
+    return m_model->t_min();
 }
 
 qint64 Plot_time_axis::t_max() const
 {
-    return m_t_max;
+    return m_model->t_max();
 }
 
 qint64 Plot_time_axis::t_available_min() const
 {
-    return m_t_available_min;
+    return m_model->t_available_min();
 }
 
 qint64 Plot_time_axis::t_available_max() const
 {
-    return m_t_available_max;
+    return m_model->t_available_max();
 }
 
 bool Plot_time_axis::view_initialized() const
 {
-    return m_t_min_initialized && m_t_max_initialized;
+    return m_model->view_initialized();
 }
 
 bool Plot_time_axis::available_initialized() const
 {
-    return m_t_available_min_initialized && m_t_available_max_initialized;
+    return m_model->available_initialized();
 }
 
 bool Plot_time_axis::any_view_bound_initialized() const
 {
-    return m_t_min_initialized || m_t_max_initialized;
+    return m_model->any_view_bound_initialized();
 }
 
 bool Plot_time_axis::any_available_bound_initialized() const
 {
-    return m_t_available_min_initialized || m_t_available_max_initialized;
+    return m_model->any_available_bound_initialized();
 }
 
 // QML-facing readers surface 0 until both bounds of the relevant range have
@@ -58,22 +61,22 @@ bool Plot_time_axis::any_available_bound_initialized() const
 // pixel math in PlotIndicator-style consumers.
 qint64 Plot_time_axis::t_min_qml_ms() const
 {
-    return view_initialized() ? ns_to_ms_for_qml(m_t_min) : 0;
+    return view_initialized() ? ns_to_ms_for_qml(m_model->t_min()) : 0;
 }
 
 qint64 Plot_time_axis::t_max_qml_ms() const
 {
-    return view_initialized() ? ns_to_ms_for_qml(m_t_max) : 0;
+    return view_initialized() ? ns_to_ms_for_qml(m_model->t_max()) : 0;
 }
 
 qint64 Plot_time_axis::t_available_min_qml_ms() const
 {
-    return available_initialized() ? ns_to_ms_for_qml(m_t_available_min) : 0;
+    return available_initialized() ? ns_to_ms_for_qml(m_model->t_available_min()) : 0;
 }
 
 qint64 Plot_time_axis::t_available_max_qml_ms() const
 {
-    return available_initialized() ? ns_to_ms_for_qml(m_t_available_max) : 0;
+    return available_initialized() ? ns_to_ms_for_qml(m_model->t_available_max()) : 0;
 }
 
 void Plot_time_axis::set_t_min_qml_ms(qint64 v_ms)
@@ -165,126 +168,36 @@ void Plot_time_axis::clear_shared_vbar_width(const QObject* owner)
 
 void Plot_time_axis::set_t_min(qint64 v)
 {
-    auto model = detail::Time_axis_model(
-        m_t_min,
-        m_t_max,
-        m_t_available_min,
-        m_t_available_max,
-        m_t_min_initialized,
-        m_t_max_initialized,
-        m_t_available_min_initialized,
-        m_t_available_max_initialized);
-    const auto result = model.set_t_min(v);
-    if (result.changed) {
-        apply_time_axis_limits_if_changed(
-            model.t_min(),
-            model.t_max(),
-            model.t_available_min(),
-            model.t_available_max(),
-            model.t_min_initialized(),
-            model.t_max_initialized(),
-            model.t_available_min_initialized(),
-            model.t_available_max_initialized());
+    if (m_model->set_t_min(v).changed) {
+        emit t_limits_changed();
     }
 }
 
 void Plot_time_axis::set_t_max(qint64 v)
 {
-    auto model = detail::Time_axis_model(
-        m_t_min,
-        m_t_max,
-        m_t_available_min,
-        m_t_available_max,
-        m_t_min_initialized,
-        m_t_max_initialized,
-        m_t_available_min_initialized,
-        m_t_available_max_initialized);
-    const auto result = model.set_t_max(v);
-    if (result.changed) {
-        apply_time_axis_limits_if_changed(
-            model.t_min(),
-            model.t_max(),
-            model.t_available_min(),
-            model.t_available_max(),
-            model.t_min_initialized(),
-            model.t_max_initialized(),
-            model.t_available_min_initialized(),
-            model.t_available_max_initialized());
+    if (m_model->set_t_max(v).changed) {
+        emit t_limits_changed();
     }
 }
 
 void Plot_time_axis::set_t_available_min(qint64 v)
 {
-    auto model = detail::Time_axis_model(
-        m_t_min,
-        m_t_max,
-        m_t_available_min,
-        m_t_available_max,
-        m_t_min_initialized,
-        m_t_max_initialized,
-        m_t_available_min_initialized,
-        m_t_available_max_initialized);
-    const auto result = model.set_t_available_min(v);
-    if (result.changed) {
-        apply_time_axis_limits_if_changed(
-            model.t_min(),
-            model.t_max(),
-            model.t_available_min(),
-            model.t_available_max(),
-            model.t_min_initialized(),
-            model.t_max_initialized(),
-            model.t_available_min_initialized(),
-            model.t_available_max_initialized());
+    if (m_model->set_t_available_min(v).changed) {
+        emit t_limits_changed();
     }
 }
 
 void Plot_time_axis::set_t_available_max(qint64 v)
 {
-    auto model = detail::Time_axis_model(
-        m_t_min,
-        m_t_max,
-        m_t_available_min,
-        m_t_available_max,
-        m_t_min_initialized,
-        m_t_max_initialized,
-        m_t_available_min_initialized,
-        m_t_available_max_initialized);
-    const auto result = model.set_t_available_max(v);
-    if (result.changed) {
-        apply_time_axis_limits_if_changed(
-            model.t_min(),
-            model.t_max(),
-            model.t_available_min(),
-            model.t_available_max(),
-            model.t_min_initialized(),
-            model.t_max_initialized(),
-            model.t_available_min_initialized(),
-            model.t_available_max_initialized());
+    if (m_model->set_t_available_max(v).changed) {
+        emit t_limits_changed();
     }
 }
 
 void Plot_time_axis::set_t_range(qint64 t_min_ns, qint64 t_max_ns)
 {
-    auto model = detail::Time_axis_model(
-        m_t_min,
-        m_t_max,
-        m_t_available_min,
-        m_t_available_max,
-        m_t_min_initialized,
-        m_t_max_initialized,
-        m_t_available_min_initialized,
-        m_t_available_max_initialized);
-    const auto result = model.set_t_range(t_min_ns, t_max_ns);
-    if (result.changed) {
-        apply_time_axis_limits_if_changed(
-            model.t_min(),
-            model.t_max(),
-            model.t_available_min(),
-            model.t_available_max(),
-            model.t_min_initialized(),
-            model.t_max_initialized(),
-            model.t_available_min_initialized(),
-            model.t_available_max_initialized());
+    if (m_model->set_t_range(t_min_ns, t_max_ns).changed) {
+        emit t_limits_changed();
     }
 }
 
@@ -304,153 +217,43 @@ void Plot_time_axis::set_available_t_range_qml_ms(
 
 void Plot_time_axis::set_available_t_range(qint64 t_available_min_ns, qint64 t_available_max_ns)
 {
-    auto model = detail::Time_axis_model(
-        m_t_min,
-        m_t_max,
-        m_t_available_min,
-        m_t_available_max,
-        m_t_min_initialized,
-        m_t_max_initialized,
-        m_t_available_min_initialized,
-        m_t_available_max_initialized);
-    const auto result = model.set_available_t_range(
-        t_available_min_ns,
-        t_available_max_ns);
-    if (result.changed) {
-        apply_time_axis_limits_if_changed(
-            model.t_min(),
-            model.t_max(),
-            model.t_available_min(),
-            model.t_available_max(),
-            model.t_min_initialized(),
-            model.t_max_initialized(),
-            model.t_available_min_initialized(),
-            model.t_available_max_initialized());
+    if (m_model->set_available_t_range(t_available_min_ns, t_available_max_ns).changed) {
+        emit t_limits_changed();
     }
 }
 
 void Plot_time_axis::adjust_t_from_mouse_diff(double ref_width, double diff)
 {
-    auto model = detail::Time_axis_model(
-        m_t_min,
-        m_t_max,
-        m_t_available_min,
-        m_t_available_max,
-        m_t_min_initialized,
-        m_t_max_initialized,
-        m_t_available_min_initialized,
-        m_t_available_max_initialized);
-    const auto result = model.adjust_t_from_mouse_diff(ref_width, diff);
-    if (result.changed) {
-        apply_time_axis_limits_if_changed(
-            model.t_min(),
-            model.t_max(),
-            model.t_available_min(),
-            model.t_available_max(),
-            model.t_min_initialized(),
-            model.t_max_initialized(),
-            model.t_available_min_initialized(),
-            model.t_available_max_initialized());
+    if (m_model->adjust_t_from_mouse_diff(ref_width, diff).changed) {
+        emit t_limits_changed();
     }
 }
 
 void Plot_time_axis::adjust_t_from_mouse_diff_on_preview(double ref_width, double diff)
 {
-    auto model = detail::Time_axis_model(
-        m_t_min,
-        m_t_max,
-        m_t_available_min,
-        m_t_available_max,
-        m_t_min_initialized,
-        m_t_max_initialized,
-        m_t_available_min_initialized,
-        m_t_available_max_initialized);
-    const auto result = model.adjust_t_from_mouse_diff_on_preview(ref_width, diff);
-    if (result.changed) {
-        apply_time_axis_limits_if_changed(
-            model.t_min(),
-            model.t_max(),
-            model.t_available_min(),
-            model.t_available_max(),
-            model.t_min_initialized(),
-            model.t_max_initialized(),
-            model.t_available_min_initialized(),
-            model.t_available_max_initialized());
+    if (m_model->adjust_t_from_mouse_diff_on_preview(ref_width, diff).changed) {
+        emit t_limits_changed();
     }
 }
 
 void Plot_time_axis::adjust_t_from_mouse_pos_on_preview(double ref_width, double x_pos)
 {
-    auto model = detail::Time_axis_model(
-        m_t_min,
-        m_t_max,
-        m_t_available_min,
-        m_t_available_max,
-        m_t_min_initialized,
-        m_t_max_initialized,
-        m_t_available_min_initialized,
-        m_t_available_max_initialized);
-    const auto result = model.adjust_t_from_mouse_pos_on_preview(ref_width, x_pos);
-    if (result.changed) {
-        apply_time_axis_limits_if_changed(
-            model.t_min(),
-            model.t_max(),
-            model.t_available_min(),
-            model.t_available_max(),
-            model.t_min_initialized(),
-            model.t_max_initialized(),
-            model.t_available_min_initialized(),
-            model.t_available_max_initialized());
+    if (m_model->adjust_t_from_mouse_pos_on_preview(ref_width, x_pos).changed) {
+        emit t_limits_changed();
     }
 }
 
 void Plot_time_axis::adjust_t_from_pivot_and_scale(double pivot, double scale)
 {
-    auto model = detail::Time_axis_model(
-        m_t_min,
-        m_t_max,
-        m_t_available_min,
-        m_t_available_max,
-        m_t_min_initialized,
-        m_t_max_initialized,
-        m_t_available_min_initialized,
-        m_t_available_max_initialized);
-    const auto result = model.adjust_t_from_pivot_and_scale(pivot, scale);
-    if (result.changed) {
-        apply_time_axis_limits_if_changed(
-            model.t_min(),
-            model.t_max(),
-            model.t_available_min(),
-            model.t_available_max(),
-            model.t_min_initialized(),
-            model.t_max_initialized(),
-            model.t_available_min_initialized(),
-            model.t_available_max_initialized());
+    if (m_model->adjust_t_from_pivot_and_scale(pivot, scale).changed) {
+        emit t_limits_changed();
     }
 }
 
 void Plot_time_axis::adjust_t_to_target(qint64 target_min_ns, qint64 target_max_ns)
 {
-    auto model = detail::Time_axis_model(
-        m_t_min,
-        m_t_max,
-        m_t_available_min,
-        m_t_available_max,
-        m_t_min_initialized,
-        m_t_max_initialized,
-        m_t_available_min_initialized,
-        m_t_available_max_initialized);
-    const auto result = model.adjust_t_to_target(target_min_ns, target_max_ns);
-    if (result.changed) {
-        apply_time_axis_limits_if_changed(
-            model.t_min(),
-            model.t_max(),
-            model.t_available_min(),
-            model.t_available_max(),
-            model.t_min_initialized(),
-            model.t_max_initialized(),
-            model.t_available_min_initialized(),
-            model.t_available_max_initialized());
+    if (m_model->adjust_t_to_target(target_min_ns, target_max_ns).changed) {
+        emit t_limits_changed();
     }
 }
 
@@ -547,42 +350,6 @@ bool Plot_time_axis::indicator_owned_by(QObject* owner) const
         return false;
     }
     return m_indicator_owner == owner;
-}
-
-bool Plot_time_axis::apply_time_axis_limits_if_changed(
-    qint64 t_min_ns,
-    qint64 t_max_ns,
-    qint64 t_available_min_ns,
-    qint64 t_available_max_ns,
-    bool   t_min_initialized,
-    bool   t_max_initialized,
-    bool   t_available_min_initialized,
-    bool   t_available_max_initialized)
-{
-    const bool changed =
-        m_t_min                       != t_min_ns                    ||
-        m_t_max                       != t_max_ns                    ||
-        m_t_available_min             != t_available_min_ns          ||
-        m_t_available_max             != t_available_max_ns          ||
-        m_t_min_initialized           != t_min_initialized           ||
-        m_t_max_initialized           != t_max_initialized           ||
-        m_t_available_min_initialized != t_available_min_initialized ||
-        m_t_available_max_initialized != t_available_max_initialized;
-
-    if (!changed) {
-        return false;
-    }
-
-    m_t_min                       = t_min_ns;
-    m_t_max                       = t_max_ns;
-    m_t_available_min             = t_available_min_ns;
-    m_t_available_max             = t_available_max_ns;
-    m_t_min_initialized           = t_min_initialized;
-    m_t_max_initialized           = t_max_initialized;
-    m_t_available_min_initialized = t_available_min_initialized;
-    m_t_available_max_initialized = t_available_max_initialized;
-    emit t_limits_changed();
-    return true;
 }
 
 } // namespace vnm::plot

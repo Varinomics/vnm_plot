@@ -14,9 +14,14 @@
 
 #include <QObject>
 
+#include <memory>
 #include <unordered_map>
 
 namespace vnm::plot {
+
+namespace detail {
+class Time_axis_model;
+}
 
 class Plot_time_axis : public QObject
 {
@@ -44,6 +49,7 @@ class Plot_time_axis : public QObject
 
 public:
     explicit Plot_time_axis(QObject* parent = nullptr);
+    ~Plot_time_axis() override;
 
     // C++ API: nanoseconds.
     qint64 t_min() const;
@@ -135,25 +141,7 @@ signals:
     void indicator_state_changed();
 
 private:
-    bool apply_time_axis_limits_if_changed(
-        qint64         t_min_ns,
-        qint64         t_max_ns,
-        qint64         t_available_min_ns,
-        qint64         t_available_max_ns,
-        bool           t_min_initialized,
-        bool           t_max_initialized,
-        bool           t_available_min_initialized,
-        bool           t_available_max_initialized);
-
-    qint64     m_t_min = 0;
-    qint64     m_t_max = 0;
-    qint64     m_t_available_min = 0;
-    qint64     m_t_available_max = 0;
-
-    bool       m_t_min_initialized = false;
-    bool       m_t_max_initialized = false;
-    bool       m_t_available_min_initialized = false;
-    bool       m_t_available_max_initialized = false;
+    std::unique_ptr<detail::Time_axis_model> m_model;
 
     bool       m_sync_vbar_width = false;
     std::unordered_map<const QObject*, double>

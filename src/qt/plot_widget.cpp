@@ -414,20 +414,18 @@ qint64 Plot_widget::t_available_max_qml_ms() const
     return ns_to_ms_for_qml(t_available_max());
 }
 
-void Plot_widget::set_t_range(qint64 t_min_ns, qint64 t_max_ns)
+template<typename Update>
+void Plot_widget::apply_time_update(Update&& update_time)
 {
     if (m_time_axis) {
-        m_time_axis->set_t_range(t_min_ns, t_max_ns);
+        std::forward<Update>(update_time)(*m_time_axis);
         return;
     }
     bool accepted = false;
     {
         std::unique_lock lock(m_data_cfg_mutex);
         accepted = apply_time_axis_update_to_data_config(
-            m_data_cfg,
-            [&](detail::Time_axis_model& model) {
-                return model.set_t_range(t_min_ns, t_max_ns);
-            });
+            m_data_cfg, std::forward<Update>(update_time));
     }
     if (accepted) {
         emit t_limits_changed();
@@ -435,25 +433,14 @@ void Plot_widget::set_t_range(qint64 t_min_ns, qint64 t_max_ns)
     }
 }
 
+void Plot_widget::set_t_range(qint64 t_min_ns, qint64 t_max_ns)
+{
+    apply_time_update([&](auto& axis) { return axis.set_t_range(t_min_ns, t_max_ns); });
+}
+
 void Plot_widget::set_available_t_range(qint64 t_min_ns, qint64 t_max_ns)
 {
-    if (m_time_axis) {
-        m_time_axis->set_available_t_range(t_min_ns, t_max_ns);
-        return;
-    }
-    bool accepted = false;
-    {
-        std::unique_lock lock(m_data_cfg_mutex);
-        accepted = apply_time_axis_update_to_data_config(
-            m_data_cfg,
-            [&](detail::Time_axis_model& model) {
-                return model.set_available_t_range(t_min_ns, t_max_ns);
-            });
-    }
-    if (accepted) {
-        emit t_limits_changed();
-        update();
-    }
+    apply_time_update([&](auto& axis) { return axis.set_available_t_range(t_min_ns, t_max_ns); });
 }
 
 void Plot_widget::set_view(const Plot_view& view)
@@ -1031,86 +1018,22 @@ void Plot_widget::set_preview_height_steps(int steps)
 
 void Plot_widget::adjust_t_from_mouse_diff(double ref_width, double diff)
 {
-    if (m_time_axis) {
-        m_time_axis->adjust_t_from_mouse_diff(ref_width, diff);
-        return;
-    }
-    bool accepted = false;
-    {
-        std::unique_lock lock(m_data_cfg_mutex);
-        accepted = apply_time_axis_update_to_data_config(
-            m_data_cfg,
-            [&](detail::Time_axis_model& model) {
-                return model.adjust_t_from_mouse_diff(ref_width, diff);
-            });
-    }
-    if (accepted) {
-        emit t_limits_changed();
-        update();
-    }
+    apply_time_update([&](auto& axis) { return axis.adjust_t_from_mouse_diff(ref_width, diff); });
 }
 
 void Plot_widget::adjust_t_from_mouse_diff_on_preview(double ref_width, double diff)
 {
-    if (m_time_axis) {
-        m_time_axis->adjust_t_from_mouse_diff_on_preview(ref_width, diff);
-        return;
-    }
-    bool accepted = false;
-    {
-        std::unique_lock lock(m_data_cfg_mutex);
-        accepted = apply_time_axis_update_to_data_config(
-            m_data_cfg,
-            [&](detail::Time_axis_model& model) {
-                return model.adjust_t_from_mouse_diff_on_preview(ref_width, diff);
-            });
-    }
-    if (accepted) {
-        emit t_limits_changed();
-        update();
-    }
+    apply_time_update([&](auto& axis) { return axis.adjust_t_from_mouse_diff_on_preview(ref_width, diff); });
 }
 
 void Plot_widget::adjust_t_from_mouse_pos_on_preview(double ref_width, double x_pos)
 {
-    if (m_time_axis) {
-        m_time_axis->adjust_t_from_mouse_pos_on_preview(ref_width, x_pos);
-        return;
-    }
-    bool accepted = false;
-    {
-        std::unique_lock lock(m_data_cfg_mutex);
-        accepted = apply_time_axis_update_to_data_config(
-            m_data_cfg,
-            [&](detail::Time_axis_model& model) {
-                return model.adjust_t_from_mouse_pos_on_preview(ref_width, x_pos);
-            });
-    }
-    if (accepted) {
-        emit t_limits_changed();
-        update();
-    }
+    apply_time_update([&](auto& axis) { return axis.adjust_t_from_mouse_pos_on_preview(ref_width, x_pos); });
 }
 
 void Plot_widget::adjust_t_from_pivot_and_scale(double pivot, double scale)
 {
-    if (m_time_axis) {
-        m_time_axis->adjust_t_from_pivot_and_scale(pivot, scale);
-        return;
-    }
-    bool accepted = false;
-    {
-        std::unique_lock lock(m_data_cfg_mutex);
-        accepted = apply_time_axis_update_to_data_config(
-            m_data_cfg,
-            [&](detail::Time_axis_model& model) {
-                return model.adjust_t_from_pivot_and_scale(pivot, scale);
-            });
-    }
-    if (accepted) {
-        emit t_limits_changed();
-        update();
-    }
+    apply_time_update([&](auto& axis) { return axis.adjust_t_from_pivot_and_scale(pivot, scale); });
 }
 
 void Plot_widget::adjust_v_from_mouse_diff(float ref_height, float diff)
@@ -2014,25 +1937,7 @@ void Plot_widget::set_rendered_t_range(qint64 t_min_ns, qint64 t_max_ns) const
 
 void Plot_widget::adjust_t_to_target(qint64 target_tmin_ns, qint64 target_tmax_ns)
 {
-    if (m_time_axis) {
-        m_time_axis->adjust_t_to_target(target_tmin_ns, target_tmax_ns);
-        return;
-    }
-
-    bool accepted = false;
-    {
-        std::unique_lock lock(m_data_cfg_mutex);
-        accepted = apply_time_axis_update_to_data_config(
-            m_data_cfg,
-            [&](detail::Time_axis_model& model) {
-                return model.adjust_t_to_target(target_tmin_ns, target_tmax_ns);
-            });
-    }
-
-    if (accepted) {
-        emit t_limits_changed();
-        update();
-    }
+    apply_time_update([&](auto& axis) { return axis.adjust_t_to_target(target_tmin_ns, target_tmax_ns); });
 }
 
 double Plot_widget::compute_preview_height_px(double widget_height_px) const

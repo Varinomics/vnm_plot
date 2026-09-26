@@ -16,6 +16,50 @@ namespace {
 constexpr std::int64_t k_min = std::numeric_limits<std::int64_t>::min();
 constexpr std::int64_t k_max = std::numeric_limits<std::int64_t>::max();
 
+bool test_range_notifications_observe_committed_state()
+{
+    plot::Plot_time_axis axis;
+    int notifications = 0;
+    qint64 observed_min = 0;
+    qint64 observed_max = 0;
+    bool observed_initialized = false;
+    QObject::connect(&axis, &plot::Plot_time_axis::t_limits_changed, &axis, [&]() {
+        ++notifications;
+        observed_min = axis.t_min();
+        observed_max = axis.t_max();
+        observed_initialized = axis.view_initialized();
+    });
+
+    axis.set_t_min(100);
+    TEST_ASSERT(notifications == 1 && observed_min == 100 && !observed_initialized,
+        "seeding a bound should notify after committing its partial state");
+    axis.set_t_min(100);
+    axis.set_t_max(100);
+    TEST_ASSERT(notifications == 1 && !axis.view_initialized(),
+        "unchanged and rejected bound writes should not notify");
+
+    axis.set_t_max(200);
+    TEST_ASSERT(notifications == 2 && observed_min == 100 && observed_max == 200 &&
+            observed_initialized,
+        "completing a view should notify after both bounds are readable");
+    axis.set_t_range(100, 200);
+    axis.set_t_range(200, 100);
+    axis.adjust_t_from_mouse_diff(100.0, 0.0);
+    axis.adjust_t_from_mouse_diff(0.0, 10.0);
+    TEST_ASSERT(notifications == 2,
+        "unchanged and rejected range adjustments should not notify");
+
+    axis.set_available_t_range(0, 150);
+    TEST_ASSERT(notifications == 3 && observed_min == 50 && observed_max == 150 &&
+            axis.t_available_min() == 0 && axis.t_available_max() == 150,
+        "available-range clamping should commit the complete transition before notifying");
+    axis.adjust_t_from_mouse_diff(100.0, 50.0);
+    TEST_ASSERT(notifications == 4 && observed_min == 0 && observed_max == 100,
+        "a pan should commit and notify once");
+
+    return true;
+}
+
 bool test_uninitialized_qml_properties_return_zero()
 {
     plot::Plot_time_axis axis;
@@ -256,6 +300,7 @@ int main()
     int passed = 0;
     int failed = 0;
 
+    RUN_TEST(test_range_notifications_observe_committed_state);
     RUN_TEST(test_uninitialized_qml_properties_return_zero);
     RUN_TEST(test_full_int64_range_initializes);
     RUN_TEST(test_full_int64_available_range_initializes);

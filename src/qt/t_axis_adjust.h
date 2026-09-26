@@ -11,161 +11,11 @@
 
 namespace vnm::plot::detail {
 
-// Snapshot of the four ns-timestamp fields the adjust_* family reads. The
-// caller assembles this from whichever storage it owns (mutex-protected
-// data_config_t in Plot_widget, plain members in Plot_time_axis).
-struct t_view_snapshot_t
-{
-    qint64 t_min           = 0;
-    qint64 t_max           = 0;
-    qint64 t_available_min = 0;
-    qint64 t_available_max = 0;
-};
-
 struct time_axis_update_result_t
 {
     bool   accepted = false;
     bool   changed  = false;
 };
-
-// Translate the view by `diff` pixels of horizontal motion expressed
-// against `ref_width`. Commit receives the new (t_min, t_max).
-template<typename Commit>
-inline void adjust_t_from_mouse_diff_impl(
-    const t_view_snapshot_t&   view,
-    double                     ref_width,
-    double                     diff,
-    Commit&&                   commit)
-{
-    if (ref_width <= 0.0) {
-        return;
-    }
-
-    const auto span_ns = positive_span_ns(view.t_min, view.t_max);
-    if (!span_ns) {
-        return;
-    }
-
-    const long double fraction =
-        std::abs(static_cast<long double>(diff) / static_cast<long double>(ref_width));
-    const std::uint64_t duration_ns = scaled_duration_ns(*span_ns, fraction);
-    const auto direction = (diff >= 0.0)
-        ? Time_translation_direction::BACKWARD
-        : Time_translation_direction::FORWARD;
-    const auto shifted = translate_time_range_by_duration_ns(
-        time_range_t{view.t_min, view.t_max},
-        duration_ns,
-        direction);
-    if (!shifted) {
-        return;
-    }
-    commit(shifted->min_ns, shifted->max_ns);
-}
-
-// Preview-bar analogue of adjust_t_from_mouse_diff: the same pixel ratio is
-// applied against the (t_available_min, t_available_max) span and the view
-// moves in the same direction as the cursor.
-template<typename Commit>
-inline void adjust_t_from_mouse_diff_on_preview_impl(
-    const t_view_snapshot_t&   view,
-    double                     ref_width,
-    double                     diff,
-    Commit&&                   commit)
-{
-    if (ref_width <= 0.0) {
-        return;
-    }
-
-    const auto avail_span_ns = positive_span_ns(
-        view.t_available_min,
-        view.t_available_max);
-    if (!avail_span_ns) {
-        return;
-    }
-
-    const long double fraction =
-        std::abs(static_cast<long double>(diff) / static_cast<long double>(ref_width));
-    const std::uint64_t duration_ns = scaled_duration_ns(*avail_span_ns, fraction);
-    const auto direction = (diff >= 0.0)
-        ? Time_translation_direction::FORWARD
-        : Time_translation_direction::BACKWARD;
-    const auto shifted = translate_time_range_by_duration_ns(
-        time_range_t{view.t_min, view.t_max},
-        duration_ns,
-        direction);
-    if (!shifted) {
-        return;
-    }
-    commit(shifted->min_ns, shifted->max_ns);
-}
-
-// Recenter the view on `x_pos` interpreted as a fraction of the preview-bar
-// width, keeping the current span.
-template<typename Commit>
-inline void adjust_t_from_mouse_pos_on_preview_impl(
-    const t_view_snapshot_t&   view,
-    double                     ref_width,
-    double                     x_pos,
-    Commit&&                   commit)
-{
-    if (ref_width <= 0.0) {
-        return;
-    }
-
-    const auto span_ns = positive_span_ns(view.t_min, view.t_max);
-    if (!span_ns) {
-        return;
-    }
-
-    const auto new_center_ns = time_at_fraction_ns(
-        time_range_t{view.t_available_min, view.t_available_max},
-        static_cast<long double>(x_pos) / static_cast<long double>(ref_width));
-    if (!new_center_ns) {
-        return;
-    }
-    const time_range_t target = centered_time_range_ns(*new_center_ns, *span_ns);
-    commit(target.min_ns, target.max_ns);
-}
-
-// Zoom around a normalized pivot in [0, 1] by `scale` (1.0 = no change,
-// <1.0 zooms in, >1.0 zooms out).
-template<typename Commit>
-inline void adjust_t_from_pivot_and_scale_impl(
-    const t_view_snapshot_t&   view,
-    double                     pivot,
-    double                     scale,
-    Commit&&                   commit)
-{
-    if (scale <= 0.0) {
-        return;
-    }
-
-    const auto span_ns = positive_span_ns(view.t_min, view.t_max);
-    if (!span_ns) {
-        return;
-    }
-
-    const auto t_pivot_ns = time_at_fraction_ns(
-        time_range_t{view.t_min, view.t_max},
-        static_cast<long double>(pivot));
-    if (!t_pivot_ns) {
-        return;
-    }
-
-    const auto left_span_ns  = positive_span_ns(view.t_min, *t_pivot_ns);
-    const auto right_span_ns = positive_span_ns(*t_pivot_ns, view.t_max);
-    const std::uint64_t left_ns = left_span_ns
-        ? scaled_duration_ns(*left_span_ns, static_cast<long double>(scale))
-        : 0;
-    const std::uint64_t right_ns = right_span_ns
-        ? scaled_duration_ns(*right_span_ns, static_cast<long double>(scale))
-        : 0;
-    const time_range_t target = time_range_around_pivot_ns(
-        *t_pivot_ns,
-        left_ns,
-        right_ns);
-    commit(target.min_ns, target.max_ns);
-}
 
 class Time_axis_model
 {
@@ -213,11 +63,6 @@ public:
     qint64 t_max()           const { return m_t_max;           }
     qint64 t_available_min() const { return m_t_available_min; }
     qint64 t_available_max() const { return m_t_available_max; }
-
-    bool t_min_initialized()           const { return m_t_min_initialized;           }
-    bool t_max_initialized()           const { return m_t_max_initialized;           }
-    bool t_available_min_initialized() const { return m_t_available_min_initialized; }
-    bool t_available_max_initialized() const { return m_t_available_max_initialized; }
 
     bool view_initialized() const
     {
@@ -476,6 +321,7 @@ public:
                 m_t_available_max_initialized);
     }
 
+    // Translate opposite to the cursor, using the visible span.
     time_axis_update_result_t adjust_t_from_mouse_diff(
         double ref_width,
         double diff)
@@ -484,17 +330,32 @@ public:
             return {};
         }
 
-        time_axis_update_result_t result;
-        adjust_t_from_mouse_diff_impl(
-            snapshot(),
-            ref_width,
-            diff,
-            [this, &result](qint64 mn, qint64 mx) {
-                result = adjust_t_to_target(mn, mx);
-            });
-        return result;
+        if (ref_width <= 0.0) {
+            return {};
+        }
+
+        const auto span_ns = positive_span_ns(m_t_min, m_t_max);
+        if (!span_ns) {
+            return {};
+        }
+
+        const long double fraction =
+            std::abs(static_cast<long double>(diff) / static_cast<long double>(ref_width));
+        const std::uint64_t duration_ns = scaled_duration_ns(*span_ns, fraction);
+        const auto direction = (diff >= 0.0)
+            ? Time_translation_direction::BACKWARD
+            : Time_translation_direction::FORWARD;
+        const auto shifted = translate_time_range_by_duration_ns(
+            time_range_t{m_t_min, m_t_max},
+            duration_ns,
+            direction);
+        if (!shifted) {
+            return {};
+        }
+        return adjust_t_to_target(shifted->min_ns, shifted->max_ns);
     }
 
+    // Preview dragging follows the cursor, using the available span.
     time_axis_update_result_t adjust_t_from_mouse_diff_on_preview(
         double ref_width,
         double diff)
@@ -503,17 +364,34 @@ public:
             return {};
         }
 
-        time_axis_update_result_t result;
-        adjust_t_from_mouse_diff_on_preview_impl(
-            snapshot(),
-            ref_width,
-            diff,
-            [this, &result](qint64 mn, qint64 mx) {
-                result = adjust_t_to_target(mn, mx);
-            });
-        return result;
+        if (ref_width <= 0.0) {
+            return {};
+        }
+
+        const auto avail_span_ns = positive_span_ns(
+            m_t_available_min,
+            m_t_available_max);
+        if (!avail_span_ns) {
+            return {};
+        }
+
+        const long double fraction =
+            std::abs(static_cast<long double>(diff) / static_cast<long double>(ref_width));
+        const std::uint64_t duration_ns = scaled_duration_ns(*avail_span_ns, fraction);
+        const auto direction = (diff >= 0.0)
+            ? Time_translation_direction::FORWARD
+            : Time_translation_direction::BACKWARD;
+        const auto shifted = translate_time_range_by_duration_ns(
+            time_range_t{m_t_min, m_t_max},
+            duration_ns,
+            direction);
+        if (!shifted) {
+            return {};
+        }
+        return adjust_t_to_target(shifted->min_ns, shifted->max_ns);
     }
 
+    // Recenter at the preview position while preserving the visible span.
     time_axis_update_result_t adjust_t_from_mouse_pos_on_preview(
         double ref_width,
         double x_pos)
@@ -522,17 +400,26 @@ public:
             return {};
         }
 
-        time_axis_update_result_t result;
-        adjust_t_from_mouse_pos_on_preview_impl(
-            snapshot(),
-            ref_width,
-            x_pos,
-            [this, &result](qint64 mn, qint64 mx) {
-                result = adjust_t_to_target(mn, mx);
-            });
-        return result;
+        if (ref_width <= 0.0) {
+            return {};
+        }
+
+        const auto span_ns = positive_span_ns(m_t_min, m_t_max);
+        if (!span_ns) {
+            return {};
+        }
+
+        const auto new_center_ns = time_at_fraction_ns(
+            time_range_t{m_t_available_min, m_t_available_max},
+            static_cast<long double>(x_pos) / static_cast<long double>(ref_width));
+        if (!new_center_ns) {
+            return {};
+        }
+        const time_range_t target = centered_time_range_ns(*new_center_ns, *span_ns);
+        return adjust_t_to_target(target.min_ns, target.max_ns);
     }
 
+    // Zoom around a normalized pivot; scale < 1 zooms in and scale > 1 out.
     time_axis_update_result_t adjust_t_from_pivot_and_scale(
         double pivot,
         double scale)
@@ -541,23 +428,38 @@ public:
             return {};
         }
 
-        time_axis_update_result_t result;
-        adjust_t_from_pivot_and_scale_impl(
-            snapshot(),
-            pivot,
-            scale,
-            [this, &result](qint64 mn, qint64 mx) {
-                result = adjust_t_to_target(mn, mx);
-            });
-        return result;
+        if (scale <= 0.0) {
+            return {};
+        }
+
+        const auto span_ns = positive_span_ns(m_t_min, m_t_max);
+        if (!span_ns) {
+            return {};
+        }
+
+        const auto t_pivot_ns = time_at_fraction_ns(
+            time_range_t{m_t_min, m_t_max},
+            static_cast<long double>(pivot));
+        if (!t_pivot_ns) {
+            return {};
+        }
+
+        const auto left_span_ns  = positive_span_ns(m_t_min, *t_pivot_ns);
+        const auto right_span_ns = positive_span_ns(*t_pivot_ns, m_t_max);
+        const std::uint64_t left_ns = left_span_ns
+            ? scaled_duration_ns(*left_span_ns, static_cast<long double>(scale))
+            : 0;
+        const std::uint64_t right_ns = right_span_ns
+            ? scaled_duration_ns(*right_span_ns, static_cast<long double>(scale))
+            : 0;
+        const time_range_t target = time_range_around_pivot_ns(
+            *t_pivot_ns,
+            left_ns,
+            right_ns);
+        return adjust_t_to_target(target.min_ns, target.max_ns);
     }
 
 private:
-    t_view_snapshot_t snapshot() const
-    {
-        return {m_t_min, m_t_max, m_t_available_min, m_t_available_max};
-    }
-
     time_axis_update_result_t set_limits_if_changed(
         qint64 t_min_ns,
         qint64 t_max_ns,

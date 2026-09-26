@@ -434,6 +434,8 @@ private:
         const std::shared_ptr<detail::plot_render_feedback_channel_t>& channel);
     void set_rendered_v_range(float v_min, float v_max) const;
     void set_rendered_t_range(qint64 t_min_ns, qint64 t_max_ns) const;
+    template<typename Update>
+    void apply_time_update(Update&& update_time);
     void sync_time_axis_state();
     void clear_time_axis();
     void handle_window_changed(QQuickWindow* window);
