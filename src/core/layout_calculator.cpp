@@ -356,9 +356,6 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
 
         double step                = 1.0;
         int    i                   = 16;
-        int    initial_level_index = 0;
-
-        double initial_level_step   = 0.0;
         double px_per_unit          = 0.0;
         float  label_box_height_px  = 0.0f;
         float  label_gap_px         = 0.0f;
@@ -375,34 +372,7 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
             VNM_PLOT_PROFILE_SCOPE(
                 profiler,
                 "renderer.frame.calculate_layout.impl.cache_miss.pass1.vertical_axis.setup");
-            const auto validate_seed = [&](double seed_step, int seed_index) {
-                if (!(seed_step > 0.0)) {
-                    return false;
-                }
-                const double upper = seed_step * detail::decade_step_factor(seed_index);
-                const double lower = seed_step / detail::decade_step_factor(seed_index - 1);
-                if (!std::isfinite(upper) || !std::isfinite(lower)) {
-                    return false;
-                }
-                const double tol = std::max(1e-6, std::abs(v_span) * 1e-6);
-                return (lower - tol) <= v_span && v_span <= (upper + tol);
-            };
-
-            bool used_seed = false;
-            if (params.has_vertical_seed && params.vertical_seed_index >= 0) {
-                if (validate_seed(params.vertical_seed_step, params.vertical_seed_index)) {
-                    step      = params.vertical_seed_step;
-                    i         = params.vertical_seed_index;
-                    used_seed = true;
-                }
-            }
-
-            if (!used_seed) {
-                detail::select_decade_step(v_span, step, i);
-            }
-
-            initial_level_index = i;
-            initial_level_step  = step;
+            detail::select_decade_step(v_span, step, i);
             px_per_unit         = params.usable_height / v_span;
 
             accepted_boxes.clear();
@@ -537,19 +507,8 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
         {
             VNM_PLOT_PROFILE_SCOPE(
                 profiler,
-                "renderer.frame.calculate_layout.impl.cache_miss.pass1.vertical_axis.finalize");
-            res.vertical_seed_index  = initial_level_index;
-            res.vertical_seed_step   = initial_level_step;
-            res.vertical_finest_step = finest_step_accepted;
-        }
-
-        {
-            VNM_PLOT_PROFILE_SCOPE(
-                profiler,
                 "renderer.frame.calculate_layout.impl.cache_miss.pass1.vertical_axis.fixed_digits");
-            res.v_label_fixed_digits = params.get_required_fixed_digits_func
-                ? std::max(0, params.get_required_fixed_digits_func(finest_step_accepted))
-                : fixed_digits_for_step(finest_step_accepted);
+            res.v_label_fixed_digits = fixed_digits_for_step(finest_step_accepted);
 
             auto& vals = m_scratch_vals_d;
             vals.clear();
@@ -695,26 +654,9 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
             VNM_PLOT_PROFILE_SCOPE(
                 profiler,
                 "renderer.frame.calculate_layout.impl.cache_miss.pass1.horizontal_axis.setup");
-            if (params.has_horizontal_seed &&
-                params.horizontal_seed_index >= 0 &&
-                params.horizontal_seed_index <  static_cast<int>(steps.size()))
-            {
-                const double seeded_step = steps[params.horizontal_seed_index];
-                const double ref = std::max(
-                    1e-6,
-                    std::max(std::abs(seeded_step), std::abs(params.horizontal_seed_step)));
-                if (std::abs(seeded_step - params.horizontal_seed_step) <= ref * 1e-6) {
-                    si = params.horizontal_seed_index;
-                }
-            }
-            if (si < 0) {
-                si = std::max(0, find_time_step_start_index(steps, t_range));
-            }
+            si = std::max(0, find_time_step_start_index(steps, t_range));
             level.reserve(32);
         }
-
-        const int    start_si   = si;
-        const double start_step = (si >= 0 && si < static_cast<int>(steps.size())) ? steps[si] : 0.0;
 
         bool   any_level   = false;
         bool   any_subsec  = false;
@@ -1084,8 +1026,6 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                 res.h_labels_subsecond = any_subsec;
             }
 
-            res.horizontal_seed_index = start_si;
-            res.horizontal_seed_step  = start_step;
         }
 
         // Ensure uniform label format using the finest accepted step.

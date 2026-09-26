@@ -49,7 +49,6 @@ public:
         bool                                                      monospace_advance_is_reliable = false;
 
         // Callbacks for metrics and formatting
-        std::function<int(double)>                                get_required_fixed_digits_func;
         // Both arguments are int64 nanoseconds (API convention).
         std::function<std::string(std::int64_t, std::int64_t)>    format_timestamp_func;
         std::uint64_t                                             format_timestamp_revision = 0;
@@ -62,14 +61,6 @@ public:
         // Optional profiler (from Plot_config)
         vnm::plot::Profiler*                                      profiler = nullptr;
 
-        // Seed hints for incremental computation
-        bool                                                      has_vertical_seed = false;
-        int                                                       vertical_seed_index = -1;
-        double                                                    vertical_seed_step = 0.0;
-
-        bool                                                      has_horizontal_seed = false;
-        int                                                       horizontal_seed_index = -1;
-        double                                                    horizontal_seed_step = 0.0;
     };
 
     // Calculation result
@@ -82,11 +73,6 @@ public:
         bool                   h_labels_subsecond     = false;
         float                  max_v_label_text_width = 0.f;
 
-        int                    vertical_seed_index   = -1;
-        double                 vertical_seed_step    = 0.0;
-        double                 vertical_finest_step  = 0.0;
-        int                    horizontal_seed_index = -1;
-        double                 horizontal_seed_step  = 0.0;
     };
 
     Layout_calculator() = default;

@@ -358,11 +358,6 @@ Plot_frame_result Plot_frame_renderer::render(
             cached_layout.h_labels = std::move(layout_result.h_labels);
             cached_layout.v_label_fixed_digits = layout_result.v_label_fixed_digits;
             cached_layout.h_labels_subsecond = layout_result.h_labels_subsecond;
-            cached_layout.vertical_seed_index = layout_result.vertical_seed_index;
-            cached_layout.vertical_seed_step = layout_result.vertical_seed_step;
-            cached_layout.vertical_finest_step = layout_result.vertical_finest_step;
-            cached_layout.horizontal_seed_index = layout_result.horizontal_seed_index;
-            cached_layout.horizontal_seed_step = layout_result.horizontal_seed_step;
             layout_ptr = &m_impl->layout_cache.store(make_cache_key(vbar_width), std::move(cached_layout));
         }
     }

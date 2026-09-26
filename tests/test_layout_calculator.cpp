@@ -266,10 +266,6 @@ bool test_horizontal_axis_handles_full_int64_time_span()
     plot::Layout_calculator calc;
     const auto result = calc.calculate(params);
 
-    TEST_ASSERT(result.horizontal_seed_index >= 0,
-        "full int64 timestamp range should enter horizontal-axis layout");
-    TEST_ASSERT(result.horizontal_seed_step > 0.0,
-        "full int64 timestamp range should compute a positive horizontal step");
     TEST_ASSERT(!recorded.empty(),
         "formatter-enabled full int64 timestamp range should call the formatter");
     TEST_ASSERT(result.h_labels.size() > 1,
@@ -518,13 +514,6 @@ bool test_default_small_vertical_layout_labels_are_distinct()
         TEST_ASSERT(result.v_labels[i - 1].text != result.v_labels[i].text,
             "adjacent small-range vertical labels should be distinguishable");
     }
-
-    params.get_required_fixed_digits_func = [](double) { return 0; };
-    const auto overridden_result = calc.calculate(params);
-    TEST_ASSERT(overridden_result.v_label_fixed_digits == 0,
-        "an explicit vertical precision override should remain supported");
-    TEST_ASSERT(overridden_result.v_labels.size() == 1,
-        "equal strings produced by an explicit precision should still be suppressed");
 
     return true;
 }

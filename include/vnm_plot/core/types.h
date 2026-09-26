@@ -1152,11 +1152,6 @@ struct frame_layout_result_t
     int                    v_label_fixed_digits = 0;
     bool                   h_labels_subsecond = false;
 
-    int                    vertical_seed_index = -1;
-    double                 vertical_seed_step = 0.0;
-    double                 vertical_finest_step = 0.0;
-    int                    horizontal_seed_index = -1;
-    double                 horizontal_seed_step = 0.0;
 };
 
 /// Key for layout caching. Layout is recomputed only when this key changes.
