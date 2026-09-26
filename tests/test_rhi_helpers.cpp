@@ -132,10 +132,6 @@ bool test_embedded_shaders_retain_required_glsl_profiles()
         "plot_area.vert.qsb",
         "plot_area.frag.qsb",
     };
-#if defined(VNM_PLOT_ENABLE_TEXT)
-    shaders.push_back("msdf_text.vert.qsb");
-    shaders.push_back("msdf_text.frag.qsb");
-#endif
 
     for (const char* path : shaders) {
         const QShader shader = plot::detail::load_qsb(path);

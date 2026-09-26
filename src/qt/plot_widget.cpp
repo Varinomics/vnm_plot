@@ -1,6 +1,6 @@
 #include <vnm_plot/qt/plot_widget.h>
 #include "plot_renderer.h"
-#include "lcd_resolver.h"
+#include <vnm_msdf_text/qt/lcd_resolver.h>
 #include "plot_render_feedback.h"
 #include "qml_resources.h"
 #include "t_axis_adjust.h"
@@ -152,7 +152,7 @@ Plot_widget::Plot_widget()
     });
 
     update_dpi_scaling_factor();
-    m_lcd_settings_observer = observe_lcd_settings([this] { invalidate_display_context(); });
+    m_lcd_settings_observer = vnm::msdf_text::lcd::observe_lcd_settings([this] { invalidate_display_context(); });
     observe_screen();
     refresh_lcd_order();
 
@@ -275,11 +275,14 @@ void Plot_widget::set_config(const Plot_config& config)
     bool        line_changed    = false;
     bool        resume_automatic_preview = false;
     bool        lcd_mode_changed = false;
+    bool        lcd_order_changed = false;
 
     {
         std::unique_lock lock(m_config_mutex);
         dark_changed    = m_config.dark_mode != config.dark_mode;
         lcd_mode_changed = m_config.lcd_request.automatic != config.lcd_request.automatic;
+        lcd_order_changed = lcd_mode_changed ||
+            m_config.lcd_request.resolved_order != config.lcd_request.resolved_order;
         grid_changed    = m_config.grid_visibility != config.grid_visibility;
         preview_changed = m_config.preview_visibility != config.preview_visibility;
         line_changed    = m_config.line_width_px != config.line_width_px;
@@ -291,6 +294,9 @@ void Plot_widget::set_config(const Plot_config& config)
     }
     if (lcd_mode_changed) {
         refresh_lcd_order();
+    }
+    if (lcd_order_changed) {
+        emit lcd_subpixel_order_changed();
     }
     if (dark_changed) {
         emit dark_mode_changed();
@@ -958,6 +964,23 @@ void Plot_widget::invalidate_display_context()
 {
     refresh_lcd_order();
     update_dpi_scaling_factor();
+}
+
+int Plot_widget::lcd_subpixel_order() const
+{
+    const auto request = config().lcd_request;
+    return request.automatic ? -1 : static_cast<int>(request.resolved_order);
+}
+
+void Plot_widget::set_lcd_subpixel_order(int order)
+{
+    auto updated = config();
+    updated.lcd_request = order == -1 ? lcd_auto_request()
+        : lcd_explicit_request(static_cast<lcd_subpixel_order_t>(order >= 0 && order <= 4 ? order : 0));
+    if (lcd_subpixel_order() != (updated.lcd_request.automatic ? -1 :
+            static_cast<int>(updated.lcd_request.resolved_order))) {
+        set_config(updated);
+    }
 }
 
 void Plot_widget::refresh_lcd_order()

@@ -128,7 +128,6 @@ void Font_renderer::rhi_begin_frame()
 
 void Font_renderer::rhi_queue_draw(
     const frame_context_t&,
-    const glm::mat4&,
     const glm::vec4&,
     const text_scissor_t&,
     const text_shadow_t&)
@@ -138,7 +137,6 @@ void Font_renderer::rhi_queue_draw(
 
 void Font_renderer::rhi_queue_draw(
     const frame_context_t&,
-    const glm::mat4&,
     const glm::vec4&,
     const text_scissor_t&,
     const text_shadow_t&,

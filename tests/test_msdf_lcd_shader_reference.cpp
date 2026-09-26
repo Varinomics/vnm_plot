@@ -185,18 +185,6 @@ std::string weight_name_for_value(float weight)
     return {};
 }
 
-std::string sample_expression_for_offset(float offset)
-{
-    if (offset == -3.0f) { return "glyph_ratio - subpixel_step * 3.0"; }
-    if (offset == -2.0f) { return "glyph_ratio - subpixel_step * 2.0"; }
-    if (offset == -1.0f) { return "glyph_ratio - subpixel_step";       }
-    if (offset == 0.0f)  { return "glyph_ratio";                       }
-    if (offset == 1.0f)  { return "glyph_ratio + subpixel_step";       }
-    if (offset == 2.0f)  { return "glyph_ratio + subpixel_step * 2.0"; }
-    if (offset == 3.0f)  { return "glyph_ratio + subpixel_step * 3.0"; }
-    return {};
-}
-
 std::string lcd_order_bool_name(lcd::Resolved_lcd_subpixel_order order)
 {
     switch (order) {
@@ -234,22 +222,6 @@ std::string decode_threshold_statement(const ref::decode_threshold_t& threshold)
         ";";
 }
 
-std::string sample_statement_for_offset(float offset)
-{
-    const std::string sample_name = sample_name_for_offset(offset);
-    const std::string expression  = sample_expression_for_offset(offset);
-    if (expression.empty()) {
-        return {};
-    }
-
-    return
-        "float "                   +
-        sample_name                +
-        " = glyph_alpha_at_ratio(" +
-        expression                 +
-        ", uv_min, uv_max);";
-}
-
 std::string filter_weight_statement(std::string_view name, std::string_view literal)
 {
     return "float " + std::string(name) + " = " + std::string(literal) + ";";
@@ -273,45 +245,6 @@ std::string filter_window_statement(const ref::filter_window_t& window)
     }
 
     return statement;
-}
-
-std::string lcd_horizontal_group_statement()
-{
-    return "bool lcd_horizontal = lcd_rgb || lcd_bgr;";
-}
-
-std::string lcd_vertical_group_statement()
-{
-    return "bool lcd_vertical = lcd_vrgb || lcd_vbgr;";
-}
-
-std::string subpixel_step_statement()
-{
-    return
-        "vec2 subpixel_step = lcd_horizontal\n" "            ? vec2(" +
-        std::string(ref::k_lcd_horizontal_step_glsl)                  +
-        ", 0.0)\n" "            : vec2(0.0, "                         +
-        std::string(ref::k_lcd_vertical_step_glsl)                    +
-        ");";
-}
-
-std::string lcd_enabled_statement()
-{
-    return
-        std::string("bool lcd_enabled =\n")              +
-        "        (lcd_horizontal || lcd_vertical) &&\n"  +
-        "        u.shadow_radius <= 0.0 &&\n"            +
-        "        u.color.a >= "                          +
-        std::string(ref::k_lcd_opaque_alpha_cutoff_glsl) +
-        " &&\n"                                          +
-        "        u.background_color.a >= "               +
-        std::string(ref::k_lcd_opaque_alpha_cutoff_glsl) +
-        ";";
-}
-
-std::string forward_order_statement()
-{
-    return "bool forward_order = lcd_rgb || lcd_vrgb;";
 }
 
 std::string filtered_lcd_return_statement()
@@ -351,76 +284,53 @@ bool test_cpp_order_values_match_shader_reference()
 
 bool test_plot_shader_binds_lcd_reference_literals()
 {
-    const std::string shader = read_text_file(VNM_PLOT_MSDF_TEXT_FRAG_PATH);
-    TEST_ASSERT(!shader.empty(), "plot MSDF fragment shader source must be readable");
-    const glsl_token_list_t shader_tokens = tokenize_glsl(shader);
+    const std::string grid = read_text_file(VNM_PLOT_GRID_FRAG_PATH);
+    TEST_ASSERT(!grid.empty(), "plot grid fragment shader source must be readable");
+    const auto shader_tokens = tokenize_glsl(grid);
     const std::string filter = read_text_file(VNM_PLOT_LCD_FILTER_PATH);
     TEST_ASSERT(!filter.empty(), "shared LCD filter source must be readable");
-    const glsl_token_list_t filter_tokens = tokenize_glsl(filter);
-    const std::string grid = read_text_file(VNM_PLOT_GRID_FRAG_PATH);
-    for (const std::string* source : {&shader, &grid}) {
-        TEST_ASSERT(source->find("#include \"lcd_filter.glsl\"") != std::string::npos,
-            "text and grid shaders must include the shared LCD filter");
-        TEST_ASSERT(contains_glsl_token_sequence(tokenize_glsl(*source),
-            "return lcd_filter7(sample_0, sample_1, sample_2, sample_3,"
-            " sample_4, sample_5, sample_6, forward_order);"),
-            "text and grid must send their seven samples to the shared filter");
+    const auto filter_tokens = tokenize_glsl(filter);
+    TEST_ASSERT(grid.find("#include \"lcd_filter.glsl\"") != std::string::npos,
+        "grid shader must include the shared LCD filter");
+    TEST_ASSERT(contains_glsl_token_sequence(shader_tokens,
+        "return lcd_filter7(sample_0, sample_1, sample_2, sample_3,"
+        " sample_4, sample_5, sample_6, forward_order);"),
+        "grid sends all seven samples to the shared filter");
+
+    for (const auto& threshold : ref::k_lcd_decode_thresholds) {
+        if (threshold.order != lcd::Resolved_lcd_subpixel_order::RGB &&
+            threshold.order != lcd::Resolved_lcd_subpixel_order::BGR) { continue; }
+        TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, decode_threshold_statement(threshold)),
+            "grid horizontal order decode matches the shared uniform");
     }
-
-    for (const ref::decode_threshold_t& threshold : ref::k_lcd_decode_thresholds) {
-        const std::string statement = decode_threshold_statement(threshold);
-        TEST_ASSERT(!statement.empty(),
-            "shared LCD decode threshold row must name a plot shader boolean");
-        TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, statement),
-            "plot shader LCD decode threshold must bind the correct boolean name");
-        TEST_ASSERT(lcd::shader_uniform_value(threshold.order) > threshold.min_exclusive,
-            "decode threshold lower bound must contain its uniform value");
-        TEST_ASSERT(lcd::shader_uniform_value(threshold.order) < threshold.max_exclusive,
-            "decode threshold upper bound must contain its uniform value");
+    TEST_ASSERT(contains_glsl_token_sequence(filter_tokens,
+        filter_weight_statement("filter_edge", ref::k_lcd_filter_edge_glsl)), "edge weight");
+    TEST_ASSERT(contains_glsl_token_sequence(filter_tokens,
+        filter_weight_statement("filter_side", ref::k_lcd_filter_side_glsl)), "side weight");
+    TEST_ASSERT(contains_glsl_token_sequence(filter_tokens,
+        filter_weight_statement("filter_center", ref::k_lcd_filter_center_glsl)), "center weight");
+    for (const auto& window : ref::k_lcd_filter_windows) {
+        TEST_ASSERT(contains_glsl_token_sequence(filter_tokens, filter_window_statement(window)),
+            "shared filter uses the reference convolution windows");
     }
-
-    TEST_ASSERT(contains_glsl_token_sequence(
-        filter_tokens, filter_weight_statement("filter_edge", ref::k_lcd_filter_edge_glsl)),
-        "plot shader LCD edge filter literal must match shared reference");
-    TEST_ASSERT(contains_glsl_token_sequence(
-        filter_tokens, filter_weight_statement("filter_side", ref::k_lcd_filter_side_glsl)),
-        "plot shader LCD side filter literal must match shared reference");
-    TEST_ASSERT(contains_glsl_token_sequence(
-        filter_tokens, filter_weight_statement("filter_center", ref::k_lcd_filter_center_glsl)),
-        "plot shader LCD center filter literal must match shared reference");
-
-    for (const ref::filter_window_t& window : ref::k_lcd_filter_windows) {
-        const std::string statement = filter_window_statement(window);
-        TEST_ASSERT(!statement.empty(),
-            "shared LCD filter window taps must have plot shader symbols");
-        TEST_ASSERT(contains_glsl_token_sequence(filter_tokens, statement),
-            "plot shader LCD filter window statement must match shared reference");
+    const char* offsets[] = {
+        "coord - 1.0", "coord - 2.0 / 3.0", "coord - 1.0 / 3.0",
+        "coord", "coord + 1.0 / 3.0", "coord + 2.0 / 3.0", "coord + 1.0"
+    };
+    for (int i = 0; i != 7; ++i) {
+        const auto sample = "sample_" + std::to_string(i);
+        TEST_ASSERT(contains_glsl_token_sequence(shader_tokens,
+            sample + " = max(" + sample + ", line_mask(" + offsets[i] +
+            ", spacing, level.y, level.w) * level.z);"),
+            "grid sampling advances by one third of a physical pixel");
     }
-
-    for (float offset : ref::k_lcd_tap_offsets) {
-        const std::string statement = sample_statement_for_offset(offset);
-        TEST_ASSERT(!statement.empty(),
-            "shared LCD sample tap offset must have a plot shader expression");
-        TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, statement),
-            "plot shader sample tap statement must match shared reference");
-    }
-
-    TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, subpixel_step_statement()),
-        "plot shader LCD subpixel-step expression must match shared reference");
-    TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, lcd_horizontal_group_statement()),
-        "plot shader horizontal LCD group must include RGB and BGR");
-    TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, lcd_vertical_group_statement()),
-        "plot shader vertical LCD group must include VRGB and VBGR");
-    TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, forward_order_statement()),
-        "plot shader LCD forward order must be RGB and VRGB");
     TEST_ASSERT(contains_glsl_token_sequence(filter_tokens, filtered_lcd_return_statement()),
-        "plot shader LCD filtered coverage return order must preserve channel direction");
-    TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, lcd_enabled_statement()),
-        "plot shader opacity cutoff expression must match shared reference");
-    TEST_ASSERT(plot::detail::k_lcd_opaque_alpha_cutoff ==
-        ref::k_lcd_opaque_alpha_cutoff,
-        "plot CPU opacity cutoff must match shared shader reference");
-
+        "LCD convolution preserves channel direction");
+    TEST_ASSERT(contains_glsl_token_sequence(shader_tokens,
+        "bool lcd_enabled = (lcd_rgb || lcd_bgr) && u.background_color.a >= 0.999;"),
+        "grid LCD requires horizontal stripes and opaque backing");
+    TEST_ASSERT(plot::detail::k_lcd_opaque_alpha_cutoff == ref::k_lcd_opaque_alpha_cutoff,
+        "CPU and shader use the same opaque-backing threshold");
     return true;
 }
 

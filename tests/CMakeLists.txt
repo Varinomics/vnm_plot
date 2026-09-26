@@ -28,6 +28,7 @@ set(_vnm_plot_rhi_tests
     test_qrhi_public_api
     test_line_precision
     test_sample_upload_reuse
+    test_msdf_lcd_shader_reference
 )
 
 if(VNM_PLOT_ENABLE_TEXT)
@@ -38,7 +39,6 @@ if(VNM_PLOT_ENABLE_TEXT)
         test_font_identity
         test_font_renderer_bounds
         test_font_renderer_draw_ranges
-        test_msdf_lcd_shader_reference
     )
 endif()
 
@@ -92,7 +92,7 @@ endif()
 if(TARGET test_font_atlas_cache)
     # The cache header carries the built atlas type, so the test needs the
     # atlas builder's headers as well as the library it is linked against.
-    target_link_libraries(test_font_atlas_cache PRIVATE vnm_msdf_text::vnm_msdf_text)
+    target_link_libraries(test_font_atlas_cache PRIVATE vnm_msdf_text::rhi)
     if(TARGET Threads::Threads)
         target_link_libraries(test_font_atlas_cache PRIVATE Threads::Threads)
     endif()
@@ -117,8 +117,7 @@ if(TARGET test_msdf_lcd_shader_reference)
     endif()
     target_link_libraries(test_msdf_lcd_shader_reference PRIVATE vnm_msdf_text::lcd_shader_reference)
     target_compile_definitions(test_msdf_lcd_shader_reference PRIVATE
-        VNM_PLOT_MSDF_TEXT_FRAG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../shaders/qsb/msdf_text.frag"
-        VNM_PLOT_LCD_FILTER_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../shaders/qsb/lcd_filter.glsl"
+        VNM_PLOT_LCD_FILTER_PATH="${VNM_MSDF_TEXT_SHADER_DIR}/lcd_filter.glsl"
         VNM_PLOT_GRID_FRAG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../shaders/qsb/grid_quad.frag"
     )
 endif()
@@ -148,6 +147,7 @@ if(TARGET vnm_plot_qtquick)
     target_link_libraries(test_lcd_resolver
         PRIVATE
             vnm_plot::qtquick
+            vnm_msdf_text::qt_lcd
             Qt6::GuiPrivate
             Qt6::Gui
     )

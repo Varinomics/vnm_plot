@@ -77,6 +77,9 @@ class Plot_widget : public QQuickRhiItem
 {
     Q_OBJECT
 
+    // -1 requests automatic detection; 0..4 are the shared resolved LCD orders.
+    Q_PROPERTY(int lcd_subpixel_order READ lcd_subpixel_order WRITE set_lcd_subpixel_order NOTIFY lcd_subpixel_order_changed)
+
     // Time properties expose milliseconds-since-epoch to QML. The Q_PROPERTY
     // READ method names end with _qml_ms to make the unit obvious at the
     // boundary. Internally the widget stores int64 nanoseconds; conversion
@@ -137,6 +140,8 @@ public:
     // Replace the complete plot configuration. Config-backed QML properties
     // are notified when their values change.
     void set_config(const Plot_config& config);
+    int lcd_subpixel_order() const;
+    void set_lcd_subpixel_order(int order);
     Plot_config config() const;
     // Invalidate cached rendered ranges and request a fresh frame.
     Q_INVOKABLE void reset_view_state();
@@ -264,6 +269,7 @@ public:
     QQuickRhiItemRenderer* createRenderer() override;
 
 signals:
+    void lcd_subpixel_order_changed();
     void t_limits_changed();
 
     void v_limits_changed();

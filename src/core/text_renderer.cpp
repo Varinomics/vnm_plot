@@ -240,7 +240,7 @@ bool Text_renderer::render_axis_labels(
                 text_lcd_for_background(ctx, palette.v_label_background, label_lcd_eligible);
             glm::vec4 color = font_color;
             color.a *= alpha;
-            m_fonts->rhi_queue_draw(ctx, ctx.pmv, color, label_scissor, {}, label_lcd);
+            m_fonts->rhi_queue_draw(ctx, color, label_scissor, {}, label_lcd);
         }
     };
 
@@ -328,7 +328,7 @@ bool Text_renderer::render_info_overlay(
             color.a *= alpha;
             const text_scissor_t draw_scissor =
                 label_scissor.enabled ? label_scissor : text_scissor_t{};
-            m_fonts->rhi_queue_draw(ctx, ctx.pmv, color, draw_scissor, {}, label_lcd);
+            m_fonts->rhi_queue_draw(ctx, color, draw_scissor, {}, label_lcd);
         }
     };
 
@@ -434,7 +434,7 @@ bool Text_renderer::render_info_overlay(
 
     if (overlay_line_count > 0) {
         if (ctx.rhi) {
-            m_fonts->rhi_queue_draw(ctx, ctx.pmv, font_color, {}, overlay_shadow, overlay_lcd);
+            m_fonts->rhi_queue_draw(ctx, font_color, {}, overlay_shadow, overlay_lcd);
         }
     }
     return any_active;

@@ -101,6 +101,7 @@ function(_vnm_plot_has_any_msdf_text_target out_var)
     set(_has_target FALSE)
     foreach(_target IN ITEMS
         vnm_msdf_text::lcd_contract
+        vnm_msdf_text::qt_lcd
         vnm_msdf_text::vnm_msdf_text
         vnm_msdf_text_lcd_contract
         vnm_msdf_text
@@ -112,43 +113,21 @@ function(_vnm_plot_has_any_msdf_text_target out_var)
     set(${out_var} ${_has_target} PARENT_SCOPE)
 endfunction()
 
-function(_vnm_plot_add_msdf_text_lcd_contract_from_source source_dir)
-    if(TARGET vnm_msdf_text::lcd_contract)
-        return()
-    endif()
-
-    if(TARGET vnm_msdf_text_lcd_contract)
-        _vnm_plot_alias_existing_msdf_text_targets()
-        return()
-    endif()
-
-    if(NOT EXISTS "${source_dir}/include/vnm_msdf_text/lcd_contract.h")
-        message(FATAL_ERROR
-            "vnm_plot: vnm_msdf_text LCD contract header not found in "
-            "${source_dir}.")
-    endif()
-
-    add_library(vnm_msdf_text_lcd_contract INTERFACE)
-    add_library(vnm_msdf_text::lcd_contract ALIAS vnm_msdf_text_lcd_contract)
-
-    set_target_properties(vnm_msdf_text_lcd_contract PROPERTIES
-        EXPORT_NAME lcd_contract
-    )
-
-    target_include_directories(vnm_msdf_text_lcd_contract
-        INTERFACE
-            $<BUILD_INTERFACE:${source_dir}/include>
-    )
-
-    target_compile_features(vnm_msdf_text_lcd_contract INTERFACE cxx_std_17)
-endfunction()
-
-set(_vnm_plot_msdf_text_components lcd_contract)
-set(_vnm_plot_msdf_text_required_targets vnm_msdf_text::lcd_contract)
+set(_vnm_plot_msdf_text_components lcd_contract qt_lcd)
+set(VNM_MSDF_TEXT_BUILD_QT_LCD ON CACHE BOOL "" FORCE)
 if(VNM_PLOT_ENABLE_TEXT)
-    list(APPEND _vnm_plot_msdf_text_components atlas)
+    set(VNM_MSDF_TEXT_BUILD_ATLAS ON CACHE BOOL "" FORCE)
+elseif(NOT DEFINED VNM_MSDF_TEXT_BUILD_ATLAS AND NOT VNM_MSDF_TEXT_BUILD_RHI)
+    set(VNM_MSDF_TEXT_BUILD_ATLAS OFF CACHE BOOL "")
+endif()
+if(VNM_PLOT_BUILD_TESTS AND NOT TARGET vnm_msdf_text::qt_lcd)
+    set(VNM_MSDF_TEXT_BUILD_TESTS ON CACHE BOOL "" FORCE)
+endif()
+set(_vnm_plot_msdf_text_required_targets vnm_msdf_text::lcd_contract vnm_msdf_text::qt_lcd)
+if(VNM_PLOT_ENABLE_TEXT)
+    list(APPEND _vnm_plot_msdf_text_components rhi)
     list(APPEND _vnm_plot_msdf_text_required_targets
-        vnm_msdf_text::vnm_msdf_text
+        vnm_msdf_text::rhi
     )
 endif()
 
@@ -185,44 +164,26 @@ if(_vnm_plot_missing_msdf_text_targets)
         get_filename_component(_vnm_plot_msdf_text_source
             "${CMAKE_CURRENT_SOURCE_DIR}/../vnm_msdf_text"
             ABSOLUTE)
-        if(VNM_PLOT_ENABLE_TEXT)
-            unset(VNM_MSDF_TEXT_USE_SYSTEM_LIBS CACHE)
-            set(VNM_MSDF_TEXT_FETCH_DEPS
-                "${_vnm_plot_msdf_text_fetch_deps}"
-                CACHE BOOL "" FORCE)
+        set(VNM_MSDF_TEXT_BUILD_RHI "${VNM_PLOT_ENABLE_TEXT}" CACHE BOOL "" FORCE)
+        unset(VNM_MSDF_TEXT_USE_SYSTEM_LIBS CACHE)
+        set(VNM_MSDF_TEXT_FETCH_DEPS
+            "${_vnm_plot_msdf_text_fetch_deps}"
+            CACHE BOOL "" FORCE)
 
-            if(EXISTS "${_vnm_plot_msdf_text_source}/CMakeLists.txt")
-                message(STATUS "vnm_plot: Using sibling vnm_msdf_text source")
-                FetchContent_Declare(vnm_msdf_text
-                    SOURCE_DIR "${_vnm_plot_msdf_text_source}"
-                )
-            else()
-                message(STATUS "vnm_plot: Fetching vnm_msdf_text")
-                FetchContent_Declare(vnm_msdf_text
-                    GIT_REPOSITORY https://github.com/Varinomics/vnm_msdf_text.git
-                    GIT_TAG        master
-                    GIT_SHALLOW    TRUE
-                )
-            endif()
-            FetchContent_MakeAvailable(vnm_msdf_text)
+        if(EXISTS "${_vnm_plot_msdf_text_source}/CMakeLists.txt")
+            message(STATUS "vnm_plot: Using sibling vnm_msdf_text source")
+            FetchContent_Declare(vnm_msdf_text
+                SOURCE_DIR "${_vnm_plot_msdf_text_source}"
+            )
         else()
-            if(EXISTS "${_vnm_plot_msdf_text_source}/include/vnm_msdf_text/lcd_contract.h")
-                message(STATUS "vnm_plot: Using sibling vnm_msdf_text LCD contract headers")
-                _vnm_plot_add_msdf_text_lcd_contract_from_source("${_vnm_plot_msdf_text_source}")
-            else()
-                message(STATUS "vnm_plot: Fetching vnm_msdf_text LCD contract headers")
-                FetchContent_Declare(vnm_msdf_text
-                    GIT_REPOSITORY https://github.com/Varinomics/vnm_msdf_text.git
-                    GIT_TAG        master
-                    GIT_SHALLOW    TRUE
-                )
-                FetchContent_GetProperties(vnm_msdf_text)
-                if(NOT vnm_msdf_text_POPULATED)
-                    FetchContent_Populate(vnm_msdf_text)
-                endif()
-                _vnm_plot_add_msdf_text_lcd_contract_from_source("${vnm_msdf_text_SOURCE_DIR}")
-            endif()
+            message(STATUS "vnm_plot: Fetching vnm_msdf_text")
+            FetchContent_Declare(vnm_msdf_text
+                GIT_REPOSITORY https://github.com/Varinomics/vnm_msdf_text.git
+                GIT_TAG        master
+                GIT_SHALLOW    TRUE
+            )
         endif()
+        FetchContent_MakeAvailable(vnm_msdf_text)
         unset(_vnm_plot_msdf_text_source)
 
         _vnm_plot_alias_existing_msdf_text_targets()
@@ -334,7 +295,6 @@ set(VNM_PLOT_QTQUICK_SOURCES
     src/qt/plot_render_feedback.cpp
     src/qt/plot_renderer.cpp
     src/qt/plot_frame_renderer.cpp
-    src/qt/lcd_resolver.cpp
     src/qt/plot_widget.cpp
     src/qt/plot_interaction_item.cpp
     src/qt/plot_time_axis.cpp
@@ -352,7 +312,6 @@ set(VNM_PLOT_QTQUICK_HEADERS
     src/qt/plot_render_feedback.h
     src/qt/plot_renderer.h
     src/qt/plot_frame_renderer.h
-    src/qt/lcd_resolver.h
 )
 
 function(vnm_plot_configure_library_target target_name)
@@ -449,7 +408,7 @@ if(VNM_PLOT_ENABLE_TEXT)
     target_compile_definitions(vnm_plot_rhi PUBLIC VNM_PLOT_ENABLE_TEXT=1)
     target_link_libraries(vnm_plot_rhi
         PRIVATE
-            vnm_msdf_text::vnm_msdf_text
+            vnm_msdf_text::rhi
     )
 endif()
 
@@ -477,13 +436,6 @@ set(VNM_PLOT_QSB_SHADERS
     shaders/qsb/plot_area.frag
 )
 
-if(VNM_PLOT_ENABLE_TEXT)
-    list(APPEND VNM_PLOT_QSB_SHADERS
-        shaders/qsb/msdf_text.vert
-        shaders/qsb/msdf_text.frag
-    )
-endif()
-
 # Each input shader yields :/vnm_plot/shaders/qsb/<name>.<ext>.qsb.
 # The RHI shaders use vertex attributes and std140 uniform blocks, so retain
 # GLSL ES 300 for mobile contexts, desktop GLSL 330 for GL 3.3 contexts, and
@@ -497,14 +449,27 @@ endforeach()
 unset(_vnm_plot_qsb_output_dir)
 unset(_vnm_plot_qsb_shader)
 
+# qsb resolves includes beside its input; stage the installed shared asset with
+# shader sources in the build tree so no consumer owns a source copy.
+set(_vnm_plot_generated_shaders)
+foreach(_shader IN LISTS VNM_PLOT_QSB_SHADERS)
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/${_shader}"
+        "${CMAKE_CURRENT_BINARY_DIR}/${_shader}" COPYONLY)
+    list(APPEND _vnm_plot_generated_shaders "${CMAKE_CURRENT_BINARY_DIR}/${_shader}")
+endforeach()
+configure_file("${VNM_MSDF_TEXT_SHADER_DIR}/lcd_filter.glsl"
+    "${CMAKE_CURRENT_BINARY_DIR}/shaders/qsb/lcd_filter.glsl" COPYONLY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/shaders/qsb/uniform_blocks.glsl"
+    "${CMAKE_CURRENT_BINARY_DIR}/shaders/qsb/uniform_blocks.glsl" COPYONLY)
+
 qt_add_shaders(vnm_plot_rhi "vnm_plot_qsb_shaders"
     PREFIX "/vnm_plot"
-    BASE   "${CMAKE_CURRENT_SOURCE_DIR}"
+    BASE   "${CMAKE_CURRENT_BINARY_DIR}"
     GLSL   "300 es,330,410"
     HLSL   "50"
     MSL    "12,21"
     OUTPUT_TARGETS VNM_PLOT_RHI_RESOURCE_TARGETS
-    FILES  ${VNM_PLOT_QSB_SHADERS}
+    FILES  ${_vnm_plot_generated_shaders}
 )
 list(APPEND VNM_PLOT_RHI_RESOURCE_TARGETS ${VNM_PLOT_FONT_RESOURCE_TARGETS})
 
@@ -546,6 +511,7 @@ target_link_libraries(vnm_plot_qtquick
         Qt6::Quick
     PRIVATE
         Qt6::GuiPrivate
+        vnm_msdf_text::qt_lcd
 )
 
 if(WIN32)
@@ -628,7 +594,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         endif()
     endforeach()
     if(VNM_PLOT_ENABLE_TEXT)
-        foreach(_dep IN ITEMS vnm_msdf_text::vnm_msdf_text)
+        foreach(_dep IN ITEMS vnm_msdf_text::rhi)
             if(TARGET ${_dep})
                 get_target_property(_dep_imported ${_dep} IMPORTED)
                 if(NOT _dep_imported)

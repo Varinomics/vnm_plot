@@ -183,14 +183,12 @@ public:
     // The shared renderer derives the backend-correct pixel transform from ctx.
     void rhi_queue_draw(
         const frame_context_t& ctx,
-        const glm::mat4&       pmv,
         const glm::vec4&       color,
         const text_scissor_t&  scissor = {},
         const text_shadow_t&   shadow = {});
 
     void rhi_queue_draw(
         const frame_context_t& ctx,
-        const glm::mat4&       pmv,
         const glm::vec4&       color,
         const text_scissor_t&  scissor,
         const text_shadow_t&   shadow,
