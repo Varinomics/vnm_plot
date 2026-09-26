@@ -78,6 +78,9 @@ struct qrhi_series_prepare_context_t
 
     const frame_context_t*                 frame = nullptr;
     const series_data_t*                   series = nullptr;
+    // Snapshot acquisition can fail while an unchanged planned window and its
+    // GPU samples remain reusable. In that case snapshot is empty; layers may
+    // use sample_buffer or their own retained geometry, or decline the draw.
     sample_window_t                        window;
 
     const series_view_uniform_std140_t*    view_uniform = nullptr;
@@ -111,6 +114,8 @@ public:
     // Called for every planned custom-layer draw, even when renderer-owned
     // sample resources are reused. `resources_changed` only describes whether
     // the renderer-visible layer inputs changed; it does not suppress prepare.
+    // An empty window.snapshot does not suppress this call. Return false when
+    // the layer requires a fresh CPU snapshot and cannot draw retained data.
     virtual bool prepare(const qrhi_series_prepare_context_t& ctx) = 0;
     virtual void record(const qrhi_series_record_context_t& ctx) = 0;
 };

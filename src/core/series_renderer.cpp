@@ -1702,21 +1702,6 @@ void Series_renderer::prepare(
             program_key.access_key     = layer_access_key;
             program_key.rhi            = rhi;
 
-            if (!window.snapshot) {
-                for (auto& [cached_key, cache_entry] : m_rhi_state->qrhi_layer_cache) {
-                    if (cached_key.series_id      == program_key.series_id      &&
-                        cached_key.view_kind      == program_key.view_kind      &&
-                        cached_key.layer_id       == program_key.layer_id       &&
-                        cached_key.layer_revision == program_key.layer_revision &&
-                        cached_key.layout_key     == program_key.layout_key     &&
-                        cached_key.access_key     == program_key.access_key     &&
-                        cached_key.rhi            == program_key.rhi)
-                    {
-                        cache_entry.last_frame_used = m_frame_id;
-                    }
-                }
-                continue;
-            }
             if (!view_ubo) {
                 continue;
             }

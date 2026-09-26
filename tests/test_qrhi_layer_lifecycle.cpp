@@ -251,10 +251,12 @@ plot::Data_access_policy make_fallback_access_policy_with_counted_public_accesso
 class Recording_layer_state final : public plot::Qrhi_series_layer_state
 {
 public:
-    Recording_layer_state(std::string layer_id, std::vector<layer_event_t>& events)
+    Recording_layer_state(
+        std::string layer_id, std::vector<layer_event_t>& events, bool requires_snapshot)
     :
         m_layer_id(std::move(layer_id)),
-        m_events(events)
+        m_events(events),
+        m_requires_snapshot(requires_snapshot)
     {}
 
     void cleanup_qrhi_resources(QRhi* rhi) override
@@ -308,7 +310,7 @@ public:
         event.sample_buffer_range_max_offset =
             ctx.sample_buffer.layout.range_max_offset;
         m_events.push_back(event);
-        return true;
+        return !m_requires_snapshot || static_cast<bool>(ctx.window.snapshot);
     }
 
     void record(const plot::qrhi_series_record_context_t& ctx) override
@@ -336,6 +338,7 @@ public:
 private:
     std::string m_layer_id;
     std::vector<layer_event_t>& m_events;
+    bool m_requires_snapshot;
 };
 
 class Recording_layer final : public plot::Qrhi_series_layer
@@ -346,13 +349,15 @@ public:
         std::uint64_t                  revision,
         int                            z_order,
         std::vector<layer_event_t>&    events,
-        int&                           create_count)
+        int&                           create_count,
+        bool                           requires_snapshot = false)
     :
         m_id(std::move(id)),
         m_revision(revision),
         m_z_order(z_order),
         m_events(events),
-        m_create_count(create_count)
+        m_create_count(create_count),
+        m_requires_snapshot(requires_snapshot)
     {}
 
     std::string_view id()       const override { return m_id;       }
@@ -369,7 +374,7 @@ public:
         (void)rhi;
         ++m_create_count;
         m_events.push_back({m_id, "create"});
-        return std::make_unique<Recording_layer_state>(m_id, m_events);
+        return std::make_unique<Recording_layer_state>(m_id, m_events, m_requires_snapshot);
     }
 
     void set_id(std::string id) { m_id = std::move(id); }
@@ -382,6 +387,7 @@ private:
     std::vector<layer_event_t>&
                    m_events;
     int&           m_create_count;
+    bool           m_requires_snapshot;
 };
 
 class Offscreen_rhi_fixture
@@ -3149,7 +3155,7 @@ bool test_external_layer_gets_snapshot_on_builtin_cache_hit()
     return true;
 }
 
-bool test_external_layer_skips_busy_stale_fallback_and_recovers()
+bool test_external_layer_prepares_busy_stale_fallback_and_recovers()
 {
     std::vector<layer_event_t> events;
     int create_count = 0;
@@ -3186,8 +3192,13 @@ bool test_external_layer_skips_busy_stale_fallback_and_recovers()
     TEST_ASSERT(
         rhi_fixture.render_layer_frame(renderer, ctx, series_map, events, error_message),
         error_message);
-    TEST_ASSERT(!find_prepare_event(events, "busy"),
-        "external layer must not prepare from stale fallback without a valid snapshot");
+    const layer_event_t* busy_prepare = find_prepare_event(events, "busy");
+    TEST_ASSERT(busy_prepare && !busy_prepare->snapshot_valid,
+        "a reused custom-layer draw must prepare even when the frame snapshot is unavailable");
+    TEST_ASSERT(!busy_prepare->resources_changed && busy_prepare->sample_buffer,
+        "BUSY fallback must expose unchanged retained sample resources");
+    TEST_ASSERT(find_event_index(events, "busy", "record") < events.size(),
+        "a successful snapshot-less prepare must still record the custom layer");
     TEST_ASSERT(create_count == 1,
         "transient BUSY snapshot must not recreate external layer state");
 
@@ -3203,6 +3214,25 @@ bool test_external_layer_skips_busy_stale_fallback_and_recovers()
     TEST_ASSERT(create_count == 1,
         "external layer state must survive transient BUSY snapshot recovery");
 
+    auto snapshot_layer = std::make_shared<Recording_layer>(
+        "snapshot-required", 1, 0, events, create_count, true);
+    series_map[series_id] = make_line_plus_layer_series(source, {snapshot_layer});
+    events.clear();
+    TEST_ASSERT(
+        rhi_fixture.render_layer_frame(renderer, ctx, series_map, events, error_message),
+        error_message);
+    TEST_ASSERT(find_event_index(events, "snapshot-required", "record") < events.size(),
+        "snapshot-dependent layer should draw when its snapshot is available");
+    source->return_busy_once();
+    events.clear();
+    TEST_ASSERT(
+        rhi_fixture.render_layer_frame(renderer, ctx, series_map, events, error_message),
+        error_message);
+    const auto* declined = find_prepare_event(events, "snapshot-required");
+    TEST_ASSERT(declined && !declined->snapshot_valid,
+        "snapshot-dependent layers still receive the per-frame prepare callback");
+    TEST_ASSERT(find_event_index(events, "snapshot-required", "record") == events.size(),
+        "declining a snapshot-less prepare must suppress record for that frame");
     return true;
 }
 
@@ -3740,7 +3770,7 @@ int main()
     RUN_TEST(test_busy_hold_forward_does_not_prepare_stale_tmax);
     RUN_TEST(test_busy_hold_forward_does_not_reuse_non_hold_window);
     RUN_TEST(test_external_layer_gets_snapshot_on_builtin_cache_hit);
-    RUN_TEST(test_external_layer_skips_busy_stale_fallback_and_recovers);
+    RUN_TEST(test_external_layer_prepares_busy_stale_fallback_and_recovers);
     RUN_TEST(test_external_layer_replans_when_snapshot_advances_after_sequence_probe);
     RUN_TEST(test_layer_state_recreated_for_program_identity_changes);
     RUN_TEST(test_range_only_access_skips_builtin_value_styles);
