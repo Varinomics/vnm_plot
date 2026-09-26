@@ -111,7 +111,7 @@ public:
         snapshot.data     = m_samples.data();
         snapshot.count    = m_samples.size();
         snapshot.stride   = sizeof(test_sample_t);
-        snapshot.sequence = m_sequence;
+        snapshot.sequence = m_sequence_available ? m_sequence : 0;
         auto hold     = std::make_shared<int>(17);
         m_last_hold   = hold;
         snapshot.hold = hold;
@@ -127,7 +127,7 @@ public:
     std::uint64_t current_sequence(std::size_t lod_level = 0) const override
     {
         (void)lod_level;
-        return m_sequence;
+        return m_sequence_available ? m_sequence : 0;
     }
     const void* identity() const override { return m_identity; }
 
@@ -150,6 +150,7 @@ public:
     std::weak_ptr<void> last_hold()      const { return m_last_hold;      }
     void return_busy_once() { m_busy_snapshots_remaining = 1; }
     void advance_during_next_snapshot() { m_advance_during_next_snapshot = true; }
+    void set_sequence_available(bool available) { m_sequence_available = available; }
 
 private:
     std::vector<test_sample_t> m_samples;
@@ -159,6 +160,7 @@ private:
     int                        m_snapshot_calls               = 0;
     int                        m_busy_snapshots_remaining     = 0;
     bool                       m_advance_during_next_snapshot = false;
+    bool                       m_sequence_available = true;
 };
 
 plot::Data_access_policy make_access_policy()
@@ -1041,12 +1043,12 @@ bool test_combined_builtin_uploads_samples_once_per_view()
         "expected second combined-upload layer prepare event");
     TEST_ASSERT(view_state.last_primitive_prepare_count == 3,
         "combined primitive prepare count must describe the current frame");
-    TEST_ASSERT(view_state.last_sample_upload_count == 1,
-        "combined sample upload count must describe the current frame");
+    TEST_ASSERT(view_state.last_sample_upload_count == 0,
+        "unchanged custom snapshot must reuse the compact sample upload");
     TEST_ASSERT(view_state.last_line_window_upload_count == 0,
         "unchanged custom-layer snapshots must reuse LINE geometry");
     TEST_ASSERT(view_state.last_staged_sample_count == second_prepare->gpu_count,
-        "second combined frame must stage the shared compact GPU window");
+        "second combined frame must retain the shared compact GPU window");
     TEST_ASSERT(
         view_state.line_window_staging.data() == first_line_window_staging_data,
         "same-size LINE prepare should reuse the same line-window scratch allocation");
@@ -3728,6 +3730,119 @@ bool test_line_geometry_reuses_and_rebuilds_after_area_only_change()
     return true;
 }
 
+bool test_custom_upload_reuse_invalidation()
+{
+    Offscreen_rhi_fixture first_rhi;
+    Offscreen_rhi_fixture second_rhi;
+    std::string error;
+    TEST_ASSERT(first_rhi.initialize(error) && second_rhi.initialize(error), error);
+    std::vector<layer_event_t> events;
+    int create_count = 0;
+    auto source = std::make_shared<Test_source>();
+    auto layer = std::make_shared<Recording_layer>("reuse", 1, 20, events, create_count);
+    auto series = make_builtin_plus_layer_series(source, plot::Display_style::AREA, {layer});
+    std::map<int, std::shared_ptr<const plot::series_data_t>> series_map{{1, series}};
+    plot::Test_series_renderer renderer;
+    plot::Plot_config config;
+    auto layout = make_layout();
+    auto ctx = make_context(layout, config);
+    const auto render_and_expect = [&](Offscreen_rhi_fixture& rhi, std::size_t uploads) {
+        events.clear();
+        if (!rhi.render_layer_frame(renderer, ctx, series_map, events, error)) {
+            return false;
+        }
+        const auto* prepare = find_prepare_event(events, "reuse");
+        return prepare && prepare->snapshot_valid && prepare->sample_buffer &&
+            renderer.m_vbo_states.at(1).main_view.last_sample_upload_count == uploads;
+    };
+    TEST_ASSERT(render_and_expect(first_rhi, 1) && render_and_expect(first_rhi, 0),
+        "unchanged custom view must reuse its upload and still receive current inputs");
+    source->notify_changed();
+    TEST_ASSERT(render_and_expect(first_rhi, 1), "source revision must invalidate upload reuse");
+    series->access.get_value = [](const void* sample) {
+        return 2.0f * static_cast<const test_sample_t*>(sample)->value;
+    };
+    TEST_ASSERT(render_and_expect(first_rhi, 1), "callable access revision must invalidate reuse");
+    source->set_identity(series.get());
+    TEST_ASSERT(render_and_expect(first_rhi, 1), "source identity must invalidate reuse");
+    layout.usable_width += 1;
+    TEST_ASSERT(render_and_expect(first_rhi, 1), "view width must invalidate reuse");
+    ctx.t1 += 1'000'000'000LL;
+    TEST_ASSERT(render_and_expect(first_rhi, 1), "time window must invalidate reuse");
+    series->interpolation = plot::Series_interpolation::STEP_AFTER;
+    TEST_ASSERT(render_and_expect(first_rhi, 1), "interpolation must invalidate reuse");
+    series->nonfinite_policy = plot::Nonfinite_sample_policy::REPLACE_WITH_ZERO;
+    TEST_ASSERT(render_and_expect(first_rhi, 1), "nonfinite policy must invalidate reuse");
+    series->empty_window_behavior = plot::Empty_window_behavior::HOLD_LAST_FORWARD;
+    TEST_ASSERT(render_and_expect(first_rhi, 1), "empty-window policy must invalidate reuse");
+    TEST_ASSERT(render_and_expect(first_rhi, 0) && render_and_expect(second_rhi, 1),
+        "a new QRhi must receive its own upload");
+    source->set_sequence_available(false);
+    TEST_ASSERT(render_and_expect(second_rhi, 1) && render_and_expect(second_rhi, 1),
+        "unknown source sequences must conservatively reupload every frame");
+    return true;
+}
+
+bool test_custom_stack_upload_reuse_invalidation()
+{
+    Offscreen_rhi_fixture rhi;
+    std::string error;
+    TEST_ASSERT(rhi.initialize(error), error);
+    std::vector<layer_event_t> events;
+    int create_count = 0;
+    auto layer = std::make_shared<Recording_layer>("stack-reuse", 1, 20, events, create_count);
+    auto lower_source = std::make_shared<Test_source>();
+    auto lower = make_builtin_plus_layer_series(lower_source, plot::Display_style::AREA, {layer});
+    auto upper_source = std::make_shared<Test_source>();
+    auto upper = make_builtin_plus_layer_series(upper_source, plot::Display_style::AREA, {layer});
+    lower->stack_group = upper->stack_group = 1;
+    std::map<int, std::shared_ptr<const plot::series_data_t>> series_map{{1, lower}, {2, upper}};
+    plot::Test_series_renderer renderer;
+    plot::Plot_config config;
+    auto layout = make_layout();
+    auto ctx = make_context(layout, config);
+    const auto render_and_expect = [&](std::size_t uploads) {
+        events.clear();
+        if (!rhi.render_layer_frame(renderer, ctx, series_map, events, error)) {
+            return false;
+        }
+        return renderer.m_vbo_states.at(1).main_view.last_sample_upload_count == uploads &&
+            renderer.m_vbo_states.at(2).main_view.last_sample_upload_count == uploads;
+    };
+    TEST_ASSERT(render_and_expect(1) && render_and_expect(0),
+        "unchanged cumulative custom snapshots must reuse both uploaded layers");
+    lower_source->notify_changed();
+    TEST_ASSERT(render_and_expect(1), "lower sequence changes must invalidate every cumulative upload");
+    lower->access.get_value = [](const void* sample) {
+        return 2.0f * static_cast<const test_sample_t*>(sample)->value;
+    };
+    TEST_ASSERT(render_and_expect(1), "lower access changes must invalidate every cumulative upload");
+    TEST_ASSERT(renderer.m_vbo_states.at(2).main_view.staging.front().y == 3.0f,
+        "upper cumulative upload must contain the changed lower value");
+    series_map.erase(1);
+    events.clear();
+    TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+    TEST_ASSERT(renderer.m_vbo_states.at(2).main_view.last_sample_upload_count == 1,
+        "a former cumulative layer must upload raw samples when it becomes a singleton");
+    TEST_ASSERT(renderer.m_vbo_states.at(2).main_view.staging.front().y == 1.0f,
+        "a singleton must not retain the removed lower series contribution");
+    series_map.emplace(1, lower);
+    TEST_ASSERT(render_and_expect(1), "restoring a stack must restore its cumulative upload");
+    series_map.erase(1);
+    upper_source->return_busy_once();
+    events.clear();
+    TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+    TEST_ASSERT(!renderer.m_vbo_states.at(2).main_view.has_uploaded_vbo &&
+        !renderer.m_vbo_states.at(2).main_view.last_sample_buffer,
+        "a busy singleton transition must not expose the retained cumulative upload");
+    events.clear();
+    TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+    TEST_ASSERT(renderer.m_vbo_states.at(2).main_view.last_sample_upload_count == 1 &&
+        renderer.m_vbo_states.at(2).main_view.staging.front().y == 1.0f,
+        "a recovered singleton must upload its raw samples");
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -3774,6 +3889,8 @@ int main()
     RUN_TEST(test_range_only_access_skips_builtin_value_styles);
     RUN_TEST(test_stacked_sum_overlay_uses_top_geometry_and_theme);
     RUN_TEST(test_line_geometry_reuses_and_rebuilds_after_area_only_change);
+    RUN_TEST(test_custom_upload_reuse_invalidation);
+    RUN_TEST(test_custom_stack_upload_reuse_invalidation);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;

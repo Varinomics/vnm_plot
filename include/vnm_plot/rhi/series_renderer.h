@@ -263,7 +263,8 @@ private:
     bool rhi_prepare_series_view_samples(
         const frame_context_t& ctx,
         vbo_view_state_t&      view_state,
-        const sample_window_t& window);
+        const sample_window_t& window,
+        bool                   reuses_uploaded_geometry);
 
     bool rhi_prepare_series_primitive(
         const frame_context_t& ctx,

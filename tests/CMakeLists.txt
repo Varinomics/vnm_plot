@@ -27,6 +27,7 @@ set(_vnm_plot_rhi_tests
     test_qrhi_layer_lifecycle
     test_qrhi_public_api
     test_line_precision
+    test_sample_upload_reuse
 )
 
 if(VNM_PLOT_ENABLE_TEXT)
@@ -81,6 +82,7 @@ target_link_libraries(test_qrhi_layer_lifecycle PRIVATE Qt6::GuiPrivate Qt6::Gui
 target_link_libraries(test_qrhi_public_api PRIVATE Qt6::GuiPrivate Qt6::Gui)
 target_link_libraries(test_rhi_helpers PRIVATE Qt6::GuiPrivate Qt6::Gui)
 target_link_libraries(test_line_precision PRIVATE Qt6::Quick Qt6::GuiPrivate Qt6::Gui)
+target_link_libraries(test_sample_upload_reuse PRIVATE Qt6::Quick Qt6::GuiPrivate Qt6::Gui)
 
 if(TARGET test_atomic_file_write)
     if(TARGET Threads::Threads)
@@ -216,6 +218,7 @@ vnm_plot_add_test(LabelPaneGeometry test_label_pane_geometry)
 vnm_plot_add_test(QrhiLayerLifecycle test_qrhi_layer_lifecycle)
 vnm_plot_add_test(QrhiPublicApi test_qrhi_public_api)
 vnm_plot_add_test(LinePrecision test_line_precision)
+vnm_plot_add_test(SampleUploadReuse test_sample_upload_reuse)
 if(TARGET test_atomic_file_write)
     vnm_plot_add_test(AtomicFileWrite test_atomic_file_write)
 endif()

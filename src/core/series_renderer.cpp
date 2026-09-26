@@ -1128,7 +1128,15 @@ void Series_renderer::prepare(
             }
 
             if (members.size() < 2) {
-                clear_stack_cache(*members.front());
+                auto& member = *members.front();
+                auto& state = view_state_for(member);
+                if (state.stack_cache_snapshot) {
+                    // The original-source planner cannot prove reuse of a
+                    // cumulative upload after the other stack members leave.
+                    state.has_uploaded_vbo = false;
+                    set_reuses_uploaded_geometry(member, false);
+                }
+                clear_stack_cache(member);
                 continue;
             }
 
@@ -1391,8 +1399,7 @@ void Series_renderer::prepare(
     const auto ensure_view_ubo =
         [&](int series_id,
             Series_view_kind view_kind,
-            const series_data_t& series_data,
-            const sample_window_t& window) -> QRhiBuffer*
+            const series_view_uniform_std140_t& uniform) -> QRhiBuffer*
     {
         rhi_state_t::view_ubo_key_t key{series_id, view_kind};
         auto& state = m_rhi_state->view_ubos[key];
@@ -1413,8 +1420,6 @@ void Series_renderer::prepare(
             }
         }
 
-        const series_view_uniform_std140_t uniform =
-            make_series_view_uniform(ctx, series_data, window);
         rhi_updates->updateDynamicBuffer(
             state.buffer.get(),
             0,
@@ -1566,15 +1571,15 @@ void Series_renderer::prepare(
             invalidate_view_upload_state(view_state);
             return;
         }
-        bool samples_ready = true;
-        samples_ready = rhi_prepare_series_view_samples(
-            ctx,
-            view_state,
-            window);
         const bool reuses_uploaded_geometry =
             plan.view_kind == Series_view_kind::MAIN
                 ? draw_state.main_reuses_uploaded_geometry
                 : draw_state.preview_reuses_uploaded_geometry;
+        const bool samples_ready = rhi_prepare_series_view_samples(
+            ctx,
+            view_state,
+            window,
+            reuses_uploaded_geometry);
         if (samples_ready                              &&
             view_state.last_sample_upload_count > 0   &&
             !reuses_uploaded_geometry)
@@ -1595,8 +1600,7 @@ void Series_renderer::prepare(
             view_ubo     = ensure_view_ubo(
                 draw_state.id,
                 plan.view_kind,
-                *draw_state.series,
-                window);
+                uniform);
         }
 
         const float line_width_px = ctx.config
@@ -2014,7 +2018,8 @@ void Series_renderer::render(
 bool Series_renderer::rhi_prepare_series_view_samples(
     const frame_context_t& ctx,
     vbo_view_state_t&      view_state,
-    const sample_window_t& window)
+    const sample_window_t& window,
+    bool                   reuses_uploaded_geometry)
 {
     QRhi* rhi = ctx.rhi;
     QRhiResourceUpdateBatch* updates = ctx.rhi_updates;
@@ -2137,103 +2142,109 @@ bool Series_renderer::rhi_prepare_series_view_samples(
             return false;
         }
 
-        auto& staging = view_state.staging;
-        staging.resize(needed_elements);
+        // The planner proves that sequence, access policy, origin and window
+        // still describe the retained geometry. A required current snapshot is
+        // independent of that proof: custom layers still receive it every frame.
+        // Keep validating the snapshot's bounds above, even when no upload is due.
+        if (!reuses_uploaded_geometry || !view_state.has_uploaded_vbo || !view_state.rhi->vbo) {
+            auto& staging = view_state.staging;
+            staging.resize(needed_elements);
 
-        const auto stage_one_sample =
-            [&](gpu_sample_t& dst, const void* src, std::int64_t ts_ns) {
-                detail::sample_draw_value_t draw_value;
-                const detail::sample_draw_status_t status = detail::read_sample_draw_value(
-                    access_view,
-                    src,
-                    window.nonfinite_policy,
-                    draw_value);
-                if (status != detail::sample_draw_status_t::DRAWABLE) {
-                    return false;
+            const auto stage_one_sample =
+                [&](gpu_sample_t& dst, const void* src, std::int64_t ts_ns) {
+                    detail::sample_draw_value_t draw_value;
+                    const detail::sample_draw_status_t status = detail::read_sample_draw_value(
+                        access_view,
+                        src,
+                        window.nonfinite_policy,
+                        draw_value);
+                    if (status != detail::sample_draw_status_t::DRAWABLE) {
+                        return false;
+                    }
+                    dst.t_rel = detail::to_view_seconds(ts_ns, window.t_origin_ns);
+                    dst.y     = draw_value.y;
+                    dst.y_min = draw_value.y_min;
+                    dst.y_max = draw_value.y_max;
+                    return true;
+                };
+
+            for (const drawable_sample_span_t& span : window.drawable_spans) {
+                for (std::size_t i = 0; i < span.source_count; ++i) {
+                    const std::size_t source_index = span.source_first + i;
+                    const void*       src          = snapshot.at(source_index);
+                    if (!src ||
+                        !stage_one_sample(
+                            staging[span.gpu_first + i], src, access_view.timestamp(src)))
+                    {
+                        invalidate_uploaded_vbo();
+                        return false;
+                    }
                 }
-                dst.t_rel = detail::to_view_seconds(ts_ns, window.t_origin_ns);
-                dst.y     = draw_value.y;
-                dst.y_min = draw_value.y_min;
-                dst.y_max = draw_value.y_max;
-                return true;
-            };
-
-        for (const drawable_sample_span_t& span : window.drawable_spans) {
-            for (std::size_t i = 0; i < span.source_count; ++i) {
-                const std::size_t source_index = span.source_first + i;
-                const void*       src          = snapshot.at(source_index);
-                if (!src ||
-                    !stage_one_sample(
-                        staging[span.gpu_first + i], src, access_view.timestamp(src)))
-                {
-                    invalidate_uploaded_vbo();
-                    return false;
+                if (span.gpu_count == span.source_count + 1u) {
+                    const std::size_t source_index =
+                        span.source_first + span.source_count - 1u;
+                    const void* source_sample = snapshot.at(source_index);
+                    if (!source_sample ||
+                        !stage_one_sample(
+                            staging[span.gpu_first + span.gpu_count - 1u],
+                            source_sample, window.hold_timestamp_ns))
+                    {
+                        invalidate_uploaded_vbo();
+                        return false;
+                    }
                 }
             }
-            if (span.gpu_count == span.source_count + 1u) {
-                const std::size_t source_index =
-                    span.source_first + span.source_count - 1u;
-                const void* source_sample = snapshot.at(source_index);
-                if (!source_sample ||
-                    !stage_one_sample(
-                        staging[span.gpu_first + span.gpu_count - 1u],
-                        source_sample, window.hold_timestamp_ns))
-                {
-                    invalidate_uploaded_vbo();
-                    return false;
-                }
-            }
-        }
 
-        std::size_t alloc_bytes      = 0;
-        quint32     qrhi_alloc_bytes = 0;
-        if (!detail::qrhi_grown_capacity_bytes(
-                needed_bytes, alloc_bytes, qrhi_alloc_bytes))
-        {
-            invalidate_uploaded_vbo();
-            return false;
-        }
-        if (!view_state.rhi->vbo ||
-            view_state.rhi_vbo_capacity_bytes < needed_bytes)
-        {
-            view_state.rhi->vbo.reset(rhi->newBuffer(
-                QRhiBuffer::Static,
-                QRhiBuffer::VertexBuffer,
-                qrhi_alloc_bytes));
-            if (view_state.rhi->vbo && view_state.rhi->vbo->create()) {
-                view_state.rhi_vbo_capacity_bytes = alloc_bytes;
-#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
-                ++view_state.last_vbo_generation;
-#endif
-                if (ctx.config && ctx.config->profiler) {
-                    ctx.config->profiler->record_observation(
-                        "renderer.frame.gpu_buffer_allocation_bytes",
-                        static_cast<double>(alloc_bytes));
-                    ctx.config->profiler->record_counter(
-                        "renderer.frame.gpu_buffer_allocation_count");
-                }
-            }
-            else {
-                view_state.rhi->vbo.reset();
-                view_state.rhi_vbo_capacity_bytes = 0;
+            std::size_t alloc_bytes      = 0;
+            quint32     qrhi_alloc_bytes = 0;
+            if (!detail::qrhi_grown_capacity_bytes(
+                    needed_bytes, alloc_bytes, qrhi_alloc_bytes))
+            {
                 invalidate_uploaded_vbo();
                 return false;
             }
-        }
-        updates->uploadStaticBuffer(
-            view_state.rhi->vbo.get(),
-            0,
-            upload_bytes,
-            staging.data());
+            if (!view_state.rhi->vbo ||
+                view_state.rhi_vbo_capacity_bytes < needed_bytes)
+            {
+                view_state.rhi->vbo.reset(rhi->newBuffer(
+                    QRhiBuffer::Static,
+                    QRhiBuffer::VertexBuffer,
+                    qrhi_alloc_bytes));
+                if (view_state.rhi->vbo && view_state.rhi->vbo->create()) {
+                    view_state.rhi_vbo_capacity_bytes = alloc_bytes;
 #if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
-        view_state.last_staged_sample_count = needed_elements;
+                    ++view_state.last_vbo_generation;
 #endif
-        view_state.last_sample_upload_bytes = upload_bytes;
-        ++view_state.last_sample_upload_count;
-        view_state.has_uploaded_vbo = true;
+                    if (ctx.config && ctx.config->profiler) {
+                        ctx.config->profiler->record_observation(
+                            "renderer.frame.gpu_buffer_allocation_bytes",
+                            static_cast<double>(alloc_bytes));
+                        ctx.config->profiler->record_counter(
+                            "renderer.frame.gpu_buffer_allocation_count");
+                    }
+                }
+                else {
+                    view_state.rhi->vbo.reset();
+                    view_state.rhi_vbo_capacity_bytes = 0;
+                    invalidate_uploaded_vbo();
+                    return false;
+                }
+            }
+            updates->uploadStaticBuffer(
+                view_state.rhi->vbo.get(),
+                0,
+                upload_bytes,
+                staging.data());
+#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
+            view_state.last_staged_sample_count = needed_elements;
+#endif
+            view_state.last_sample_upload_bytes = upload_bytes;
+            ++view_state.last_sample_upload_count;
+            view_state.has_uploaded_vbo = true;
+        }
     }
 
-    if (!view_state.rhi->vbo) {
+    if (!view_state.has_uploaded_vbo || !view_state.rhi->vbo) {
         return false;
     }
 #if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
