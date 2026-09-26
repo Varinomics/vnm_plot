@@ -659,39 +659,6 @@ void Series_renderer::initialize(Asset_loader& asset_loader)
     m_asset_loader = &asset_loader;
 }
 
-void Series_renderer::cleanup_resources()
-{
-    clear_frame_snapshot_caches();
-    for (auto& [_, state] : m_vbo_states) {
-        state.main_view.reset();
-        state.preview_view.reset();
-    }
-    m_vbo_states.clear();
-    m_logged_errors.clear();
-
-    m_rhi_state->pipelines = {};
-    m_rhi_state->clear_layer_resources();
-    m_rhi_state->shaders_loaded   = false;
-    m_rhi_state->cached_dot_vert  = {};
-    m_rhi_state->cached_dot_frag  = {};
-    m_rhi_state->cached_line_vert = {};
-    m_rhi_state->cached_line_frag = {};
-    m_rhi_state->cached_area_vert = {};
-    m_rhi_state->cached_area_frag = {};
-    m_rhi_state->last_rhi         = nullptr;
-    m_rhi_state->frame_plan_ready = false;
-#if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
-    m_last_recorded_draw_z_orders.clear();
-    m_last_recorded_draw_styles.clear();
-    m_last_recorded_draw_series_ids.clear();
-    m_last_recorded_draw_view_kinds.clear();
-    m_last_recorded_stack_sum_overlays.clear();
-    m_last_recorded_draw_colors.clear();
-    m_last_recorded_line_widths.clear();
-    m_last_qrhi_layer_cache_size = 0;
-#endif
-}
-
 void Series_renderer::clear_frame_snapshot_caches()
 {
     for (auto& [_, state] : m_vbo_states) {

@@ -1,8 +1,5 @@
 #include <vnm_plot/rhi/asset_loader.h>
 
-#include <cstdio>
-#include <filesystem>
-#include <fstream>
 #include <utility>
 
 namespace vnm::plot {
@@ -22,57 +19,13 @@ void Asset_loader::log_error(const std::string& message) const
     }
 }
 
-void Asset_loader::set_override_directory(std::string_view path)
-{
-    m_override_dir = std::string(path);
-}
-
 void Asset_loader::register_embedded(std::string_view name, std::string_view data)
 {
     m_embedded[std::string(name)] = data;
 }
 
-bool Asset_loader::load_file(std::string_view path, Byte_buffer& out) const
-{
-    std::ifstream file(std::string(path), std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        return false;
-    }
-
-    const auto pos = file.tellg();
-    if (pos < 0) {
-        return false;
-    }
-
-    const auto size = static_cast<std::streamsize>(pos);
-    out.resize(static_cast<size_t>(size));
-    file.seekg(0, std::ios::beg);
-
-    if (!file.read(out.data(), size)) {
-        out.clear();
-        return false;
-    }
-
-    return true;
-}
-
 std::optional<Byte_buffer> Asset_loader::load(std::string_view name) const
 {
-    // First, try override directory
-    if (!m_override_dir.empty()) {
-        std::filesystem::path override_path = m_override_dir;
-        override_path /= name;
-
-        if (std::filesystem::exists(override_path)) {
-            Byte_buffer buffer;
-            if (load_file(override_path.string(), buffer)) {
-                return buffer;
-            }
-            log_error("Failed to read override file: " + override_path.string());
-        }
-    }
-
-    // Fall back to embedded assets
     auto it = m_embedded.find(std::string(name));
     if (it != m_embedded.end()) {
         return Byte_buffer(it->second);

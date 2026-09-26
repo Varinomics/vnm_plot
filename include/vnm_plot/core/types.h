@@ -1086,7 +1086,6 @@ struct frame_layout_result_t
     double                 usable_width = 0.0;  ///< Plot area width in pixels
     double                 usable_height = 0.0; ///< Plot area height in pixels
     double                 v_bar_width = 0.0;
-    double                 h_bar_height = 0.0;
     float                  max_v_label_text_width = 0.f;
 
     std::vector<h_label_t> h_labels;

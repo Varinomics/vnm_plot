@@ -42,9 +42,6 @@ public:
     Primitive_renderer(const Primitive_renderer&)            = delete;
     Primitive_renderer& operator=(const Primitive_renderer&) = delete;
 
-    // Release queued draws and GPU resources while their QRhi is still alive.
-    void cleanup_resources();
-
     // Set profiler for performance tracking
     void set_profiler(vnm::plot::Profiler* profiler) { m_profiler = profiler; }
     void set_log_callback(std::function<void(const std::string&)> callback);
@@ -57,9 +54,6 @@ public:
     // upload + draw op into the per-frame plan and clears the CPU batch; the
     // record_draws() call run inside the open pass dispatches the draw.
     void flush_rects(const frame_context_t& ctx, const glm::mat4& pmv);
-
-    // Discard rectangles that have not yet been flushed into the draw plan.
-    void clear_rect_batch();
 
     // --- Grid Pipeline ---
     // Draw grid lines using shader. Under RHI the per-call UBO is filled and

@@ -201,30 +201,6 @@ void Primitive_renderer::set_log_callback(std::function<void(const std::string&)
     m_log_error = std::move(callback);
 }
 
-void Primitive_renderer::cleanup_resources()
-{
-    m_cpu_buffer.clear();
-
-    m_rhi_state->rect_calls.clear();
-    m_rhi_state->grid_calls.clear();
-    m_rhi_state->ops.clear();
-    m_rhi_state->rect_used             = 0;
-    m_rhi_state->grid_used             = 0;
-    m_rhi_state->rect_pipeline.reset();
-    m_rhi_state->grid_pipeline.reset();
-    m_rhi_state->rect_pipeline_rpd     = nullptr;
-    m_rhi_state->rect_pipeline_samples = 0;
-    m_rhi_state->grid_pipeline_rpd     = nullptr;
-    m_rhi_state->grid_pipeline_samples = 0;
-    m_rhi_state->grid_quad_vbo.reset();
-    m_rhi_state->shaders_loaded        = false;
-    m_rhi_state->rect_vert             = {};
-    m_rhi_state->rect_frag             = {};
-    m_rhi_state->grid_vert             = {};
-    m_rhi_state->grid_frag             = {};
-    m_rhi_state->last_rhi              = nullptr;
-}
-
 void Primitive_renderer::batch_rect(const glm::vec4& color, const glm::vec4& rect_coords)
 {
     if (m_cpu_buffer.size() == m_cpu_buffer.capacity()) {
@@ -492,11 +468,6 @@ void Primitive_renderer::flush_rects(const frame_context_t& ctx, const glm::mat4
         return;
     }
 
-}
-
-void Primitive_renderer::clear_rect_batch()
-{
-    m_cpu_buffer.clear();
 }
 
 void Primitive_renderer::draw_grid_shader(

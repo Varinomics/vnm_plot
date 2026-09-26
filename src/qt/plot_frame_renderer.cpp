@@ -352,7 +352,6 @@ Plot_frame_result Plot_frame_renderer::render(
             cached_layout.usable_width = std::max(0.0, double(win_w) - vbar_width);
             cached_layout.usable_height = usable_height;
             cached_layout.v_bar_width = vbar_width;
-            cached_layout.h_bar_height = snapshot.base_label_height_px + detail::k_scissor_pad_px;
             cached_layout.max_v_label_text_width = layout_result.max_v_label_text_width;
             cached_layout.v_labels = std::move(layout_result.v_labels);
             cached_layout.h_labels = std::move(layout_result.h_labels);

@@ -1,7 +1,7 @@
 #pragma once
 
 // VNM Plot Library - Asset Loader
-// Asset loading with embedded defaults and optional file overrides.
+// Asset loading from registered byte views.
 
 #include <vnm_plot/core/types.h>
 
@@ -17,9 +17,7 @@ namespace vnm::plot {
 // -----------------------------------------------------------------------------
 // Asset_loader
 // -----------------------------------------------------------------------------
-// Loads named assets with support for:
-// - Embedded defaults (compiled into the binary)
-// - Optional file system overrides (for development/debugging)
+// Loads named assets registered by the library or its host.
 class Asset_loader
 {
 public:
@@ -32,25 +30,18 @@ public:
     // Set log callback
     void set_log_callback(Log_callback callback);
 
-    // Configure file system override directory (empty to disable)
-    // If set, assets will first be searched in this directory.
-    void set_override_directory(std::string_view path);
-
     // Register an embedded asset
     // The data must remain valid for the lifetime of the Asset_loader.
     void register_embedded(std::string_view name, std::string_view data);
 
     // Load an asset by name
     // Returns the asset data, or nullopt on failure.
-    // First checks override directory, then embedded assets.
     [[nodiscard]] std::optional<Byte_buffer> load(std::string_view name) const;
 
 private:
-    bool load_file(std::string_view path, Byte_buffer& out) const;
     void log_error(const std::string& message) const;
 
     Log_callback   m_log_callback;
-    std::string    m_override_dir;
 
     // Map from asset name to embedded data view
     std::unordered_map<std::string, std::string_view> m_embedded;
