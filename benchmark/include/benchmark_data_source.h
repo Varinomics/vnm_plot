@@ -91,11 +91,6 @@ public:
         return level == 0 ? 1 : 0;
     }
 
-    vnm::plot::Time_order time_order(std::size_t lod_level) const override {
-        (void)lod_level;
-        return vnm::plot::Time_order::UNKNOWN;
-    }
-
     uint64_t current_sequence(size_t lod_level = 0) const override {
         return lod_level == 0 ? m_buffer.sequence() : 0;
     }

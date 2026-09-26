@@ -35,8 +35,6 @@ public:
 
     plot::snapshot_result_t try_snapshot(std::size_t /*lod*/) override
     {
-        ++m_snapshot_calls;
-
         plot::data_snapshot_t snapshot;
         snapshot.data     = m_samples.data();
         snapshot.count    = m_samples.size();
@@ -56,54 +54,29 @@ public:
     {
         return level < m_scales.size() ? m_scales[level] : 1;
     }
-    plot::Time_order time_order(std::size_t /*lod*/) const override { return m_time_order; }
 
     void set_status(plot::snapshot_result_t::Snapshot_status status) { m_status = status; }
     void set_sequence(std::uint64_t sequence) { m_sequence = sequence; }
     void set_scales(std::vector<std::size_t> scales) { m_scales = std::move(scales); }
-    void set_time_order(plot::Time_order order) { m_time_order = order; }
-    int snapshot_calls() const { return m_snapshot_calls; }
 
 private:
     std::vector<sample_t>      m_samples;
     std::vector<std::size_t>   m_scales = {1};
     plot::snapshot_result_t::Snapshot_status m_status =
         plot::snapshot_result_t::Snapshot_status::READY;
-    plot::Time_order           m_time_order     = plot::Time_order::UNKNOWN;
     std::uint64_t              m_sequence       = 11;
-    int                        m_snapshot_calls = 0;
 };
 
-plot::Data_access_policy make_value_access(
-    int*   timestamp_calls = nullptr,
-    int*   value_calls = nullptr)
+plot::Data_access_policy make_value_access()
 {
     plot::Data_access_policy access;
-    access.get_timestamp = [timestamp_calls](const void* sample) -> std::int64_t {
-        if (timestamp_calls) {
-            ++*timestamp_calls;
-        }
+    access.get_timestamp = [](const void* sample) -> std::int64_t {
         return static_cast<const sample_t*>(sample)->t;
     };
-    access.get_value = [value_calls](const void* sample) {
-        if (value_calls) {
-            ++*value_calls;
-        }
+    access.get_value = [](const void* sample) {
         return static_cast<const sample_t*>(sample)->v;
     };
     access.layout_key = 17;
-    return access;
-}
-
-plot::Data_access_policy make_timestamp_access(int* timestamp_calls = nullptr)
-{
-    plot::Data_access_policy access;
-    access.get_timestamp = [timestamp_calls](const void* sample) -> std::int64_t {
-        if (timestamp_calls) {
-            ++*timestamp_calls;
-        }
-        return static_cast<const sample_t*>(sample)->t;
-    };
     return access;
 }
 
@@ -178,70 +151,6 @@ bool test_ready_value_range_scan_populates_sequence()
     return true;
 }
 
-bool test_ascending_value_range_scans_only_selected_time_window()
-{
-    std::vector<sample_t> samples;
-    samples.reserve(1024);
-    for (std::int64_t i = 0; i < 1024; ++i) {
-        samples.push_back({i, static_cast<float>(i)});
-    }
-
-    Query_source source(std::move(samples));
-    source.set_time_order(plot::Time_order::ASCENDING);
-
-    int timestamp_calls = 0;
-    int value_calls     = 0;
-
-    const plot::Data_access_policy access =
-        make_value_access(&timestamp_calls, &value_calls);
-    const auto result = source.query_v_range(0, make_query(access, 500, 501));
-
-    TEST_ASSERT(result.status == plot::Data_query_status::READY,
-        "ascending visible value-range query should be READY");
-    TEST_ASSERT(result.value.min == 500.0f && result.value.max == 501.0f,
-        "ascending visible value-range query should scan the requested values");
-    TEST_ASSERT(value_calls < 16,
-        "ascending visible value-range query should not scan every sample value");
-    TEST_ASSERT(timestamp_calls < 128,
-        "ascending visible value-range query should use bounded timestamp lookup");
-
-    return true;
-}
-
-bool test_ascending_skip_hold_value_range_scans_bounded_prefix()
-{
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-    std::vector<sample_t> samples;
-    samples.reserve(1024);
-    for (std::int64_t i = 0; i < 1024; ++i) {
-        samples.push_back({i, static_cast<float>(i)});
-    }
-    samples[499].v = nan;
-
-    Query_source source(std::move(samples));
-    source.set_time_order(plot::Time_order::ASCENDING);
-
-    int timestamp_calls = 0;
-    int value_calls     = 0;
-
-    const plot::Data_access_policy access =
-        make_value_access(&timestamp_calls, &value_calls);
-    auto query = make_hold_query(access, 500, 501);
-    query.nonfinite_policy = plot::Nonfinite_sample_policy::SKIP;
-    const auto result = source.query_v_range(0, query);
-
-    TEST_ASSERT(result.status == plot::Data_query_status::READY,
-        "ascending SKIP hold value-range query should be READY");
-    TEST_ASSERT(result.value.min == 498.0f && result.value.max == 501.0f,
-        "ascending SKIP hold value-range query should use the latest drawable held sample");
-    TEST_ASSERT(value_calls < 32,
-        "ascending SKIP hold value-range query should not scan the full prefix");
-    TEST_ASSERT(timestamp_calls < 128,
-        "ascending SKIP hold value-range query should use bounded timestamp lookup");
-
-    return true;
-}
-
 bool test_unordered_value_range_aggregates_discontiguous_matches()
 {
     Query_source source(
@@ -250,7 +159,6 @@ bool test_unordered_value_range_aggregates_discontiguous_matches()
             { 100, 100.0f },
             { 5,   2.0f   },
             });
-    source.set_time_order(plot::Time_order::UNORDERED);
 
     const plot::Data_access_policy access = make_value_access();
     const auto result = source.query_v_range(0, make_query(access, 0, 10));
@@ -303,14 +211,6 @@ bool test_busy_and_failed_snapshot_status_map_through_queries()
     TEST_ASSERT(failed_result.status == plot::Data_query_status::FAILED,
         "FAILED snapshot should map to FAILED query status");
 
-    Query_source metadata_source({{0, 1.0f}});
-    metadata_source.set_status(plot::snapshot_result_t::Snapshot_status::FAILED);
-    const auto unsupported_time_range = metadata_source.time_range(0);
-    TEST_ASSERT(unsupported_time_range.status == plot::Data_query_status::UNSUPPORTED,
-        "default time_range should report unsupported without snapshot-backed probing");
-    TEST_ASSERT(metadata_source.snapshot_calls() == 0,
-        "default time_range should not call try_snapshot");
-
     return true;
 }
 
@@ -361,190 +261,16 @@ bool test_nonfinite_values_are_skipped_or_zeroed_by_policy()
     return true;
 }
 
-bool test_query_time_window_returns_simple_ascending_window()
-{
-    std::vector<sample_t> samples;
-    for (std::int64_t i = 0; i < 64; ++i) {
-        samples.push_back({i, static_cast<float>(i)});
-    }
-
-    Query_source source(std::move(samples));
-    source.set_sequence(321);
-    source.set_time_order(plot::Time_order::ASCENDING);
-
-    int                            timestamp_calls = 0;
-    const plot::Data_access_policy access          = make_timestamp_access(&timestamp_calls);
-    const auto                     result          = source.query_time_window(0, make_draw_query(access, 20, 30));
-    TEST_ASSERT(result.status == plot::Data_query_status::READY,
-        "query_time_window should be READY for matching ascending samples");
-    TEST_ASSERT(result.sequence == 321,
-        "query_time_window should carry snapshot sequence");
-    TEST_ASSERT(result.value.first == 20 && result.value.count == 11,
-        "ascending query_time_window should use inclusive bounds");
-    TEST_ASSERT(timestamp_calls < 64,
-        "ordered ascending query_time_window should avoid a full timestamp scan");
-
-    return true;
-}
-
-bool test_query_time_window_handles_descending_inclusive_bounds()
-{
-    Query_source source(
-        {
-            { 9, 9.0f },
-            { 7, 7.0f },
-            { 5, 5.0f },
-            { 3, 3.0f },
-            { 1, 1.0f },
-            });
-    source.set_time_order(plot::Time_order::DESCENDING);
-
-    const plot::Data_access_policy access = make_timestamp_access();
-    const auto result = source.query_time_window(0, make_draw_query(access, 3, 7));
-    TEST_ASSERT(result.status == plot::Data_query_status::READY,
-        "descending query_time_window should be READY for matching samples");
-    TEST_ASSERT(result.value.first == 1 && result.value.count == 3,
-        "descending query_time_window should use inclusive bounds");
-
-    return true;
-}
-
-bool test_query_time_window_hold_forward_includes_held_sample()
-{
-    Query_source source(
-        {
-            { 0,  0.0f  },
-            { 10, 10.0f },
-            { 20, 20.0f },
-            { 30, 30.0f },
-            });
-    source.set_time_order(plot::Time_order::ASCENDING);
-
-    const plot::Data_access_policy access = make_timestamp_access();
-    const auto result = source.query_time_window(0, make_hold_query(access, 15, 25));
-    TEST_ASSERT(result.status == plot::Data_query_status::READY,
-        "hold-forward time query should be READY when it includes a held sample");
-    TEST_ASSERT(result.value.first == 1 && result.value.count == 2,
-        "hold-forward time query should include the last pre-window sample");
-
-    return true;
-}
-
-bool test_query_time_window_keeps_break_segment_gaps_in_window()
-{
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-    Query_source source(
-        {
-            { 0, 1.0f },
-            { 1, nan  },
-            { 2, 2.0f },
-            });
-    source.set_time_order(plot::Time_order::ASCENDING);
-
-    const plot::Data_access_policy access = make_value_access();
-    const auto result = source.query_time_window(0, make_draw_query(access, 0, 2));
-    TEST_ASSERT(result.status == plot::Data_query_status::READY,
-        "BREAK_SEGMENT time-window query should keep the containing source window");
-    TEST_ASSERT(result.value.first == 0 && result.value.count == 3,
-        "BREAK_SEGMENT time-window query should leave gap splitting to drawable spans");
-
-    return true;
-}
-
-bool test_query_time_window_reject_window_fails_on_nonfinite_in_window_sample()
-{
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-    Query_source source(
-        {
-            { 0, 1.0f },
-            { 1, nan  },
-            { 2, 2.0f },
-            });
-    source.set_time_order(plot::Time_order::ASCENDING);
-
-    const plot::Data_access_policy access = make_value_access();
-    auto query = make_draw_query(access, 0, 2);
-    query.nonfinite_policy = plot::Nonfinite_sample_policy::REJECT_WINDOW;
-    const auto result = source.query_time_window(0, query);
-    TEST_ASSERT(result.status == plot::Data_query_status::FAILED,
-        "REJECT_WINDOW time-window query should fail on a nonfinite in-window sample");
-
-    return true;
-}
-
-bool test_query_time_window_does_not_hold_nonfinite_break_segment_sample()
-{
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-    Query_source source(
-        {
-            { 0, 7.0f },
-            { 2, nan },
-            });
-    source.set_time_order(plot::Time_order::ASCENDING);
-
-    const plot::Data_access_policy access = make_value_access();
-    const auto result = source.query_time_window(0, make_hold_query(access, 3, 4));
-    TEST_ASSERT(result.status == plot::Data_query_status::EMPTY,
-        "time-window query should not hold across a nonfinite BREAK_SEGMENT sample");
-
-    return true;
-}
-
-bool test_query_time_window_skip_holds_latest_drawable_sample()
-{
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-    Query_source source(
-        {
-            { 0, 7.0f },
-            { 2, nan },
-            });
-    source.set_time_order(plot::Time_order::ASCENDING);
-
-    const plot::Data_access_policy access = make_value_access();
-    auto query = make_hold_query(access, 3, 4);
-    query.nonfinite_policy = plot::Nonfinite_sample_policy::SKIP;
-    const auto result = source.query_time_window(0, query);
-    TEST_ASSERT(result.status == plot::Data_query_status::READY,
-        "SKIP time-window query should hold the latest drawable pre-window sample");
-    TEST_ASSERT(result.value.first == 0 && result.value.count == 1,
-        "SKIP time-window query should omit skipped held candidates");
-
-    return true;
-}
-
-bool test_query_time_window_reject_window_fails_on_nonfinite_held_sample()
-{
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-    Query_source source(
-        {
-            { 0, 7.0f },
-            { 2, nan },
-            });
-    source.set_time_order(plot::Time_order::ASCENDING);
-
-    const plot::Data_access_policy access = make_value_access();
-    auto query = make_hold_query(access, 3, 4);
-    query.nonfinite_policy = plot::Nonfinite_sample_policy::REJECT_WINDOW;
-    const auto result = source.query_time_window(0, query);
-    TEST_ASSERT(result.status == plot::Data_query_status::FAILED,
-        "time-window REJECT_WINDOW should fail on a nonfinite held candidate");
-
-    return true;
-}
-
 bool test_step_after_draw_nothing_includes_visible_held_sample()
 {
     const auto access = make_value_access();
-    for (const auto order : {plot::Time_order::UNKNOWN,
-                            plot::Time_order::ASCENDING,
-                            plot::Time_order::DESCENDING})
+    for (const bool descending : {false, true})
     {
         std::vector<sample_t> samples = {{0, 5.0f}, {10, 1.0f}};
-        if (order == plot::Time_order::DESCENDING) {
+        if (descending) {
             std::reverse(samples.begin(), samples.end());
         }
         Query_source source(std::move(samples));
-        source.set_time_order(order);
         auto query = make_draw_query(access, 5, 15);
         query.interpolation = plot::Series_interpolation::STEP_AFTER;
         const auto range = source.query_v_range(0, query);
@@ -574,7 +300,6 @@ bool test_hold_forward_value_range_includes_pre_window_sample()
             { 5, 1.0f  },
             { 6, 2.0f  },
             });
-    source.set_time_order(plot::Time_order::ASCENDING);
 
     const plot::Data_access_policy access = make_value_access();
     const auto result = source.query_v_range(0, make_hold_query(access, 5, 6));
@@ -593,7 +318,6 @@ bool test_hold_forward_value_range_ready_from_held_sample_only()
             { 0, 7.0f },
             { 2, 9.0f },
             });
-    source.set_time_order(plot::Time_order::ASCENDING);
 
     const plot::Data_access_policy access = make_value_access();
     const auto result = source.query_v_range(0, make_hold_query(access, 3, 4));
@@ -613,7 +337,6 @@ bool test_hold_forward_does_not_use_nonfinite_break_segment_sample()
             { 0, 7.0f },
             { 2, nan },
             });
-    source.set_time_order(plot::Time_order::ASCENDING);
 
     const plot::Data_access_policy access = make_value_access();
     const auto result = source.query_v_range(0, make_hold_query(access, 3, 4));
@@ -631,7 +354,6 @@ bool test_hold_forward_skip_uses_latest_drawable_pre_window_sample()
             { 0, 7.0f },
             { 2, nan },
             });
-    source.set_time_order(plot::Time_order::ASCENDING);
 
     const plot::Data_access_policy access = make_value_access();
     auto query = make_hold_query(access, 3, 4);
@@ -653,7 +375,6 @@ bool test_hold_forward_reject_window_fails_on_nonfinite_held_candidate()
             { 0, 7.0f },
             { 2, nan },
             });
-    source.set_time_order(plot::Time_order::ASCENDING);
 
     const plot::Data_access_policy access = make_value_access();
     auto query = make_hold_query(access, 3, 4);
@@ -694,20 +415,10 @@ int main()
 
     RUN_TEST(test_query_v_range_without_access_is_unsupported);
     RUN_TEST(test_ready_value_range_scan_populates_sequence);
-    RUN_TEST(test_ascending_value_range_scans_only_selected_time_window);
-    RUN_TEST(test_ascending_skip_hold_value_range_scans_bounded_prefix);
     RUN_TEST(test_unordered_value_range_aggregates_discontiguous_matches);
     RUN_TEST(test_empty_status_for_empty_snapshot_and_no_matches);
     RUN_TEST(test_busy_and_failed_snapshot_status_map_through_queries);
     RUN_TEST(test_nonfinite_values_are_skipped_or_zeroed_by_policy);
-    RUN_TEST(test_query_time_window_returns_simple_ascending_window);
-    RUN_TEST(test_query_time_window_handles_descending_inclusive_bounds);
-    RUN_TEST(test_query_time_window_hold_forward_includes_held_sample);
-    RUN_TEST(test_query_time_window_keeps_break_segment_gaps_in_window);
-    RUN_TEST(test_query_time_window_reject_window_fails_on_nonfinite_in_window_sample);
-    RUN_TEST(test_query_time_window_does_not_hold_nonfinite_break_segment_sample);
-    RUN_TEST(test_query_time_window_skip_holds_latest_drawable_sample);
-    RUN_TEST(test_query_time_window_reject_window_fails_on_nonfinite_held_sample);
     RUN_TEST(test_step_after_draw_nothing_includes_visible_held_sample);
     RUN_TEST(test_hold_forward_value_range_includes_pre_window_sample);
     RUN_TEST(test_hold_forward_value_range_ready_from_held_sample_only);

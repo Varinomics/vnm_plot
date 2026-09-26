@@ -16,6 +16,14 @@ class Profiler;
 
 namespace detail {
 
+// Timestamp ordering observed in snapshots and selected stack inputs.
+enum class Time_order
+{
+    UNKNOWN,
+    ASCENDING,
+    DESCENDING,
+};
+
 enum class Snapshot_requirement
 {
     Optional,
@@ -25,7 +33,6 @@ enum class Snapshot_requirement
 enum class Timestamp_window_search
 {
     NONE,
-    QUERY,
     BINARY,
     LINEAR,
 };
@@ -41,7 +48,6 @@ struct series_window_planner_state_t
     std::uint64_t              last_timestamp_order_sequence       = 0;
     const void*                last_timestamp_order_identity       = nullptr;
     access_policy_cache_key_t  last_timestamp_order_access_key;
-    Time_order                 last_timestamp_source_order         = Time_order::UNKNOWN;
     bool                       last_timestamp_order_scan_performed = false;
     std::size_t                last_timestamp_order_scan_samples   = 0;
     bool                       last_timestamps_monotonic           = true;

@@ -26,6 +26,7 @@
 
 namespace vnm::plot {
 using detail::choose_origin_ns;
+using detail::Time_order;
 using detail::k_scissor_pad_px;
 using detail::positive_span_ns_for_signed_api;
 
