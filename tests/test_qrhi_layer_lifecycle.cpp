@@ -648,9 +648,7 @@ bool test_layer_only_zero_style_prepare_record_order()
     std::map<int, std::shared_ptr<const plot::series_data_t>> series_map;
     series_map[7] = series;
 
-    plot::Asset_loader asset_loader;
     plot::Series_renderer renderer;
-    renderer.initialize(asset_loader);
 
     Offscreen_rhi_fixture rhi_fixture;
     std::string error_message;

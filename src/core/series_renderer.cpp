@@ -752,10 +752,6 @@ void Series_renderer::prepare(
         clear_retired_series_resources();
         return;
     }
-    if (!m_asset_loader) {
-        return;
-    }
-
     const auto& layout = ctx.layout;
     if (layout.usable_width <= 0.0 || layout.usable_height <= 0.0) {
         return;

@@ -63,8 +63,8 @@ public:
     Series_renderer(const Series_renderer&)            = delete;
     Series_renderer& operator=(const Series_renderer&) = delete;
 
-    // Keep parity with the rest of the renderer initialization path. QSB
-    // shaders are loaded lazily from Qt resources.
+    // Optionally supply assets to custom layers. Built-in shaders are loaded
+    // from Qt resources, and prepare() also works without an asset loader.
     void initialize(Asset_loader& asset_loader);
 
     void cleanup_resources();
