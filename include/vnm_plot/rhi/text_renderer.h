@@ -25,12 +25,6 @@ class Text_renderer
 public:
     explicit Text_renderer(Font_renderer* fr);
 
-    // Append labels to the Font_renderer frame the caller opened with
-    // rhi_begin_frame(). The caller finalizes and records that font frame;
-    // prepare()/record() below manage these steps for a standalone text pass.
-    // Returns true while label fade animations are in progress.
-    bool render(const frame_context_t& ctx, bool fade_v_labels, bool fade_h_labels);
-
     // QRhi path: build all text draw batches and upload resources before beginPass().
     bool prepare(const frame_context_t& ctx, bool fade_v_labels, bool fade_h_labels);
     // Pane opacity inputs describe chrome panes rendered for this frame;

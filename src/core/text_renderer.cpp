@@ -118,18 +118,6 @@ Text_renderer::Text_renderer(Font_renderer* fr)
 {
 }
 
-bool Text_renderer::render(const frame_context_t& ctx, bool fade_v_labels, bool fade_h_labels)
-{
-    if (!m_fonts) {
-        return false;
-    }
-
-    bool any_active = false;
-    any_active |= render_axis_labels(ctx, fade_v_labels);
-    any_active |= render_info_overlay(ctx, fade_h_labels);
-    return any_active;
-}
-
 bool Text_renderer::prepare(const frame_context_t& ctx, bool fade_v_labels, bool fade_h_labels)
 {
     return prepare(ctx, fade_v_labels, fade_h_labels, false, false);

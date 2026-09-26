@@ -601,28 +601,9 @@ enum class Empty_window_behavior
 {
     DRAW_NOTHING,
     /// Hold the most recent sample forward across an empty visible window.
-    /// The renderer's built-in synthesis of this behavior assumes ASCENDING
-    /// time order: it holds the window's last sample at `t_max`. For DESCENDING
-    /// or UNORDERED sources the planner disables built-in hold-forward (it would
-    /// otherwise hold the oldest physical sample); such sources must implement
-    /// hold-forward through the direct `query_time_window()` path instead.
+    /// The renderer synthesizes this only after observing ascending timestamps,
+    /// holding the window's last sample at `t_max`.
     HOLD_LAST_FORWARD
-};
-
-/// Time ordering of a source's samples for a given LOD level.
-///
-/// The renderer's built-in fast paths (monotonic window search and the
-/// `HOLD_LAST_FORWARD` synthesis above) require ASCENDING order. DESCENDING and
-/// UNORDERED are correct but fall back to a linear visible-window scan with
-/// built-in hold-forward disabled. UNKNOWN is treated conservatively as
-/// non-monotonic. Sources that can guarantee ascending order should report
-/// ASCENDING so the fast paths engage.
-enum class Time_order
-{
-    UNKNOWN,
-    ASCENDING,
-    DESCENDING,
-    UNORDERED,
 };
 
 enum class Nonfinite_sample_policy
@@ -640,12 +621,6 @@ enum class Data_query_status
     BUSY,
     UNSUPPORTED,
     FAILED,
-};
-
-struct sample_index_window_t
-{
-    std::size_t    first = 0;
-    std::size_t    count = 0;
 };
 
 struct value_range_t
@@ -735,39 +710,7 @@ public:
     /// disables sequence-based reuse.
     virtual uint64_t current_sequence(size_t lod_level = 0) const { (void)lod_level; return 0; }
 
-    virtual Time_order time_order(std::size_t lod) const;
-    virtual data_query_result_t<time_range_t> time_range(std::size_t lod) const;
     virtual std::vector<std::size_t> lod_scales() const;
-    /// Return true when `query_time_window()` can answer directly enough that
-    /// render planning should try it before taking a snapshot. The default
-    /// implementation of `query_time_window()` is snapshot-backed, so it stays
-    /// opt-in to avoid an extra snapshot in the renderer.
-    virtual bool supports_direct_time_window_query(std::size_t lod) const
-    {
-        (void)lod;
-        return false;
-    }
-    /// Resolve the sample index window covering `query.time_window` for `lod`.
-    ///
-    /// Contract for custom overrides (the renderer enforces these; violating
-    /// them makes the renderer ignore the result and fall back to scanning a
-    /// snapshot):
-    ///   - The returned `{first, count}` are 0-based indices into the snapshot
-    ///     that `try_snapshot(lod)` returns for the same LOD level, and must
-    ///     satisfy `first + count <= snapshot.count`.
-    ///   - `result.sequence` must equal that snapshot's `sequence`. A mismatch
-    ///     (or sequence 0) means the renderer cannot align the indices, so it
-    ///     ignores the query and rescans the snapshot.
-    ///   - The returned indices should bracket `query.time_window`; the renderer
-    ///     may pad them for interpolation at the window edges.
-    /// Status handling: READY uses the window (count 0 == empty); EMPTY makes
-    /// the renderer fall back to its own padded local search (adjacent samples
-    /// may still be needed for interpolation); FAILED aborts the view without a
-    /// snapshot fallback; UNSUPPORTED is ignored (local scan). Only opt in via
-    /// `supports_direct_time_window_query()` when these hold.
-    virtual data_query_result_t<sample_index_window_t> query_time_window(
-        std::size_t                    lod,
-        const data_query_context_t&    query);
 
     /// Resolve drawable values in the time window. STEP_AFTER also includes
     /// the drawable value held in from before its left edge when a following
@@ -1143,7 +1086,6 @@ struct frame_layout_result_t
     double                 usable_width = 0.0;  ///< Plot area width in pixels
     double                 usable_height = 0.0; ///< Plot area height in pixels
     double                 v_bar_width = 0.0;
-    double                 h_bar_height = 0.0;
     float                  max_v_label_text_width = 0.f;
 
     std::vector<h_label_t> h_labels;

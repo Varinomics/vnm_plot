@@ -12,15 +12,6 @@ Text_renderer::Text_renderer(Font_renderer* fr)
 {
 }
 
-bool Text_renderer::render(
-    const frame_context_t& /*ctx*/,
-    bool /*fade_v_labels*/,
-    bool /*fade_h_labels*/)
-{
-    // No-op in stub - return false to indicate no animations in progress
-    return false;
-}
-
 bool Text_renderer::prepare(
     const frame_context_t& /*ctx*/,
     bool /*fade_v_labels*/,

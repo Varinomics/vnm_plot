@@ -216,8 +216,8 @@ bool test_sequence_tracking() {
     return true;
 }
 
-// Test: Query-model metadata declares one unsupported-order LOD
-bool test_query_metadata_single_lod_unknown_order() {
+// Test: One LOD preserves insertion order across a wrapped ring snapshot
+bool test_single_lod_preserves_insertion_order() {
     Ring_buffer<Bar_sample> buffer(3);
     Benchmark_data_source<Bar_sample> source(buffer);
 
@@ -228,11 +228,6 @@ bool test_query_metadata_single_lod_unknown_order() {
     const std::vector<std::size_t> scales = source.lod_scales();
     TEST_ASSERT(scales.size() == 1, "lod_scales should expose one scale");
     TEST_ASSERT(scales[0] == 1, "lod_scales should pin scale 1 for LOD 0");
-
-    TEST_ASSERT(source.time_order(0) == vnm::plot::Time_order::UNKNOWN,
-                "benchmark source does not enforce timestamp monotonicity");
-    TEST_ASSERT(source.time_order(1) == vnm::plot::Time_order::UNKNOWN,
-                "unsupported LOD time order should remain unknown");
 
     Bar_sample first{};
     first.timestamp = 30;
@@ -257,8 +252,6 @@ bool test_query_metadata_single_lod_unknown_order() {
                 "wrapped snapshot samples should be available");
     TEST_ASSERT(sample0->timestamp == 10 && sample2->timestamp == 5,
                 "ring view should preserve insertion order after wrap");
-    TEST_ASSERT(source.time_order(0) == vnm::plot::Time_order::UNKNOWN,
-                "arbitrary pushed timestamps keep benchmark source order unknown");
 
     return true;
 }
@@ -584,7 +577,7 @@ int main() {
     RUN_TEST(test_trade_value_range);
     RUN_TEST(test_sample_stride);
     RUN_TEST(test_sequence_tracking);
-    RUN_TEST(test_query_metadata_single_lod_unknown_order);
+    RUN_TEST(test_single_lod_preserves_insertion_order);
     RUN_TEST(test_current_sequence_metadata);
     RUN_TEST(test_bar_access_policy);
     RUN_TEST(test_trade_access_policy);

@@ -66,10 +66,6 @@ public:
     // from Qt resources, and prepare() also works without an asset loader.
     void initialize(Asset_loader& asset_loader);
 
-    // Release resources explicitly while the owning QRhi is still alive.
-    // This also calls each custom layer's cleanup_qrhi_resources hook.
-    void cleanup_resources();
-
     // Two-phase rendering. Under RHI, the host opens a resource-update batch,
     // calls prepare() to fill it with sample/UBO/per-frame uploads, calls
     // beginPass(rt, clear, depth, batch) to atomically submit those uploads

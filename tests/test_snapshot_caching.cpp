@@ -61,7 +61,6 @@ public:
     uint64_t                   sequence         = 1;
     std::weak_ptr<void>        last_hold;
     std::vector<std::size_t>   scale_values     = {1};
-    plot::Time_order           order            = plot::Time_order::UNKNOWN;
 
     snapshot_result_t try_snapshot(size_t lod_level) override
     {
@@ -99,7 +98,6 @@ public:
     }
     size_t sample_stride() const override { return sizeof(Test_sample); }
     uint64_t current_sequence(size_t /*lod_level*/) const override { return sequence; }
-    plot::Time_order time_order(std::size_t /*lod*/) const override { return order; }
 };
 
 class Two_level_source final : public Data_source
@@ -137,67 +135,6 @@ public:
     size_t lod_scale(size_t level) const override { return level == 0 ? 1 : 4; }
     size_t sample_stride() const override { return sizeof(Test_sample); }
     uint64_t current_sequence(size_t /*lod_level*/) const override { return 0; }
-};
-
-class Direct_window_source final : public Data_source
-{
-public:
-    std::vector<Test_sample>       samples;
-    plot::sample_index_window_t    query_window{};
-    plot::Data_query_status        query_status   = plot::Data_query_status::READY;
-    uint64_t                       sequence       = 77;
-    uint64_t                       query_sequence = 77;
-    int                            snapshot_calls = 0;
-    int                            query_calls    = 0;
-    plot::Time_order               order          = plot::Time_order::ASCENDING;
-    plot::time_range_t             last_query_time_window{};
-    plot::sample_semantics_key_t   last_query_semantics_key{};
-
-    snapshot_result_t try_snapshot(size_t lod_level) override
-    {
-        if (lod_level != 0) {
-            return {data_snapshot_t{}, snapshot_result_t::Snapshot_status::FAILED};
-        }
-        ++snapshot_calls;
-        data_snapshot_t snapshot{
-            samples.data(),
-            samples.size(),
-            sizeof(Test_sample),
-            sequence,
-            nullptr,
-            0,
-            std::make_shared<int>(33)
-        };
-        if (samples.empty()) {
-            return {data_snapshot_t{}, snapshot_result_t::Snapshot_status::EMPTY};
-        }
-        return {snapshot, snapshot_result_t::Snapshot_status::READY};
-    }
-
-    size_t sample_stride() const override { return sizeof(Test_sample); }
-    uint64_t current_sequence(size_t /*lod_level*/) const override { return sequence; }
-    plot::Time_order time_order(std::size_t /*lod*/) const override
-    {
-        return order;
-    }
-    bool supports_direct_time_window_query(std::size_t /*lod*/) const override
-    {
-        return true;
-    }
-    plot::data_query_result_t<plot::sample_index_window_t> query_time_window(
-        std::size_t /*lod*/,
-        const plot::data_query_context_t&  query) override
-    {
-        ++query_calls;
-        last_query_time_window = query.time_window;
-        last_query_semantics_key = query.semantics_key;
-
-        plot::data_query_result_t<plot::sample_index_window_t> result;
-        result.status   = query_status;
-        result.sequence = query_sequence;
-        result.value    = query_window;
-        return result;
-    }
 };
 
 Data_access_policy make_policy()
@@ -313,11 +250,9 @@ plot::Series_view_plan plan_two_level_lod_width(
 }
 
 std::shared_ptr<Single_level_source> make_single_level_source(
-    std::vector<std::int64_t>      timestamps,
-    plot::Time_order               order)
+    std::vector<std::int64_t> timestamps)
 {
     auto source   = std::make_shared<Single_level_source>();
-    source->order = order;
     source->samples.resize(timestamps.size());
     for (std::size_t i = 0; i < timestamps.size(); ++i) {
         source->samples[i].t = timestamps[i];
@@ -343,456 +278,13 @@ const plot::detail::series_window_planner_state_t* render_source_and_get_main_st
     return state_it->second.main_view.planner.get();
 }
 
-std::shared_ptr<Direct_window_source> make_direct_window_source()
-{
-    auto source = std::make_shared<Direct_window_source>();
-    source->samples.resize(128);
-    for (size_t i = 0; i < source->samples.size(); ++i) {
-        source->samples[i].t = static_cast<std::int64_t>(i);
-        source->samples[i].v = 1.0f + static_cast<float>(i);
-    }
-    return source;
-}
-
-std::shared_ptr<series_data_t> make_direct_window_series(
-    const std::shared_ptr<Direct_window_source>& source)
-{
-    auto series         = std::make_shared<series_data_t>();
-    series->style       = Display_style::LINE;
-    series->data_source = source;
-    series->access      = make_policy();
-    return series;
-}
-
-bool test_direct_time_window_query_drives_renderer_window()
-{
-    auto source = make_direct_window_source();
-    source->query_window   = {40, 3};
-    source->query_sequence = source->sequence;
-    source->order          = plot::Time_order::UNKNOWN;
-
-    frame_layout_result_t layout;
-    layout.usable_width  = 200.0;
-    layout.usable_height = 80.0;
-
-    Plot_config config;
-    frame_context_t ctx = make_context(layout, config);
-    ctx.t0              = 40;
-    ctx.t1              = 42;
-    ctx.t_available_min = 0;
-    ctx.t_available_max = 127;
-
-    Series_renderer renderer;
-    Asset_loader asset_loader;
-    renderer.initialize(asset_loader);
-
-    const auto* state = render_source_and_get_main_state(
-        renderer,
-        ctx,
-        make_direct_window_series(source),
-        70);
-
-    TEST_ASSERT(state, "expected planner state for direct query test");
-    TEST_ASSERT(source->query_calls == 1,
-        "direct time-window source should be queried by renderer planning");
-    TEST_ASSERT(source->snapshot_calls == 1,
-        "direct time-window planning should still acquire one paired frame snapshot");
-    TEST_ASSERT(source->last_query_time_window.min_ns == ctx.t0 &&
-        source->last_query_time_window.max_ns == ctx.t1,
-        "direct time-window query should receive the renderer view range");
-    TEST_ASSERT(state->last_timestamp_window_search ==
-        plot::detail::Timestamp_window_search::QUERY,
-        "direct time-window query should bypass local timestamp search");
-    TEST_ASSERT(state->last_first == 39,
-        "renderer planner should expand direct query with a predecessor sample");
-    TEST_ASSERT(state->last_source_count == 6,
-        "renderer planner should expand direct query with trailing renderer padding");
-    TEST_ASSERT(state->last_selected_time_order == plot::Time_order::ASCENDING,
-        "a direct UNKNOWN source should derive selected order during drawable processing");
-
-    return true;
-}
-
-bool test_direct_time_window_query_receives_access_semantics()
-{
-    auto source = make_direct_window_source();
-    source->query_window   = {40, 3};
-    source->query_sequence = source->sequence;
-
-    frame_layout_result_t layout;
-    layout.usable_width  = 200.0;
-    layout.usable_height = 80.0;
-
-    Plot_config config;
-    frame_context_t ctx = make_context(layout, config);
-    ctx.t0              = 40;
-    ctx.t1              = 42;
-    ctx.t_available_min = 0;
-    ctx.t_available_max = 127;
-
-    {
-        auto series    = make_direct_window_series(source);
-        series->access = make_direct_member_policy();
-        const plot::sample_semantics_key_t expected_key =
-            plot::detail::make_sample_semantics_key(&series->access);
-
-        Series_renderer renderer;
-        Asset_loader asset_loader;
-        renderer.initialize(asset_loader);
-
-        const auto* state = render_source_and_get_main_state(
-            renderer,
-            ctx,
-            series,
-            78);
-
-        TEST_ASSERT(state, "expected planner state for member semantics query test");
-        TEST_ASSERT(!source->last_query_semantics_key.conservative &&
-            source->last_query_semantics_key.value == expected_key.value &&
-            source->last_query_semantics_key.revision == expected_key.revision,
-            "direct time-window query should receive member-pointer semantics");
-    }
-
-    source->query_calls = 0;
-    {
-        auto series = make_direct_window_series(source);
-        series->access.set_semantics_key(0x444952454354, 9);
-        const plot::sample_semantics_key_t expected_key =
-            plot::detail::make_sample_semantics_key(&series->access);
-
-        Series_renderer renderer;
-        Asset_loader asset_loader;
-        renderer.initialize(asset_loader);
-
-        const auto* state = render_source_and_get_main_state(
-            renderer,
-            ctx,
-            series,
-            79);
-
-        TEST_ASSERT(state, "expected planner state for explicit semantics query test");
-        TEST_ASSERT(source->query_calls == 1,
-            "explicit semantics direct-window source should be queried once");
-        TEST_ASSERT(!source->last_query_semantics_key.conservative &&
-            source->last_query_semantics_key.value == expected_key.value &&
-            source->last_query_semantics_key.revision == 9,
-            "direct time-window query should receive explicit semantics revision");
-    }
-
-    return true;
-}
-
-bool test_direct_time_window_empty_falls_back_to_renderer_padding()
-{
-    auto source = std::make_shared<Direct_window_source>();
-    source->samples        = {
-        { 0, 1.0f },
-        { 10, 2.0f },
-    };
-    source->query_status   = plot::Data_query_status::EMPTY;
-    source->query_sequence = source->sequence;
-
-    frame_layout_result_t layout;
-    layout.usable_width  = 200.0;
-    layout.usable_height = 80.0;
-
-    Plot_config config;
-    frame_context_t ctx = make_context(layout, config);
-    ctx.t0              = 5;
-    ctx.t1              = 6;
-    ctx.t_available_min = 0;
-    ctx.t_available_max = 127;
-
-    Series_renderer renderer;
-    Asset_loader asset_loader;
-    renderer.initialize(asset_loader);
-
-    const auto* state = render_source_and_get_main_state(
-        renderer,
-        ctx,
-        make_direct_window_series(source),
-        75);
-
-    TEST_ASSERT(state, "expected planner state for direct empty query test");
-    TEST_ASSERT(source->query_calls == 1,
-        "direct empty query should be attempted once");
-    TEST_ASSERT(state->last_timestamp_window_search ==
-        plot::detail::Timestamp_window_search::BINARY,
-        "direct empty query should fall back to local renderer padding");
-    TEST_ASSERT(state->last_first == 0 && state->last_source_count == 2,
-        "direct empty query fallback should keep adjacent renderer samples");
-
-    return true;
-}
-
-bool test_direct_time_window_single_match_expands_for_linear_segments()
-{
-    auto source = std::make_shared<Direct_window_source>();
-    source->samples        = {
-        { 0, 1.0f },
-        { 10, 2.0f },
-    };
-    source->query_window   = {1, 1};
-    source->query_sequence = source->sequence;
-
-    frame_layout_result_t layout;
-    layout.usable_width  = 200.0;
-    layout.usable_height = 80.0;
-
-    Plot_config config;
-    frame_context_t ctx = make_context(layout, config);
-    ctx.t0              = 5;
-    ctx.t1              = 15;
-    ctx.t_available_min = 0;
-    ctx.t_available_max = 10;
-
-    Series_renderer renderer;
-    Asset_loader asset_loader;
-    renderer.initialize(asset_loader);
-
-    const auto* state = render_source_and_get_main_state(
-        renderer,
-        ctx,
-        make_direct_window_series(source),
-        76);
-
-    TEST_ASSERT(state, "expected planner state for direct single-match query test");
-    TEST_ASSERT(state->last_timestamp_window_search ==
-        plot::detail::Timestamp_window_search::QUERY,
-        "direct single-match query should still drive renderer planning");
-    TEST_ASSERT(state->last_first == 0 && state->last_source_count == 2,
-        "direct single-match query should expand to draw the visible segment");
-    TEST_ASSERT(state->last_count == 2,
-        "direct single-match query should stage enough samples for LINE/AREA");
-
-    return true;
-}
-
-bool test_direct_time_window_hold_forward_synthesizes_terminal_sample()
-{
-    auto source = make_direct_window_source();
-    source->query_window   = {2, 1};
-    source->query_sequence = source->sequence;
-
-    auto series = make_direct_window_series(source);
-    series->interpolation         = plot::Series_interpolation::STEP_AFTER;
-    series->empty_window_behavior = Empty_window_behavior::HOLD_LAST_FORWARD;
-
-    frame_layout_result_t layout;
-    layout.usable_width  = 200.0;
-    layout.usable_height = 80.0;
-
-    Plot_config config;
-    frame_context_t ctx = make_context(layout, config);
-    ctx.t0              = 10;
-    ctx.t1              = 12;
-    ctx.t_available_min = 0;
-    ctx.t_available_max = 127;
-
-    Series_renderer renderer;
-    Asset_loader asset_loader;
-    renderer.initialize(asset_loader);
-
-    const auto* state = render_source_and_get_main_state(
-        renderer,
-        ctx,
-        series,
-        73);
-
-    TEST_ASSERT(state, "expected planner state for direct query hold test");
-    TEST_ASSERT(source->query_calls == 1,
-        "direct hold-forward source should be queried by renderer planning");
-    TEST_ASSERT(state->last_timestamp_window_search ==
-        plot::detail::Timestamp_window_search::QUERY,
-        "direct hold-forward query should drive renderer planning");
-    TEST_ASSERT(state->last_first == source->query_window.first,
-        "direct hold-forward query should keep the queried source sample");
-    TEST_ASSERT(state->last_source_count == 1,
-        "direct hold-forward query should keep one real source sample");
-    TEST_ASSERT(state->last_synthetic_hold_count == 1 &&
-        state->last_count == 2 &&
-        state->last_hold_last_forward,
-        "direct hold-forward query should synthesize the terminal GPU sample");
-
-    return true;
-}
-
-bool test_direct_time_window_sequence_mismatch_falls_back_to_snapshot_scan()
-{
-    auto source = make_direct_window_source();
-    source->query_window   = {20, 5};
-    source->query_sequence = source->sequence + 1;
-
-    frame_layout_result_t layout;
-    layout.usable_width  = 200.0;
-    layout.usable_height = 80.0;
-
-    Plot_config config;
-    frame_context_t ctx = make_context(layout, config);
-    ctx.t0              = 40;
-    ctx.t1              = 42;
-    ctx.t_available_min = 0;
-    ctx.t_available_max = 127;
-
-    Series_renderer renderer;
-    Asset_loader asset_loader;
-    renderer.initialize(asset_loader);
-
-    const auto* state = render_source_and_get_main_state(
-        renderer,
-        ctx,
-        make_direct_window_series(source),
-        71);
-
-    TEST_ASSERT(state, "expected planner state for direct query mismatch test");
-    TEST_ASSERT(source->query_calls == 1,
-        "stale direct query should still be attempted once");
-    TEST_ASSERT(source->snapshot_calls == 1,
-        "sequence mismatch fallback should reuse the acquired frame snapshot");
-    TEST_ASSERT(state->last_timestamp_window_search ==
-        plot::detail::Timestamp_window_search::BINARY,
-        "sequence mismatch should fall back to local snapshot search");
-    TEST_ASSERT(state->last_first == 39,
-        "sequence mismatch must not pair stale query metadata with the snapshot");
-    TEST_ASSERT(state->last_source_count == 6,
-        "snapshot fallback should keep the renderer's padded local window");
-
-    return true;
-}
-
-bool test_direct_time_window_failed_status_suppresses_snapshot_fallback()
-{
-    auto source = make_direct_window_source();
-    source->query_window   = {20, 5};
-    source->query_status   = plot::Data_query_status::FAILED;
-    source->query_sequence = source->sequence;
-
-    frame_layout_result_t layout;
-    layout.usable_width  = 200.0;
-    layout.usable_height = 80.0;
-
-    Plot_config config;
-    frame_context_t ctx = make_context(layout, config);
-    ctx.t0              = 40;
-    ctx.t1              = 42;
-    ctx.t_available_min = 0;
-    ctx.t_available_max = 127;
-
-    Series_renderer renderer;
-    Asset_loader asset_loader;
-    renderer.initialize(asset_loader);
-
-    const auto* state = render_source_and_get_main_state(
-        renderer,
-        ctx,
-        make_direct_window_series(source),
-        74);
-
-    TEST_ASSERT(state, "expected planner state for direct query failed test");
-    TEST_ASSERT(source->query_calls == 1,
-        "failed direct query should be attempted once");
-    TEST_ASSERT(source->snapshot_calls == 1,
-        "failed direct query still needs the paired snapshot sequence check");
-    TEST_ASSERT(state->last_timestamp_window_search ==
-        plot::detail::Timestamp_window_search::QUERY,
-        "failed direct query should remain authoritative for the matched sequence");
-    TEST_ASSERT(state->last_count == 0,
-        "failed direct query must not fall back and draw local snapshot samples");
-
-    return true;
-}
-
-bool test_direct_time_window_unsupported_falls_back_to_snapshot_scan()
-{
-    auto source = make_direct_window_source();
-    source->query_window   = {20, 5};
-    source->query_status   = plot::Data_query_status::UNSUPPORTED;
-    source->query_sequence = source->sequence;
-
-    frame_layout_result_t layout;
-    layout.usable_width  = 200.0;
-    layout.usable_height = 80.0;
-
-    Plot_config config;
-    frame_context_t ctx = make_context(layout, config);
-    ctx.t0              = 40;
-    ctx.t1              = 42;
-    ctx.t_available_min = 0;
-    ctx.t_available_max = 127;
-
-    Series_renderer renderer;
-    Asset_loader asset_loader;
-    renderer.initialize(asset_loader);
-
-    const auto* state = render_source_and_get_main_state(
-        renderer,
-        ctx,
-        make_direct_window_series(source),
-        72);
-
-    TEST_ASSERT(state, "expected planner state for direct query unsupported test");
-    TEST_ASSERT(source->query_calls == 1,
-        "unsupported direct query should be attempted once");
-    TEST_ASSERT(source->snapshot_calls == 1,
-        "unsupported direct query fallback should take the normal snapshot");
-    TEST_ASSERT(state->last_timestamp_window_search ==
-        plot::detail::Timestamp_window_search::BINARY,
-        "unsupported direct query should fall back to local snapshot search");
-    TEST_ASSERT(state->last_first == 39,
-        "unsupported direct query must not drive the renderer window");
-    TEST_ASSERT(state->last_source_count == 6,
-        "unsupported direct query fallback should keep the padded local window");
-
-    return true;
-}
-
-bool test_ascending_time_order_skips_monotonicity_scan()
-{
-    auto data_source = make_single_level_source(
-        { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 },
-        plot::Time_order::ASCENDING);
-
-    auto series         = std::make_shared<series_data_t>();
-    series->style       = Display_style::LINE;
-    series->data_source = data_source;
-    series->access      = make_policy();
-
-    frame_layout_result_t layout;
-    layout.usable_width  = 200.0;
-    layout.usable_height = 80.0;
-
-    Plot_config config;
-    frame_context_t ctx = make_context(layout, config);
-
-    Series_renderer renderer;
-    Asset_loader asset_loader;
-    renderer.initialize(asset_loader);
-
-    const auto* state = render_source_and_get_main_state(renderer, ctx, series, 64);
-
-    TEST_ASSERT(state, "expected planner state for ASCENDING time-order test");
-    TEST_ASSERT(state->last_timestamp_source_order == plot::Time_order::ASCENDING,
-        "planner should record ASCENDING source time order");
-    TEST_ASSERT(!state->last_timestamp_order_scan_performed,
-        "ASCENDING source should skip the defensive monotonicity scan");
-    TEST_ASSERT(state->last_timestamp_order_scan_samples == 0,
-        "ASCENDING source should not touch samples for monotonicity scanning");
-    TEST_ASSERT(
-        state->last_timestamp_window_search ==
-            plot::detail::Timestamp_window_search::BINARY,
-        "ASCENDING source should use binary timestamp window search");
-
-    return true;
-}
-
 bool run_defensive_time_order_scan_case(
-    plot::Time_order                       order,
     std::vector<std::int64_t>              timestamps,
     plot::detail::Timestamp_window_search  expected_search,
     bool                                   expected_monotonic,
     const std::string&                     label)
 {
-    auto data_source = make_single_level_source(timestamps, order);
+    auto data_source = make_single_level_source(timestamps);
 
     auto series         = std::make_shared<series_data_t>();
     series->style       = Display_style::LINE;
@@ -813,8 +305,6 @@ bool run_defensive_time_order_scan_case(
     const auto* state = render_source_and_get_main_state(renderer, ctx, series, 65);
 
     TEST_ASSERT(state, label + " source should produce planner state");
-    TEST_ASSERT(state->last_timestamp_source_order == order,
-        label + " source time order should be recorded");
     TEST_ASSERT(state->last_timestamp_order_scan_performed,
         label + " source should run the defensive monotonicity scan");
     TEST_ASSERT(state->last_timestamp_order_scan_samples > 0,
@@ -827,31 +317,28 @@ bool run_defensive_time_order_scan_case(
     return true;
 }
 
-bool test_unknown_and_unordered_time_order_run_defensive_scan()
+bool test_timestamp_order_scan_selects_binary_or_linear_search()
 {
-    const bool unknown_ok = run_defensive_time_order_scan_case(
-        plot::Time_order::UNKNOWN,
+    const bool ascending_ok = run_defensive_time_order_scan_case(
         { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
         plot::detail::Timestamp_window_search::BINARY,
         true,
-        "UNKNOWN");
-    if (!unknown_ok) {
+        "ascending timestamps");
+    if (!ascending_ok) {
         return false;
     }
 
     return run_defensive_time_order_scan_case(
-        plot::Time_order::UNORDERED,
         { 0, 5, 2, 7, 3, 8, 4, 9 },
         plot::detail::Timestamp_window_search::LINEAR,
         false,
-        "UNORDERED");
+        "unordered timestamps");
 }
 
-bool test_descending_time_order_uses_linear_window_search()
+bool test_descending_timestamps_use_linear_window_search()
 {
     auto data_source = make_single_level_source(
-        { 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0 },
-        plot::Time_order::DESCENDING);
+        { 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0 });
 
     auto series         = std::make_shared<series_data_t>();
     series->style       = Display_style::LINE;
@@ -872,10 +359,6 @@ bool test_descending_time_order_uses_linear_window_search()
     const auto* state = render_source_and_get_main_state(renderer, ctx, series, 66);
 
     TEST_ASSERT(state, "expected planner state for DESCENDING time-order test");
-    TEST_ASSERT(state->last_timestamp_source_order == plot::Time_order::DESCENDING,
-        "planner should record DESCENDING source time order");
-    TEST_ASSERT(!state->last_timestamp_order_scan_performed,
-        "DESCENDING source should not need an ascending-order scan");
     TEST_ASSERT(
         state->last_timestamp_window_search ==
             plot::detail::Timestamp_window_search::LINEAR,
@@ -886,11 +369,10 @@ bool test_descending_time_order_uses_linear_window_search()
     return true;
 }
 
-bool test_descending_time_order_does_not_hold_oldest_sample()
+bool test_descending_timestamps_do_not_hold_oldest_sample()
 {
     auto data_source = make_single_level_source(
-        { 9, 7, 5, 3, 1 },
-        plot::Time_order::DESCENDING);
+        { 9, 7, 5, 3, 1 });
 
     auto series = std::make_shared<series_data_t>();
     series->style                 = Display_style::LINE;
@@ -916,8 +398,6 @@ bool test_descending_time_order_does_not_hold_oldest_sample()
     const auto* state = render_source_and_get_main_state(renderer, ctx, series, 68);
 
     TEST_ASSERT(state, "expected planner state for DESCENDING hold-forward test");
-    TEST_ASSERT(state->last_timestamp_source_order == plot::Time_order::DESCENDING,
-        "planner should record DESCENDING source time order");
     TEST_ASSERT(!state->last_hold_last_forward,
         "DESCENDING source should not synthesize hold-forward from the oldest physical sample");
     TEST_ASSERT(state->last_count == 0,
@@ -929,8 +409,7 @@ bool test_descending_time_order_does_not_hold_oldest_sample()
 bool test_renderer_uses_lod_scales_metadata()
 {
     auto data_source = make_single_level_source(
-        { 0, 1, 2, 3, 4, 5, 6, 7 },
-        plot::Time_order::ASCENDING);
+        { 0, 1, 2, 3, 4, 5, 6, 7 });
     data_source->scale_values = {0};
 
     auto series         = std::make_shared<series_data_t>();
@@ -1820,7 +1299,7 @@ bool test_stacking_binary_lookup_bounds_source_reads()
         std::vector<std::vector<plot::detail::stacked_sample_t>> layers;
         const auto reason = plot::detail::compose_stacked_series(
             plan_ptrs,
-            std::vector<plot::Time_order>(2, plot::Time_order::ASCENDING),
+            std::vector<plot::detail::Time_order>(2, plot::detail::Time_order::ASCENDING),
             layers,
             k_timestamp_budget,
             &stats);
@@ -1871,7 +1350,7 @@ bool test_stacking_binary_lookup_matches_streaming_fallback()
     };
     const auto compare = [](
         const std::vector<const plot::Series_view_plan*>& plans,
-        const std::vector<plot::Time_order>& orders,
+        const std::vector<plot::detail::Time_order>& orders,
         std::size_t budget) {
         plot::detail::stack_composition_stats_t streaming_stats;
         plot::detail::stack_composition_stats_t binary_stats;
@@ -1911,7 +1390,7 @@ bool test_stacking_binary_lookup_matches_streaming_fallback()
         ascending_b, member_access, plot::Series_interpolation::LINEAR);
     TEST_ASSERT(compare(
         { &ascending_plan, &upper_plan },
-        { plot::Time_order::ASCENDING, plot::Time_order::ASCENDING },
+        { plot::detail::Time_order::ASCENDING, plot::detail::Time_order::ASCENDING },
         31u),
         "binary LINEAR lookup should match streaming for epoch "
         "timestamps, callable/member access, and last physical duplicates");
@@ -1931,7 +1410,7 @@ bool test_stacking_binary_lookup_matches_streaming_fallback()
         ascending_b, callback_access, plot::Series_interpolation::LINEAR);
     TEST_ASSERT(compare(
         { &descending_plan, &upper_plan },
-        { plot::Time_order::DESCENDING, plot::Time_order::ASCENDING },
+        { plot::detail::Time_order::DESCENDING, plot::detail::Time_order::ASCENDING },
         31u),
         "binary descending lookup should match streaming for physical-last duplicates and synthetic holds");
 
@@ -1939,7 +1418,7 @@ bool test_stacking_binary_lookup_matches_streaming_fallback()
     upper_plan.interpolation     = plot::Series_interpolation::STEP_AFTER;
     TEST_ASSERT(compare(
         { &ascending_plan, &upper_plan },
-        { plot::Time_order::ASCENDING, plot::Time_order::ASCENDING },
+        { plot::detail::Time_order::ASCENDING, plot::detail::Time_order::ASCENDING },
         31u),
         "binary STEP_AFTER lookup should match streaming values");
 
@@ -1959,7 +1438,7 @@ bool test_stacking_binary_lookup_matches_streaming_fallback()
         full_b, member_access, plot::Series_interpolation::LINEAR);
     TEST_ASSERT(compare(
         { &full_a_plan, &full_b_plan },
-        { plot::Time_order::ASCENDING, plot::Time_order::ASCENDING },
+        { plot::detail::Time_order::ASCENDING, plot::detail::Time_order::ASCENDING },
         3u),
         "binary lookup should match streaming across the full int64 timestamp range");
     return true;
@@ -2127,9 +1606,9 @@ bool test_stacking_uses_separate_view_budgets_and_invalidates_resized_cache()
         "the renderer should report one bounded main grid and one exact preview union");
     TEST_ASSERT(
         planner_state(renderer.m_vbo_states.at(1).main_view)
-                .last_selected_time_order == plot::Time_order::ASCENDING &&
+                .last_selected_time_order == plot::detail::Time_order::ASCENDING &&
         planner_state(renderer.m_vbo_states.at(1).preview_view)
-                .last_selected_time_order == plot::Time_order::ASCENDING,
+                .last_selected_time_order == plot::detail::Time_order::ASCENDING,
         "main and preview plans should retain the planner-established selected order");
     const void* initial_main_hold    = initial_main.hold.get();
     const void* initial_preview_hold = initial_preview.hold.get();
@@ -2591,18 +2070,9 @@ int main()
     int passed = 0;
     int failed = 0;
 
-    RUN_TEST(test_ascending_time_order_skips_monotonicity_scan);
-    RUN_TEST(test_unknown_and_unordered_time_order_run_defensive_scan);
-    RUN_TEST(test_descending_time_order_uses_linear_window_search);
-    RUN_TEST(test_descending_time_order_does_not_hold_oldest_sample);
-    RUN_TEST(test_direct_time_window_query_drives_renderer_window);
-    RUN_TEST(test_direct_time_window_query_receives_access_semantics);
-    RUN_TEST(test_direct_time_window_empty_falls_back_to_renderer_padding);
-    RUN_TEST(test_direct_time_window_single_match_expands_for_linear_segments);
-    RUN_TEST(test_direct_time_window_hold_forward_synthesizes_terminal_sample);
-    RUN_TEST(test_direct_time_window_sequence_mismatch_falls_back_to_snapshot_scan);
-    RUN_TEST(test_direct_time_window_failed_status_suppresses_snapshot_fallback);
-    RUN_TEST(test_direct_time_window_unsupported_falls_back_to_snapshot_scan);
+    RUN_TEST(test_timestamp_order_scan_selects_binary_or_linear_search);
+    RUN_TEST(test_descending_timestamps_use_linear_window_search);
+    RUN_TEST(test_descending_timestamps_do_not_hold_oldest_sample);
     RUN_TEST(test_renderer_uses_lod_scales_metadata);
     RUN_TEST(test_direct_member_policy_uses_member_dispatch_in_planner);
     RUN_TEST(test_access_policy_change_invalidates_planner_fast_path_cache);
