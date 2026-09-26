@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -145,6 +146,76 @@ bool test_time_grid_layers_cover_seven_days()
     return true;
 }
 
+bool test_time_step_selection_preserves_timeline_spacing()
+{
+    // The timeline requests 92px for elapsed labels and 176px for date/time
+    // labels. These are the first ladder steps meeting those pixel budgets.
+    TEST_ASSERT(nearly_equal(plot::select_time_step_seconds(60.0, 600.0, 92.0), 10.0),
+        "elapsed labels should use ten-second steps at ten pixels per second");
+    TEST_ASSERT(nearly_equal(plot::select_time_step_seconds(60.0, 600.0, 176.0), 30.0),
+        "date/time labels should use thirty-second steps at ten pixels per second");
+    TEST_ASSERT(nearly_equal(plot::select_time_step_seconds(0.06, 600.0, 92.0), 0.01),
+        "subsecond spans should retain millisecond-scale steps");
+    TEST_ASSERT(nearly_equal(plot::select_time_step_seconds(0.06, 600.0, 176.0), 0.05),
+        "wide subsecond labels should advance to the next ladder step");
+    TEST_ASSERT(nearly_equal(plot::select_time_step_seconds(1e-9, 600.0, 92.0), 0.001),
+        "nanosecond spans should select the minimum one-millisecond step");
+    TEST_ASSERT(nearly_equal(plot::select_time_step_seconds(60.0, 600.0, 100.0), 10.0),
+        "a step exactly meeting the minimum must be retained");
+    TEST_ASSERT(nearly_equal(plot::select_time_step_seconds(60.0, 600.0, 100.01), 30.0),
+        "a step below the minimum must advance");
+    return true;
+}
+
+bool test_time_step_selection_aligns_with_grid()
+{
+    constexpr double k_day_seconds = 86400.0;
+    constexpr double k_span_seconds = 7.0 * k_day_seconds;
+    constexpr double k_width_px = 1200.0;
+    const double step = plot::select_time_step_seconds(k_span_seconds, k_width_px, 92.0);
+    TEST_ASSERT(step == k_day_seconds, "week-long views should use elapsed daily labels");
+
+    const auto levels = plot::build_time_grid_layers(7.25, 7.25 + k_span_seconds, k_width_px, 10.0);
+    const double spacing = step * k_width_px / k_span_seconds;
+    const double start = (step - 7.25) * k_width_px / k_span_seconds;
+    bool found = false;
+    for (int i = 0; i < levels.count; ++i) {
+        if (nearly_equal(levels.spacing_px[i], spacing)) {
+            TEST_ASSERT(nearly_equal(levels.start_px[i], start),
+                "selected tick multiples must align with the daily grid phase");
+            found = true;
+        }
+    }
+    TEST_ASSERT(found, "selected daily ticks should share the daily grid level");
+    return true;
+}
+
+bool test_time_step_selection_invalid_inputs()
+{
+    const double invalid[] = {0.0, -1.0, std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::quiet_NaN()};
+    for (double value : invalid) {
+        TEST_ASSERT(plot::select_time_step_seconds(value, 600.0, 92.0) == 1.0,
+            "invalid spans should use the one-second default");
+        TEST_ASSERT(plot::select_time_step_seconds(60.0, value, 92.0) == 1.0,
+            "invalid widths should use the one-second default");
+        TEST_ASSERT(plot::select_time_step_seconds(60.0, 600.0, value) == 1.0,
+            "invalid spacing requests should use the one-second default");
+    }
+    return true;
+}
+
+bool test_time_step_selection_extreme_scale()
+{
+    TEST_ASSERT(nearly_equal(plot::select_time_step_seconds(1e-310, 1.0, 1e308), 0.01),
+        "overflowing pixel density must still enforce the minimum spacing");
+    TEST_ASSERT(nearly_equal(plot::select_time_step_seconds(1e300, 1e-25, 1e-320), 172800.0 * 2.0),
+        "underflowing pixel density must still select a sufficient ladder step");
+    TEST_ASSERT(nearly_equal(plot::select_time_step_seconds(1e300, 1e-23, 1.78e-320), 1800.0),
+        "subnormal pixel density must retain enough precision to select the first fitting step");
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -157,6 +228,10 @@ int main()
     RUN_TEST(test_time_grid_layers_reject_degenerate_ranges);
     RUN_TEST(test_time_grid_layers_do_not_report_non_multiple_for_current_ladder);
     RUN_TEST(test_time_grid_layers_cover_seven_days);
+    RUN_TEST(test_time_step_selection_preserves_timeline_spacing);
+    RUN_TEST(test_time_step_selection_aligns_with_grid);
+    RUN_TEST(test_time_step_selection_invalid_inputs);
+    RUN_TEST(test_time_step_selection_extreme_scale);
 
     std::cout << "\nTime grid tests: " << passed << " passed, " << failed << " failed\n";
 

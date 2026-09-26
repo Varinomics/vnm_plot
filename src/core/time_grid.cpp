@@ -27,6 +27,47 @@ bool is_integer_time_grid_multiple(double parent, double child)
 
 } // anonymous namespace
 
+double select_time_step_seconds(
+    double span_seconds,
+    double width_px,
+    double min_spacing_px)
+{
+    if (!(span_seconds > 0.0) || !std::isfinite(span_seconds) ||
+        !(width_px > 0.0) || !std::isfinite(width_px) ||
+        !(min_spacing_px > 0.0) || !std::isfinite(min_spacing_px))
+    {
+        return 1.0;
+    }
+
+    const double px_per_second = width_px / span_seconds;
+    double min_step_seconds = 0.0;
+    const bool use_scaled_step = !std::isnormal(px_per_second);
+    if (use_scaled_step) {
+        // Finite inputs can still overflow or underflow the pixel density,
+        // including loss of precision when the density becomes subnormal.
+        // Combine bounded mantissas before applying the net binary exponent.
+        int span_exponent;
+        int width_exponent;
+        int spacing_exponent;
+        const double span_mantissa    = std::frexp(span_seconds, &span_exponent);
+        const double width_mantissa   = std::frexp(width_px, &width_exponent);
+        const double spacing_mantissa = std::frexp(min_spacing_px, &spacing_exponent);
+        min_step_seconds = std::scalbn(
+            span_mantissa * spacing_mantissa / width_mantissa,
+            span_exponent + spacing_exponent - width_exponent);
+    }
+    const auto steps = detail::build_time_steps_covering(span_seconds);
+    for (double step_seconds : steps) {
+        if (use_scaled_step
+            ? step_seconds >= min_step_seconds
+            : step_seconds * px_per_second >= min_spacing_px)
+        {
+            return step_seconds;
+        }
+    }
+    return steps.back();
+}
+
 grid_layer_params_t build_time_grid_layers(
     double t_min_seconds,
     double t_max_seconds,
