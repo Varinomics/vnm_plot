@@ -3,8 +3,7 @@ include("${VNM_TOOLCHAIN_CONTEXT}")
 
 foreach(_required_var IN ITEMS
     VNM_PLOT_BINARY_DIR
-    VNM_PLOT_GLM_INCLUDE_DIR
-    VNM_PLOT_MSDF_TEXT_INCLUDE_DIR)
+    VNM_PLOT_DEPENDENCY_CONTEXT)
     if(NOT DEFINED ${_required_var} OR "${${_required_var}}" STREQUAL "")
         message(FATAL_ERROR "tests/package_smoke.cmake requires ${_required_var}.")
     endif()
@@ -42,107 +41,18 @@ if(NOT _install_result EQUAL 0)
         "${_install_output}\n${_install_error}")
 endif()
 
-file(TO_CMAKE_PATH "${VNM_PLOT_GLM_INCLUDE_DIR}" _stub_glm_include_dir)
-file(TO_CMAKE_PATH "${VNM_PLOT_MSDF_TEXT_INCLUDE_DIR}" _stub_msdf_text_include_dir)
-
-file(MAKE_DIRECTORY
-    "${_install_prefix}/lib/cmake/glm"
-    "${_install_prefix}/lib/cmake/vnm_msdf_text")
-
-set(_glm_config [=[
-if(NOT TARGET glm::glm)
-    add_library(glm::glm INTERFACE IMPORTED)
-    set_target_properties(glm::glm PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES "@_stub_glm_include_dir@")
-endif()
-set(glm_FOUND TRUE)
-]=])
-string(CONFIGURE "${_glm_config}" _glm_configured @ONLY)
-file(WRITE "${_install_prefix}/lib/cmake/glm/glmConfig.cmake" "${_glm_configured}")
-file(WRITE "${_install_prefix}/lib/cmake/glm/glm-config.cmake" "${_glm_configured}")
-
-set(_vnm_msdf_text_config [=[
-set(vnm_msdf_text_FOUND TRUE)
-set(vnm_msdf_text_lcd_contract_FOUND FALSE)
-set(vnm_msdf_text_atlas_FOUND FALSE)
-
-foreach(_component IN LISTS vnm_msdf_text_FIND_COMPONENTS)
-    if(_component STREQUAL "lcd_contract")
-        set(vnm_msdf_text_lcd_contract_FOUND TRUE)
-    elseif(_component STREQUAL "atlas")
-        set(vnm_msdf_text_atlas_FOUND TRUE)
-    elseif(_component STREQUAL "lcd_shader_reference")
-        message(FATAL_ERROR
-            "vnm_plot package consumers must not require "
-            "vnm_msdf_text::lcd_shader_reference.")
-    else()
-        set(vnm_msdf_text_${_component}_FOUND FALSE)
-        if(vnm_msdf_text_FIND_REQUIRED_${_component})
-            set(vnm_msdf_text_FOUND FALSE)
-            set(vnm_msdf_text_NOT_FOUND_MESSAGE
-                "Unsupported vnm_msdf_text component: ${_component}")
-        endif()
-    endif()
-endforeach()
-
-if(NOT vnm_msdf_text_FIND_COMPONENTS)
-    set(vnm_msdf_text_lcd_contract_FOUND TRUE)
-    set(vnm_msdf_text_atlas_FOUND TRUE)
-endif()
-
-if(NOT TARGET vnm_msdf_text::lcd_contract)
-    add_library(vnm_msdf_text::lcd_contract INTERFACE IMPORTED)
-    set_target_properties(vnm_msdf_text::lcd_contract PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES "@_stub_msdf_text_include_dir@")
-endif()
-
-if(NOT TARGET vnm_msdf_text::vnm_msdf_text)
-    add_library(vnm_msdf_text::vnm_msdf_text INTERFACE IMPORTED)
-    set_target_properties(vnm_msdf_text::vnm_msdf_text PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES "@_stub_msdf_text_include_dir@"
-        INTERFACE_LINK_LIBRARIES vnm_msdf_text::lcd_contract)
-endif()
-
-if(NOT vnm_msdf_text_FOUND AND vnm_msdf_text_FIND_REQUIRED)
-    message(FATAL_ERROR "${vnm_msdf_text_NOT_FOUND_MESSAGE}")
-endif()
-]=])
-string(CONFIGURE "${_vnm_msdf_text_config}" _vnm_msdf_text_configured @ONLY)
-file(WRITE
-    "${_install_prefix}/lib/cmake/vnm_msdf_text/vnm_msdf_text-config.cmake"
-    "${_vnm_msdf_text_configured}")
-
-set(_vnm_msdf_text_version [=[
-set(PACKAGE_VERSION "0.2.0")
-if(PACKAGE_FIND_VERSION VERSION_GREATER PACKAGE_VERSION)
-    set(PACKAGE_VERSION_COMPATIBLE FALSE)
-else()
-    set(PACKAGE_VERSION_COMPATIBLE TRUE)
-    if(PACKAGE_FIND_VERSION VERSION_EQUAL PACKAGE_VERSION)
-        set(PACKAGE_VERSION_EXACT TRUE)
-    endif()
-endif()
-]=])
-file(WRITE
-    "${_install_prefix}/lib/cmake/vnm_msdf_text/vnm_msdf_text-config-version.cmake"
-    "${_vnm_msdf_text_version}")
-
 function(vnm_plot_consumer_configure_command out_var consumer_source_dir consumer_build_dir)
     set(_command
         "${CMAKE_COMMAND}"
         -S "${consumer_source_dir}"
         -B "${consumer_build_dir}"
-        "-DCMAKE_PREFIX_PATH=${_install_prefix}"
+        -C "${VNM_PLOT_DEPENDENCY_CONTEXT}"
+        "-Dvnm_plot_DIR=${_install_prefix}/lib/cmake/vnm_plot"
         -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=TRUE
         -DCMAKE_FIND_USE_PACKAGE_REGISTRY=FALSE
         -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=FALSE)
 
     vnm_append_toolchain_args(_command)
-    if(DEFINED VNM_PLOT_TEST_QT6_DIR AND
-       NOT VNM_PLOT_TEST_QT6_DIR STREQUAL "")
-        list(APPEND _command "-DQt6_DIR=${VNM_PLOT_TEST_QT6_DIR}")
-    endif()
-
     set(${out_var} "${_command}" PARENT_SCOPE)
 endfunction()
 

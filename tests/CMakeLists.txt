@@ -188,20 +188,6 @@ function(vnm_plot_target_is_imported out_var target_name)
     set(${out_var} ${_imported} PARENT_SCOPE)
 endfunction()
 
-function(vnm_plot_target_header_include_dir out_var target_name relative_header)
-    set(_resolved_include_dir)
-    get_target_property(_include_dirs ${target_name} INTERFACE_INCLUDE_DIRECTORIES)
-    foreach(_include_dir IN LISTS _include_dirs)
-        string(GENEX_STRIP "${_include_dir}" _stripped_include_dir)
-        if(IS_ABSOLUTE "${_stripped_include_dir}" AND
-           EXISTS "${_stripped_include_dir}/${relative_header}")
-            set(_resolved_include_dir "${_stripped_include_dir}")
-            break()
-        endif()
-    endforeach()
-    set(${out_var} "${_resolved_include_dir}" PARENT_SCOPE)
-endfunction()
-
 vnm_plot_add_test(CacheInvalidation test_cache_invalidation)
 vnm_plot_add_test(SnapshotCaching test_snapshot_caching)
 vnm_plot_add_test(TypedApi test_typed_api)
@@ -281,34 +267,24 @@ if(_vnm_plot_package_smoke_viable AND VNM_PLOT_ENABLE_TEXT)
 endif()
 
 if(_vnm_plot_package_smoke_viable)
-    vnm_plot_target_header_include_dir(
-        _vnm_plot_glm_include_dir
-        glm::glm
-        glm/glm.hpp)
-    vnm_plot_target_header_include_dir(
-        _vnm_plot_msdf_text_include_dir
-        vnm_msdf_text::lcd_contract
-        vnm_msdf_text/lcd_contract.h)
-    if(NOT _vnm_plot_glm_include_dir OR
-       NOT _vnm_plot_msdf_text_include_dir)
-        set(_vnm_plot_package_smoke_viable FALSE)
-        set(_vnm_plot_package_smoke_skip_reason
-            "package smoke could not resolve public dependency include directories")
-    endif()
-endif()
-
-if(_vnm_plot_package_smoke_viable)
     include("${PROJECT_SOURCE_DIR}/cmake/vnm_cmake_dependency.cmake")
     vnm_write_toolchain_context("${CMAKE_CURRENT_BINARY_DIR}/nested-toolchain.cmake")
+    set(_dependency_context "${CMAKE_CURRENT_BINARY_DIR}/package-dependencies.cmake")
+    file(WRITE "${_dependency_context}"
+        "set(CMAKE_PREFIX_PATH [==[${CMAKE_PREFIX_PATH}]==] CACHE STRING \"\" FORCE)\n")
+    foreach(_package IN ITEMS glm vnm_msdf_text Freetype msdfgen Qt6)
+        if(${_package}_DIR AND NOT "${${_package}_DIR}" MATCHES "-NOTFOUND$")
+            file(APPEND "${_dependency_context}"
+                "set(${_package}_DIR [==[${${_package}_DIR}]==] CACHE PATH \"\" FORCE)\n")
+        endif()
+    endforeach()
     add_test(
         NAME PackageSmoke
         COMMAND ${CMAKE_COMMAND}
             "-DVNM_PLOT_BINARY_DIR=${PROJECT_BINARY_DIR}"
-            "-DVNM_PLOT_GLM_INCLUDE_DIR=${_vnm_plot_glm_include_dir}"
-            "-DVNM_PLOT_MSDF_TEXT_INCLUDE_DIR=${_vnm_plot_msdf_text_include_dir}"
+            "-DVNM_PLOT_DEPENDENCY_CONTEXT=${_dependency_context}"
             "-DVNM_PLOT_TEST_CONFIG=$<CONFIG>"
             "-DVNM_TOOLCHAIN_CONTEXT=${CMAKE_CURRENT_BINARY_DIR}/nested-toolchain.cmake"
-            "-DVNM_PLOT_TEST_QT6_DIR=${Qt6_DIR}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/package_smoke.cmake")
     list(APPEND _vnm_plot_test_names PackageSmoke)
 else()
@@ -318,9 +294,7 @@ else()
 endif()
 
 unset(_vnm_plot_dep_imported)
-unset(_vnm_plot_glm_include_dir)
 unset(_vnm_plot_msdf_text_atlas_imported)
-unset(_vnm_plot_msdf_text_include_dir)
 unset(_vnm_plot_package_smoke_skip_reason)
 unset(_vnm_plot_package_smoke_viable)
 
