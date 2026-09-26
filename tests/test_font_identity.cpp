@@ -112,6 +112,8 @@ bool test_concurrent_renderers_share_one_atlas_build()
 {
     Scoped_font_disk_cache_setting cache_setting(false);
 
+    // register_embedded borrows its bytes, including while both threads bake.
+    std::string concurrent_font;
     plot::Asset_loader loader;
     plot::init_embedded_assets(loader);
 
@@ -123,7 +125,8 @@ bool test_concurrent_renderers_share_one_atlas_build()
     constexpr int k_concurrent_font_px = k_test_font_px + 1;
     const auto bundled_font = loader.load("fonts/monospace.ttf");
     TEST_ASSERT(bundled_font && !bundled_font->empty(), "the bundled font must be available");
-    loader.register_embedded("fonts/monospace.ttf", *bundled_font + std::string(128, '\0'));
+    concurrent_font = *bundled_font + std::string(128, '\0');
+    loader.register_embedded("fonts/monospace.ttf", concurrent_font);
 
     plot::Font_renderer   first_renderer(loader);
     plot::Font_renderer   second_renderer(loader);
