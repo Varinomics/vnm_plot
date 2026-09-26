@@ -354,6 +354,18 @@ bool test_plot_shader_binds_lcd_reference_literals()
     const std::string shader = read_text_file(VNM_PLOT_MSDF_TEXT_FRAG_PATH);
     TEST_ASSERT(!shader.empty(), "plot MSDF fragment shader source must be readable");
     const glsl_token_list_t shader_tokens = tokenize_glsl(shader);
+    const std::string filter = read_text_file(VNM_PLOT_LCD_FILTER_PATH);
+    TEST_ASSERT(!filter.empty(), "shared LCD filter source must be readable");
+    const glsl_token_list_t filter_tokens = tokenize_glsl(filter);
+    const std::string grid = read_text_file(VNM_PLOT_GRID_FRAG_PATH);
+    for (const std::string* source : {&shader, &grid}) {
+        TEST_ASSERT(source->find("#include \"lcd_filter.glsl\"") != std::string::npos,
+            "text and grid shaders must include the shared LCD filter");
+        TEST_ASSERT(contains_glsl_token_sequence(tokenize_glsl(*source),
+            "return lcd_filter7(sample_0, sample_1, sample_2, sample_3,"
+            " sample_4, sample_5, sample_6, forward_order);"),
+            "text and grid must send their seven samples to the shared filter");
+    }
 
     for (const ref::decode_threshold_t& threshold : ref::k_lcd_decode_thresholds) {
         const std::string statement = decode_threshold_statement(threshold);
@@ -368,20 +380,20 @@ bool test_plot_shader_binds_lcd_reference_literals()
     }
 
     TEST_ASSERT(contains_glsl_token_sequence(
-        shader_tokens, filter_weight_statement("filter_edge", ref::k_lcd_filter_edge_glsl)),
+        filter_tokens, filter_weight_statement("filter_edge", ref::k_lcd_filter_edge_glsl)),
         "plot shader LCD edge filter literal must match shared reference");
     TEST_ASSERT(contains_glsl_token_sequence(
-        shader_tokens, filter_weight_statement("filter_side", ref::k_lcd_filter_side_glsl)),
+        filter_tokens, filter_weight_statement("filter_side", ref::k_lcd_filter_side_glsl)),
         "plot shader LCD side filter literal must match shared reference");
     TEST_ASSERT(contains_glsl_token_sequence(
-        shader_tokens, filter_weight_statement("filter_center", ref::k_lcd_filter_center_glsl)),
+        filter_tokens, filter_weight_statement("filter_center", ref::k_lcd_filter_center_glsl)),
         "plot shader LCD center filter literal must match shared reference");
 
     for (const ref::filter_window_t& window : ref::k_lcd_filter_windows) {
         const std::string statement = filter_window_statement(window);
         TEST_ASSERT(!statement.empty(),
             "shared LCD filter window taps must have plot shader symbols");
-        TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, statement),
+        TEST_ASSERT(contains_glsl_token_sequence(filter_tokens, statement),
             "plot shader LCD filter window statement must match shared reference");
     }
 
@@ -401,7 +413,7 @@ bool test_plot_shader_binds_lcd_reference_literals()
         "plot shader vertical LCD group must include VRGB and VBGR");
     TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, forward_order_statement()),
         "plot shader LCD forward order must be RGB and VRGB");
-    TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, filtered_lcd_return_statement()),
+    TEST_ASSERT(contains_glsl_token_sequence(filter_tokens, filtered_lcd_return_statement()),
         "plot shader LCD filtered coverage return order must preserve channel direction");
     TEST_ASSERT(contains_glsl_token_sequence(shader_tokens, lcd_enabled_statement()),
         "plot shader opacity cutoff expression must match shared reference");
