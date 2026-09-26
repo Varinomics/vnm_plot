@@ -12,17 +12,8 @@
 #include "ring_buffer.h"
 #include "sample_types.h"
 
-#include <vnm_plot/rhi/asset_loader.h>
-#include <vnm_plot/rhi/chrome_renderer.h>
-#include <vnm_plot/core/layout_calculator.h>
-#include <vnm_plot/rhi/primitive_renderer.h>
-#include <vnm_plot/rhi/series_renderer.h>
 #include <vnm_plot/qt/plot_widget.h>
 #include <vnm_plot/vnm_plot.h>
-#if defined(VNM_PLOT_ENABLE_TEXT)
-#include <vnm_plot/rhi/font_renderer.h>
-#include <vnm_plot/rhi/text_renderer.h>
-#endif
 
 #include <QQuickWindow>
 #include <QTimer>
@@ -46,6 +37,11 @@ class QRhiTextureRenderTarget;
 class QRhiTexture;
 class QOffscreenSurface;
 class QVulkanInstance;
+
+namespace vnm::plot::detail {
+class Plot_frame_renderer;
+struct Plot_render_snapshot;
+}
 
 namespace vnm::benchmark {
 
@@ -160,8 +156,6 @@ private:
     std::int64_t m_t_min = 0;
     std::int64_t m_t_max = std::int64_t{10} * 1'000'000'000;
     std::int64_t m_t_available_min = 0;
-    float m_v_min = 90.0f;
-    float m_v_max = 110.0f;
 
     QTimer m_render_timer;
     QTimer m_benchmark_timer;
@@ -243,24 +237,9 @@ private:
     std::unique_ptr<QRhiTextureRenderTarget> m_render_target;
     std::unique_ptr<QRhiRenderPassDescriptor> m_render_pass_descriptor;
 
-    vnm::plot::Asset_loader m_asset_loader;
-    vnm::plot::Primitive_renderer m_primitives;
-    vnm::plot::Series_renderer m_series_renderer;
-    vnm::plot::Chrome_renderer m_chrome_renderer;
-#if defined(VNM_PLOT_ENABLE_TEXT)
-    vnm::plot::Font_renderer m_font_renderer;
-    std::unique_ptr<vnm::plot::Text_renderer> m_text_renderer;
-#endif
-    vnm::plot::Layout_calculator m_layout_calc;
-    vnm::plot::Layout_cache m_layout_cache;
-    std::map<int, std::shared_ptr<const vnm::plot::series_data_t>> m_series_map;
-    vnm::plot::Plot_config m_render_config;
+    std::unique_ptr<vnm::plot::detail::Plot_frame_renderer> m_frame_renderer;
+    std::unique_ptr<vnm::plot::detail::Plot_render_snapshot> m_snapshot;
 
-    std::int64_t m_t_min = 0;
-    std::int64_t m_t_max = std::int64_t{10} * 1'000'000'000;
-    std::int64_t m_t_available_min = 0;
-    float m_v_min = 90.0f;
-    float m_v_max = 110.0f;
     std::chrono::system_clock::time_point m_started_at;
     std::atomic<std::size_t> m_samples_generated{0};
     Graphics_device_info m_graphics_info;

@@ -35,9 +35,11 @@ profiling report format for reproducible comparisons.
   - Writes a fixed-width, hierarchical report with UTC timestamps.
 
 - Benchmark_window (Qt RHI window/offscreen runner)
-  - Owns renderers, asset loader, and series configuration.
+  - Supplies frame snapshots to the same internal Plot_frame_renderer used by
+    the Qt Quick Plot_widget, and owns the offscreen QRhi target.
   - Starts the generator thread and drives rendering at ~60 Hz.
-  - Updates view ranges based on the latest data snapshot.
+  - Advances the time window from the latest data snapshot; Frame_range_planner
+    computes vertical ranges using the production source/cache semantics.
 
 ## Threading Model
 - Generator thread:
@@ -53,7 +55,11 @@ profiling report format for reproducible comparisons.
     allocations through Plot_config::profiler.
 
 ## Rendering Pipeline
-- vnm_plot Asset_loader loads embedded shaders.
+- Plot_frame_renderer owns range planning, layout and measured value-bar relayout,
+  frame context construction, text fades, and pass ordering for both backends.
+- Shaders load from Qt resources; Asset_loader supplies the embedded font.
+- Text is prepared before chrome so grids use the same fade state and axis-pane
+  opacity/LCD policy as the shipping widget.
 - Series_renderer draws each instance through a dedicated vertex shader:
   - Bars: plot_area.vert / plot_area.frag (instanced 6-vert fill +
     4-vert zero-axis emphasis bar; samples i and i+1 fed through two

@@ -61,6 +61,7 @@ target_include_directories(vnm_plot_benchmark
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/src/qt
 )
 
 target_compile_features(vnm_plot_benchmark PRIVATE cxx_std_20)
@@ -294,6 +295,17 @@ add_test(
 )
 set_tests_properties(benchmark_phase_trace_flush PROPERTIES
     TIMEOUT 45
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
+)
+
+add_test(
+    NAME benchmark_shared_frame_pipeline
+    COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/validate_frame_pipeline.py"
+        --executable "$<TARGET_FILE:vnm_plot_benchmark>"
+)
+set_tests_properties(benchmark_shared_frame_pipeline PROPERTIES
+    TIMEOUT 60
     ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
 )
 

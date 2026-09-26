@@ -105,6 +105,9 @@ public:
         ctx.current->total_ms += elapsed_ms;
         ctx.current->min_ms = std::min(ctx.current->min_ms, elapsed_ms);
         ctx.current->max_ms = std::max(ctx.current->max_ms, elapsed_ms);
+        if (ctx.current->name == "renderer.frame.execute_passes.render_data_series.prepare") {
+            m_last_series_prepare_ms = elapsed_ms;
+        }
 
         if (ctx.current->parent) {
             ctx.current = ctx.current->parent;
@@ -372,12 +375,23 @@ public:
         m_root.max_ms = 0.0;
         m_thread_contexts.clear();
         m_observations.clear();
+        m_last_series_prepare_ms = 0.0;
+    }
+
+    // Capture the shipping renderer's existing scope instead of timing a
+    // benchmark-owned copy of series preparation.
+    double last_series_prepare_ms() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_last_series_prepare_ms;
     }
 
     /// Get root scope for inspection
     const auto& root() const { return m_root; }
 
 private:
+    double m_last_series_prepare_ms = 0.0;
+
     struct Scope_stats {
         std::string name;
         uint64_t call_count = 0;

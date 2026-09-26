@@ -3,14 +3,12 @@
 #include "benchmark_window.h"
 #include "allocation_tracker.h"
 #include "path_io.h"
+#include "plot_frame_renderer.h"
 
 #include <vnm_plot/core/plot_config.h>
 
-#include <glm/gtc/matrix_transform.hpp>
-
 #include <QByteArray>
 #include <QCoreApplication>
-#include <QMatrix4x4>
 #include <QOffscreenSurface>
 #include <QQuickItem>
 #include <QSGRendererInterface>
@@ -208,15 +206,6 @@ void reset_ring_measurement_statistics(
     }
 }
 
-glm::mat4 to_glm_mat4(const QMatrix4x4& matrix)
-{
-    const float* data = matrix.constData();
-    return glm::mat4(
-        data[0],  data[1],  data[2],  data[3],
-        data[4],  data[5],  data[6],  data[7],
-        data[8],  data[9],  data[10], data[11],
-        data[12], data[13], data[14], data[15]);
-}
 
 std::string format_benchmark_timestamp(std::int64_t ts_ns, std::int64_t /*step_ns*/)
 {
@@ -225,15 +214,12 @@ std::string format_benchmark_timestamp(std::int64_t ts_ns, std::int64_t /*step_n
     return buf;
 }
 
-void update_view_range_from_source(
+void update_time_range_from_source(
     vnm::plot::Data_source* source,
     const std::string& data_type,
     std::int64_t& t_min,
     std::int64_t& t_max,
-    std::int64_t& t_available_min,
-    float& v_min,
-    float& v_max,
-    std::size_t stack_size)
+    std::int64_t& t_available_min)
 {
     if (!source) {
         return;
@@ -271,42 +257,6 @@ void update_view_range_from_source(
     constexpr std::int64_t k_window_ns = std::int64_t{10} * 1'000'000'000;
     t_max = t_last;
     t_min = std::max(t_first, t_last - k_window_ns);
-
-    // Release the direct-view shared lock before query_v_range() takes its own
-    // snapshot. On writer-priority shared_mutex implementations, retaining the
-    // first read lock while a producer queues can deadlock this thread's nested
-    // read behind the waiting writer.
-    result = {};
-
-    vnm::plot::Data_access_policy access = data_type == "Trades"
-        ? make_trade_access_policy()
-        : make_bar_access_policy();
-    vnm::plot::data_query_context_t query;
-    query.access = &access;
-    query.time_window = {
-        std::numeric_limits<std::int64_t>::min(),
-        std::numeric_limits<std::int64_t>::max()
-    };
-    const auto range_result = source->query_v_range(0, query);
-    if (range_result.status == vnm::plot::Data_query_status::READY &&
-        std::isfinite(range_result.value.min) &&
-        std::isfinite(range_result.value.max) &&
-        range_result.value.min <= range_result.value.max)
-    {
-        const float lo = range_result.value.min;
-        const float hi = range_result.value.max;
-        float padding = (hi - lo) * 0.1f;
-        if (padding < 0.01f) {
-            padding = 1.0f;
-        }
-        v_min = lo - padding;
-        v_max = hi + padding;
-        if (stack_size > 1) {
-            const float scale = static_cast<float>(stack_size);
-            v_min = std::min(0.0f, v_min * scale);
-            v_max = std::max(0.0f, v_max * scale);
-        }
-    }
 }
 
 } // anonymous namespace
@@ -380,7 +330,7 @@ Benchmark_rhi_window::Benchmark_rhi_window(const Benchmark_config& config)
     m_plot->set_preview_height(k_adjusted_preview_height);
     m_plot->set_vbar_width(k_vbar_width_pixels);
     m_plot->set_visible_info(vnm::plot::k_visible_info_none);
-    m_plot->set_v_auto(false);
+    m_plot->set_v_auto(true);
 
     connect(this, &QQuickWindow::widthChanged, this, [this](int w) {
         m_plot->setWidth(w);
@@ -544,21 +494,17 @@ void Benchmark_rhi_window::update_plot_view()
         ? static_cast<vnm::plot::Data_source*>(m_trade_sources.front().get())
         : static_cast<vnm::plot::Data_source*>(m_bar_sources.front().get());
 
-    update_view_range_from_source(
+    update_time_range_from_source(
         source,
         m_config.data_type,
         m_t_min,
         m_t_max,
-        m_t_available_min,
-        m_v_min,
-        m_v_max,
-        1);
+        m_t_available_min);
 
     vnm::plot::Plot_view view;
     view.t_range = std::pair<qint64, qint64>{m_t_min, m_t_max};
     view.t_available_range = std::pair<qint64, qint64>{m_t_available_min, m_t_max};
-    view.v_range = std::make_pair(m_v_min, m_v_max);
-    view.v_auto = false;
+    view.v_auto = true;
     m_plot->set_view(view);
 }
 
@@ -657,10 +603,10 @@ Benchmark_rhi_offscreen_runner::Benchmark_rhi_offscreen_runner(const Benchmark_c
         gen_config.time_step = 1.0 / config.rate;
         return gen_config;
     }())
-#if defined(VNM_PLOT_ENABLE_TEXT)
-    , m_font_renderer(m_asset_loader)
-#endif
-{}
+{
+    m_frame_renderer = std::make_unique<vnm::plot::detail::Plot_frame_renderer>();
+    m_snapshot = std::make_unique<vnm::plot::detail::Plot_render_snapshot>();
+}
 
 Benchmark_rhi_offscreen_runner::~Benchmark_rhi_offscreen_runner()
 {
@@ -697,35 +643,27 @@ void Benchmark_rhi_offscreen_runner::setup_data_source()
 
 void Benchmark_rhi_offscreen_runner::setup_rendering()
 {
-    m_asset_loader.set_log_callback([](const std::string& msg) {
-        std::cerr << "asset_loader: " << msg << "\n";
-    });
-    vnm::plot::init_embedded_assets(m_asset_loader);
+    m_frame_renderer->initialize();
+    m_snapshot->adjusted_font_px        = k_adjusted_font_px;
+    m_snapshot->base_label_height_px    = k_base_label_height_px;
+    m_snapshot->adjusted_preview_height = k_adjusted_preview_height;
+    m_snapshot->vbar_width_pixels       = k_vbar_width_pixels;
 
-    m_primitives.set_profiler(&m_profiler);
-    m_series_renderer.initialize(m_asset_loader);
-
-#if defined(VNM_PLOT_ENABLE_TEXT)
-    const int font_px = static_cast<int>(std::round(k_adjusted_font_px));
-    m_font_renderer.initialize_metrics(font_px, true);
-    m_text_renderer = std::make_unique<vnm::plot::Text_renderer>(&m_font_renderer);
-#endif
-
-    m_render_config.dark_mode = true;
-    m_render_config.show_text =
+    m_snapshot->config.dark_mode = true;
+    m_snapshot->config.show_text =
 #if defined(VNM_PLOT_ENABLE_TEXT)
         m_config.show_text;
 #else
         false;
 #endif
-    m_render_config.snap_lines_to_pixels = false;
-    m_render_config.line_width_px = m_config.line_width_px;
-    m_render_config.point_diameter_px = m_config.point_diameter_px;
-    m_render_config.font_size_px = k_adjusted_font_px;
-    m_render_config.base_label_height_px = k_base_label_height_px;
-    m_render_config.preview_height_px = k_adjusted_preview_height;
-    m_render_config.format_timestamp = format_benchmark_timestamp;
-    m_render_config.profiler =
+    m_snapshot->config.snap_lines_to_pixels = false;
+    m_snapshot->config.line_width_px = m_config.line_width_px;
+    m_snapshot->config.point_diameter_px = m_config.point_diameter_px;
+    m_snapshot->config.font_size_px = k_adjusted_font_px;
+    m_snapshot->config.base_label_height_px = k_base_label_height_px;
+    m_snapshot->config.preview_height_px = k_adjusted_preview_height;
+    m_snapshot->config.format_timestamp = format_benchmark_timestamp;
+    m_snapshot->config.profiler =
         std::shared_ptr<vnm::plot::Profiler>(&m_profiler, [](vnm::plot::Profiler*) {});
 }
 
@@ -761,7 +699,7 @@ void Benchmark_rhi_offscreen_runner::setup_series()
             series->style = vnm::plot::Display_style::AREA;
         }
 
-        m_series_map[static_cast<int>(index + 1)] = std::move(series);
+        m_snapshot->series[static_cast<int>(index + 1)] = std::move(series);
     }
 }
 
@@ -1097,166 +1035,24 @@ bool Benchmark_rhi_offscreen_runner::render_frame(
         return false;
     }
 
-    VNM_PLOT_PROFILE_SCOPE(&m_profiler, "renderer");
-    VNM_PLOT_PROFILE_SCOPE(&m_profiler, "renderer.frame");
-
-    const int fb_w = m_config.framebuffer_width;
-    const int fb_h = m_config.framebuffer_height;
-
     vnm::plot::Data_source* source = m_config.data_type == "Trades"
         ? static_cast<vnm::plot::Data_source*>(m_trade_sources.front().get())
         : static_cast<vnm::plot::Data_source*>(m_bar_sources.front().get());
     {
-        VNM_PLOT_PROFILE_SCOPE(&m_profiler, "renderer.frame.update_view_range");
-        update_view_range_from_source(
+        VNM_PLOT_PROFILE_SCOPE(&m_profiler, "benchmark.update_time_range");
+        update_time_range_from_source(
             source,
             m_config.data_type,
-            m_t_min,
-            m_t_max,
-            m_t_available_min,
-            m_v_min,
-            m_v_max,
-            m_config.stack_series ? m_config.series_count : 1);
+            m_snapshot->data_cfg.t_min,
+            m_snapshot->data_cfg.t_max,
+            m_snapshot->data_cfg.t_available_min);
+        m_snapshot->data_cfg.t_available_max = m_snapshot->data_cfg.t_max;
     }
 
-    const double adjusted_reserved_height = k_base_label_height_px + k_adjusted_preview_height;
-    const double usable_width = double(fb_w) - k_vbar_width_pixels;
-    const double usable_height = double(fb_h) - adjusted_reserved_height;
-
-    vnm::plot::Layout_calculator::parameters_t layout_params;
-    layout_params.v_min = m_v_min;
-    layout_params.v_max = m_v_max;
-    layout_params.t_min = m_t_min;
-    layout_params.t_max = m_t_max;
-    layout_params.usable_width = usable_width;
-    layout_params.usable_height = usable_height;
-    layout_params.vbar_width = k_vbar_width_pixels;
-    layout_params.label_visible_height = usable_height + k_adjusted_preview_height;
-    layout_params.adjusted_font_size_in_pixels = k_adjusted_font_px;
-#if defined(VNM_PLOT_ENABLE_TEXT)
-    layout_params.monospace_char_advance_px = m_font_renderer.monospace_advance_px();
-    layout_params.monospace_advance_is_reliable = m_font_renderer.monospace_advance_is_reliable();
-    layout_params.measure_text_cache_key = m_font_renderer.text_measure_cache_key();
-    layout_params.measure_text_func = [this](const char* text) {
-        return m_font_renderer.measure_text_px(text);
-    };
-#else
-    layout_params.measure_text_func = [](const char* text) {
-        return static_cast<float>(std::strlen(text));
-    };
-#endif
-    layout_params.h_label_vertical_nudge_factor = vnm::plot::detail::k_h_label_vertical_nudge_px;
-    layout_params.format_timestamp_func = format_benchmark_timestamp;
-    layout_params.profiler = &m_profiler;
-
-    vnm::plot::layout_cache_key_t cache_key;
-    cache_key.v0 = m_v_min;
-    cache_key.v1 = m_v_max;
-    cache_key.t0 = m_t_min;
-    cache_key.t1 = m_t_max;
-    cache_key.viewport_size = vnm::plot::Size_2i{fb_w, fb_h};
-    cache_key.adjusted_reserved_height = adjusted_reserved_height;
-    cache_key.adjusted_preview_height = k_adjusted_preview_height;
-    cache_key.adjusted_font_size_in_pixels = k_adjusted_font_px;
-    cache_key.vbar_width_pixels = k_vbar_width_pixels;
-#if defined(VNM_PLOT_ENABLE_TEXT)
-    cache_key.font_metrics_key = m_font_renderer.text_measure_cache_key();
-#endif
-
-    const vnm::plot::frame_layout_result_t* layout_ptr = m_layout_cache.try_get(cache_key);
-    if (!layout_ptr) {
-        VNM_PLOT_PROFILE_SCOPE(&m_profiler, "renderer.frame.layout_cache_miss");
-        auto layout_result = m_layout_calc.calculate(layout_params);
-
-        vnm::plot::frame_layout_result_t layout;
-        layout.usable_width = usable_width;
-        layout.usable_height = usable_height;
-        layout.v_bar_width = k_vbar_width_pixels;
-        layout.h_bar_height = k_base_label_height_px + 1.0;
-        layout.max_v_label_text_width = layout_result.max_v_label_text_width;
-        layout.v_labels = std::move(layout_result.v_labels);
-        layout.h_labels = std::move(layout_result.h_labels);
-        layout.v_label_fixed_digits = layout_result.v_label_fixed_digits;
-        layout.h_labels_subsecond = layout_result.h_labels_subsecond;
-        layout_ptr = &m_layout_cache.store(cache_key, std::move(layout));
-    }
-
-    vnm::plot::frame_context_t frame_ctx{*layout_ptr};
-    frame_ctx.v0 = m_v_min;
-    frame_ctx.v1 = m_v_max;
-    frame_ctx.preview_v0 = m_v_min;
-    frame_ctx.preview_v1 = m_v_max;
-    frame_ctx.t0 = m_t_min;
-    frame_ctx.t1 = m_t_max;
-    frame_ctx.t_available_min = m_t_available_min;
-    frame_ctx.t_available_max = m_t_max;
-    frame_ctx.win_w = fb_w;
-    frame_ctx.win_h = fb_h;
-
-    const glm::mat4 pixel_ortho = glm::ortho(
-        0.0f,
-        float(fb_w),
-        float(fb_h),
-        0.0f,
-        -1.0f,
-        1.0f);
-    frame_ctx.pmv = to_glm_mat4(m_rhi->clipSpaceCorrMatrix()) * pixel_ortho;
-    frame_ctx.adjusted_font_px = k_adjusted_font_px;
-    frame_ctx.base_label_height_px = k_base_label_height_px;
-    frame_ctx.adjusted_reserved_height = adjusted_reserved_height;
-    frame_ctx.adjusted_preview_height = k_adjusted_preview_height;
-    frame_ctx.visible_info_flags = vnm::plot::k_visible_info_none;
-    frame_ctx.dark_mode = m_render_config.dark_mode;
-    frame_ctx.config = &m_render_config;
-    const auto palette = vnm::plot::resolved_color_palette(
-        &m_render_config,
-        frame_ctx.dark_mode);
-    frame_ctx.plot_body_background = palette.background;
-    frame_ctx.rhi = m_rhi.get();
-    frame_ctx.cb = cb;
-    frame_ctx.render_target = m_render_target.get();
-
-    QRhiResourceUpdateBatch* rhi_updates = m_rhi->nextResourceUpdateBatch();
-    frame_ctx.rhi_updates = rhi_updates;
-
-    {
-        VNM_PLOT_PROFILE_SCOPE(&m_profiler, "renderer.frame.render_passes");
-        const auto planning_started = std::chrono::steady_clock::now();
-        m_series_renderer.prepare(frame_ctx, m_series_map);
-        m_last_prepare_ms = std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - planning_started).count();
-        if (measured) {
-            m_profiler.record_observation("benchmark.planning.time_ms", m_last_prepare_ms);
-        }
-        m_chrome_renderer.render_grid_and_backgrounds(frame_ctx, m_primitives);
-        const std::size_t back_layer_end = m_primitives.queued_op_count();
-        m_chrome_renderer.render_zero_line(frame_ctx, m_primitives);
-        m_chrome_renderer.render_preview_overlay(frame_ctx, m_primitives);
-        const std::size_t front_layer_end = m_primitives.queued_op_count();
-
-#if defined(VNM_PLOT_ENABLE_TEXT)
-        if (m_text_renderer && m_render_config.show_text) {
-            m_text_renderer->prepare(frame_ctx, false, false);
-        }
-#endif
-
-        const QColor clear_color = QColor::fromRgbF(
-            palette.background.r,
-            palette.background.g,
-            palette.background.b,
-            palette.background.a);
-        cb->beginPass(m_render_target.get(), clear_color, QRhiDepthStencilClearValue(1.0f, 0), rhi_updates);
-        cb->setViewport(QRhiViewport(0, 0, fb_w, fb_h));
-        m_primitives.record_draws(frame_ctx, back_layer_end);
-        m_series_renderer.render(frame_ctx, m_series_map);
-        m_primitives.record_draws(frame_ctx, front_layer_end);
-#if defined(VNM_PLOT_ENABLE_TEXT)
-        if (m_text_renderer && m_render_config.show_text) {
-            m_text_renderer->record(frame_ctx);
-        }
-#endif
-        cb->endPass();
-        m_primitives.reset_frame();
+    m_frame_renderer->render(*m_snapshot, m_rhi.get(), m_render_target.get(), cb);
+    m_last_prepare_ms = m_profiler.last_series_prepare_ms();
+    if (measured) {
+        m_profiler.record_observation("benchmark.planning.time_ms", m_last_prepare_ms);
     }
 
     QRhiReadbackResult readback;

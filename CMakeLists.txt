@@ -333,6 +333,7 @@ set(VNM_PLOT_RHI_HEADERS
 set(VNM_PLOT_QTQUICK_SOURCES
     src/qt/plot_render_feedback.cpp
     src/qt/plot_renderer.cpp
+    src/qt/plot_frame_renderer.cpp
     src/qt/lcd_resolver.cpp
     src/qt/plot_widget.cpp
     src/qt/plot_interaction_item.cpp
@@ -350,6 +351,7 @@ set(VNM_PLOT_QTQUICK_HEADERS
     src/qt/qml_resources.h
     src/qt/plot_render_feedback.h
     src/qt/plot_renderer.h
+    src/qt/plot_frame_renderer.h
     src/qt/lcd_resolver.h
 )
 
