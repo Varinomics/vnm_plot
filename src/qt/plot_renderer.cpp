@@ -99,7 +99,7 @@ void Plot_renderer::synchronize(QQuickRhiItem* item)
         widget->m_visible_info_flags.load(std::memory_order_acquire);
     m_impl->snapshot.adjusted_font_px        = widget->m_adjusted_font_size;
     m_impl->snapshot.base_label_height_px    = widget->m_base_label_height;
-    m_impl->snapshot.adjusted_preview_height = widget->m_preview_height * widget->m_scaling_factor;
+    m_impl->snapshot.adjusted_preview_height = widget->preview_height() * widget->m_scaling_factor;
     m_impl->snapshot.vbar_width_pixels       = widget->vbar_width_pixels();
     if (QQuickWindow* window = widget->window()) {
         m_impl->snapshot.window_background = qcolor_to_vec4(window->color());

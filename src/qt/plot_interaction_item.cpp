@@ -250,6 +250,8 @@ void Plot_interaction_item::mousePressEvent(QMouseEvent* event)
     const qreal uh = usable_height();
     const qreal ph = preview_height();
 
+    forceActiveFocus(Qt::MouseFocusReason);
+
     if (x >= 0.0 && x <= uw && y >= 0.0 && y < uh) {
         m_dragging        = true;
         m_click_candidate = true;
@@ -357,6 +359,21 @@ void Plot_interaction_item::mouseReleaseEvent(QMouseEvent* event)
     }
 }
 
+void Plot_interaction_item::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    if (!m_interaction_enabled || !m_plot_widget || event->button() != Qt::LeftButton) {
+        event->ignore();
+        return;
+    }
+
+    m_dragging = false;
+    m_dragging_preview = false;
+    m_click_candidate = false;
+    forceActiveFocus(Qt::MouseFocusReason);
+    emit mouse_double_clicked(event->position().x(), event->position().y());
+    event->accept();
+}
+
 void Plot_interaction_item::wheelEvent(QWheelEvent* event)
 {
     if (!m_interaction_enabled || !m_plot_widget) {
@@ -375,6 +392,7 @@ void Plot_interaction_item::wheelEvent(QWheelEvent* event)
     }
 
     m_click_candidate = false;
+    forceActiveFocus(Qt::MouseFocusReason);
     event->accept();
 }
 

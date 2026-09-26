@@ -68,11 +68,13 @@ signals:
     void mouse_position_changed(qreal x, qreal y);
     void mouse_exited();
     void mouse_clicked(qreal x, qreal y);
+    void mouse_double_clicked(qreal x, qreal y);
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void hoverEnterEvent(QHoverEvent* event) override;
     void hoverLeaveEvent(QHoverEvent* event) override;

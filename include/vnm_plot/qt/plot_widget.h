@@ -91,6 +91,8 @@ class Plot_widget : public QQuickRhiItem
     Q_PROPERTY(double preview_height READ preview_height WRITE set_preview_height NOTIFY preview_height_changed)
     Q_PROPERTY(double preview_height_target READ preview_height_target NOTIFY preview_height_target_changed)
     Q_PROPERTY(double preview_height_collapsed READ preview_height_collapsed CONSTANT)
+    Q_PROPERTY(bool collapse_hidden_preview READ collapse_hidden_preview
+        WRITE set_collapse_hidden_preview NOTIFY collapse_hidden_preview_changed)
     Q_PROPERTY(double reserved_height READ reserved_height NOTIFY preview_height_changed)
     Q_PROPERTY(double scaling_factor READ scaling_factor NOTIFY scaling_factor_changed)
     Q_PROPERTY(bool dark_mode READ dark_mode WRITE set_dark_mode NOTIFY dark_mode_changed)
@@ -190,6 +192,9 @@ public:
     void set_preview_height(double height);
     double preview_height_target() const;
     double preview_height_collapsed() const;
+    // Collapse automatically sized previews as visibility falls; fixed heights are unaffected.
+    bool collapse_hidden_preview() const;
+    void set_collapse_hidden_preview(bool collapse);
     double reserved_height() const;
     double scaling_factor() const;
     double vbar_width_pixels() const;
@@ -264,6 +269,7 @@ signals:
     void v_limits_changed();
     void v_auto_changed();
     void preview_height_changed();
+    void collapse_hidden_preview_changed();
     void preview_height_target_changed(double target);
     void scaling_factor_changed();
     void dark_mode_changed();
@@ -379,6 +385,7 @@ private:
     double                         m_preview_height_target                       = 0.0;
     QVariantAnimation              m_preview_height_animation;
     bool                           m_preview_height_initialized                  = false;
+    bool                           m_collapse_hidden_preview                     = false;
     float                          m_relative_preview_height                     = 0.0f;
     double                         m_preview_height_min                          = 0.0;
     double                         m_preview_height_max                          = 0.0;

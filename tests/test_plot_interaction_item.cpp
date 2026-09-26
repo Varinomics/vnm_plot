@@ -42,6 +42,7 @@ class test_interaction_item_t : public plot::Plot_interaction_item
 {
 public:
     using plot::Plot_interaction_item::mousePressEvent;
+    using plot::Plot_interaction_item::mouseDoubleClickEvent;
 };
 
 class indicator_test_widget_t : public plot::Plot_widget
@@ -1149,6 +1150,54 @@ bool test_automatic_preview_resumes_after_fixed_height()
     return true;
 }
 
+bool test_opt_in_preview_collapse()
+{
+    // The Lumis wrapper previously applied this interpolation in QML.
+    plot::Plot_widget widget;
+    widget.setHeight(700.0);
+    TEST_ASSERT(wait_for_preview_height(widget, 150.0), "preview should reach its full height");
+    widget.set_preview_visibility(0.5);
+    TEST_ASSERT(widget.preview_height() == 150.0, "opacity alone must retain existing host geometry");
+    widget.set_collapse_hidden_preview(true);
+    TEST_ASSERT(widget.preview_height() == 90.0, "half visibility should interpolate 30 and 150 DIPs");
+    widget.set_preview_visibility(0.0);
+    TEST_ASSERT(widget.preview_height() == 30.0, "hidden preview should retain its collapsed height");
+
+    auto config = widget.config();
+    config.preview_height_px = 45.0;
+    widget.set_config(config);
+    TEST_ASSERT(widget.preview_height() == 45.0, "explicit preview height must remain authoritative");
+    return true;
+}
+
+bool test_double_click_and_focus()
+{
+    // Lumis's former MouseArea focused the plot and routed double clicks to its host.
+    QQuickWindow window;
+    plot::Plot_widget widget;
+    test_interaction_item_t item;
+    item.setParentItem(window.contentItem());
+    item.set_plot_widget(&widget);
+    item.setWidth(640.0);
+    item.setHeight(480.0);
+    int double_clicks = 0;
+    QObject::connect(&item, &plot::Plot_interaction_item::mouse_double_clicked,
+        [&double_clicks](qreal x, qreal y) {
+            if (x == 30.0 && y == 40.0) {
+                ++double_clicks;
+            }
+        });
+    QMouseEvent event(QEvent::MouseButtonDblClick, QPointF(30.0, 40.0), QPointF(30.0, 40.0),
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    item.mouseDoubleClickEvent(&event);
+    TEST_ASSERT(double_clicks == 1 && event.isAccepted(), "double click must route to the host");
+    TEST_ASSERT(item.hasFocus(), "plot input should acquire keyboard focus");
+    item.set_interaction_enabled(false);
+    item.mouseDoubleClickEvent(&event);
+    TEST_ASSERT(double_clicks == 1 && !event.isAccepted(), "disabled input must not dispatch double clicks");
+    return true;
+}
+
 bool test_same_screen_pixel_ratio_change_updates_plot_scaling()
 {
     // Qt defines effectiveDevicePixelRatio from the redirected render target.
@@ -1218,6 +1267,8 @@ int main(int argc, char** argv)
     RUN_TEST(test_preview_thumb_press_handles_full_int64_availability);
     RUN_TEST(test_automatic_preview_tracks_resize);
     RUN_TEST(test_automatic_preview_resumes_after_fixed_height);
+    RUN_TEST(test_opt_in_preview_collapse);
+    RUN_TEST(test_double_click_and_focus);
     RUN_TEST(test_same_screen_pixel_ratio_change_updates_plot_scaling);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;

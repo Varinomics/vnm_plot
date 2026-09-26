@@ -145,6 +145,11 @@ Plot_widget::Plot_widget()
     m_preview_height_animation.setDuration(250);
     QObject::connect(&m_preview_height_animation, &QVariantAnimation::valueChanged,
         this, [this](const QVariant& value) { apply_preview_height(value.toDouble()); });
+    QObject::connect(this, &Plot_widget::preview_visibility_changed, this, [this] {
+        if (m_collapse_hidden_preview) {
+            emit preview_height_changed();
+        }
+    });
 
     update_dpi_scaling_factor();
     m_lcd_settings_observer = observe_lcd_settings([this] { invalidate_display_context(); });
@@ -705,7 +710,30 @@ void Plot_widget::set_v_range(float v_min, float v_max)
 
 double Plot_widget::preview_height() const
 {
+    if (m_collapse_hidden_preview) {
+        std::shared_lock lock(m_config_mutex);
+        if (!(m_config.preview_height_px > 0.0)) {
+            return m_preview_height_min +
+                (m_preview_height - m_preview_height_min) * m_config.preview_visibility;
+        }
+    }
     return m_preview_height;
+}
+
+bool Plot_widget::collapse_hidden_preview() const
+{
+    return m_collapse_hidden_preview;
+}
+
+void Plot_widget::set_collapse_hidden_preview(bool collapse)
+{
+    if (m_collapse_hidden_preview == collapse) {
+        return;
+    }
+    m_collapse_hidden_preview = collapse;
+    emit collapse_hidden_preview_changed();
+    emit preview_height_changed();
+    update();
 }
 
 void Plot_widget::set_preview_height(double height)
@@ -736,8 +764,8 @@ double Plot_widget::preview_height_collapsed() const
 double Plot_widget::reserved_height() const
 {
     return (m_scaling_factor > 0.0)
-        ? (m_base_label_height / m_scaling_factor + m_preview_height)
-        : m_preview_height;
+        ? (m_base_label_height / m_scaling_factor + preview_height())
+        : preview_height();
 }
 
 double Plot_widget::scaling_factor() const
