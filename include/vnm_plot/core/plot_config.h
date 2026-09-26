@@ -114,10 +114,11 @@ struct Plot_config
     Color_palette                              light_color_palette = Color_palette::light();
 
     // --- Timestamp Formatting ---
-    // Callback to format timestamps for axis labels.
+    // Callback to format timestamps for axis labels and the info overlay.
     // Parameters: timestamp_ns (int64 nanoseconds), step_ns (tick interval in
     // nanoseconds). Both are in the API's int64 nanosecond unit; converters to
     // seconds (or any other unit) live inside the formatter implementation.
+    // For the info overlay, step_ns is the visible nanoseconds per pixel (at least 1).
     // Returns: formatted string for display
     // If null, a default formatter is used.
     std::function<std::string(std::int64_t timestamp_ns, std::int64_t step_ns)> format_timestamp;

@@ -75,7 +75,7 @@ private:
     std::int64_t                   m_last_t0                 = k_invalid_cached_ts;
     std::int64_t                   m_last_t1                 = k_invalid_cached_ts;
     std::uint64_t                  m_last_timestamp_revision = 0;
-    bool                           m_last_subsecond          = false;
+    std::int64_t                   m_last_timestamp_step_ns = 0;
     std::string                    m_cached_from_ts;
     std::string                    m_cached_to_ts;
 

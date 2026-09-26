@@ -4,12 +4,15 @@
 
 #include <vnm_plot/rhi/asset_loader.h>
 #include <vnm_plot/rhi/font_renderer.h>
+#include <vnm_plot/rhi/text_renderer.h>
+#include <vnm_plot/core/plot_config.h>
 
 #include <glm/glm.hpp>
 
 #include <cmath>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace plot = vnm::plot;
 
@@ -65,6 +68,42 @@ bool test_bounds_fail_closed_without_atlas()
         "null text must fail closed for ink bounds before font initialization");
     TEST_ASSERT(!renderer.text_ink_bounds_px("Axis", 0.0f, 0.0f, bounds),
         "visible text must fail closed for ink bounds before font initialization");
+    return true;
+}
+
+bool test_overlay_timestamp_precision_tracks_view_resolution()
+{
+    plot::Asset_loader loader;
+    plot::Font_renderer fonts(loader);
+    plot::Text_renderer renderer(&fonts);
+    plot::frame_layout_result_t layout;
+    layout.usable_width = 1000.0;
+    layout.usable_height = 600.0;
+    plot::Plot_config config;
+    std::vector<std::int64_t> steps;
+    std::vector<std::string> formatted;
+    config.format_timestamp = [&](std::int64_t timestamp, std::int64_t step) {
+        steps.push_back(step);
+        formatted.push_back(plot::default_format_timestamp(timestamp, step));
+        return formatted.back();
+    };
+    plot::frame_context_t ctx{layout};
+    ctx.config = &config;
+    ctx.t0 = 100000000;
+    ctx.t1 = 200000000;
+    ctx.visible_info_flags = plot::k_visible_info_time_range;
+
+    renderer.prepare(ctx, false, false);
+    TEST_ASSERT(steps.size() == 2 && steps[0] == 100000 && steps[1] == 100000,
+        "overlay timestamps must use the positive visible nanoseconds per pixel");
+    TEST_ASSERT(formatted[0] != formatted[1],
+        "a subsecond view must preserve distinct From and To timestamps");
+    renderer.prepare(ctx, false, false);
+    TEST_ASSERT(steps.size() == 2, "unchanged overlay timestamps should stay cached");
+    layout.usable_width = 100.0;
+    renderer.prepare(ctx, false, false);
+    TEST_ASSERT(steps.size() == 4 && steps.back() == 1000000,
+        "a changed formatting step must invalidate the timestamp cache");
     return true;
 }
 
@@ -251,6 +290,7 @@ int main()
     int failed = 0;
 
     RUN_TEST(test_bounds_fail_closed_without_atlas);
+    RUN_TEST(test_overlay_timestamp_precision_tracks_view_resolution);
     RUN_TEST(test_bounds_fail_closed_for_no_visible_glyphs);
     RUN_TEST(test_visible_bounds_are_finite_ordered_and_translation_invariant);
     RUN_TEST(test_ink_bounds_strip_the_padding_the_quad_carries);

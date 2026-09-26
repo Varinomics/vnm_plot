@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <string>
 
 namespace vnm::plot {
@@ -400,7 +401,18 @@ bool Text_renderer::render_info_overlay(
             m_fonts->batch_text(k_overlay_left_px, llt, prefix_from);
             const float offset_from = m_fonts->measure_text_px(prefix_from);
 
-            const bool timestamp_style_changed = (pl.h_labels_subsecond != m_last_subsecond);
+            // Preserve the visible time resolution even when the axis has no
+            // labels. The formatter receives a positive nanoseconds-per-pixel
+            // interval, clamped to the timestamp API's supported range.
+            const long double timestamp_resolution = t_span
+                ? *t_span / std::max(1.0, pl.usable_width)
+                : 1.0L;
+            constexpr auto max_timestamp_step = std::numeric_limits<std::int64_t>::max();
+            const std::int64_t timestamp_step_ns = timestamp_resolution >=
+                static_cast<long double>(max_timestamp_step)
+                    ? max_timestamp_step
+                    : static_cast<std::int64_t>(std::max(timestamp_resolution, 1.0L));
+            const bool timestamp_style_changed = timestamp_step_ns != m_last_timestamp_step_ns;
             const bool timestamp_values_changed =
                 (ctx.t0 != m_last_t0) || (ctx.t1 != m_last_t1);
             const std::uint64_t timestamp_revision = ctx.config
@@ -415,12 +427,12 @@ bool Text_renderer::render_info_overlay(
                 const auto format_ts = (ctx.config && ctx.config->format_timestamp)
                     ? ctx.config->format_timestamp
                     : default_format_timestamp;
-                m_cached_from_ts          = format_ts(ctx.t0, 0);
-                m_cached_to_ts            = format_ts(ctx.t1, 0);
+                m_cached_from_ts          = format_ts(ctx.t0, timestamp_step_ns);
+                m_cached_to_ts            = format_ts(ctx.t1, timestamp_step_ns);
                 m_last_t0                 = ctx.t0;
                 m_last_t1                 = ctx.t1;
                 m_last_timestamp_revision = timestamp_revision;
-                m_last_subsecond          = pl.h_labels_subsecond;
+                m_last_timestamp_step_ns  = timestamp_step_ns;
             }
             m_fonts->batch_text(k_overlay_left_px + offset_from, llt, m_cached_from_ts.c_str());
 
