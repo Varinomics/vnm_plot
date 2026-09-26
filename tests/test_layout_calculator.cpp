@@ -203,11 +203,13 @@ bool test_format_timestamp_step_matches_nanosecond_seconds_grid()
 bool test_subsecond_ticks_are_exact_epoch_nanoseconds()
 {
     constexpr std::int64_t k_step_ns = 1'000'000;
-    for (const std::int64_t start : {1'758'000'000'000'000'000LL,
-                                   -1'758'000'000'000'000'000LL,
-                                   std::numeric_limits<std::int64_t>::min() + 13,
-                                   std::numeric_limits<std::int64_t>::max() - 50 * k_step_ns})
-    {
+    constexpr std::int64_t k_starts[] = {
+        1'758'000'000'000'000'000LL,
+        -1'758'000'000'000'000'000LL,
+        std::numeric_limits<std::int64_t>::min() + 13,
+        std::numeric_limits<std::int64_t>::max() - 50 * k_step_ns
+    };
+    for (const std::int64_t start : k_starts) {
         std::vector<Recorded_call> calls;
         auto params = make_minimal_params(start, start + 40 * k_step_ns, calls);
         params.usable_width = 1600.0;
