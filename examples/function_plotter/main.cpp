@@ -28,7 +28,7 @@ int main(int argc, char* argv[])
     app.setApplicationName("Function Plotter");
     app.setApplicationVersion("0.1.0");
     app.setOrganizationName("VNM");
-    app.setWindowIcon(QIcon("qrc:/rc/varinomics.ico"));
+    app.setWindowIcon(QIcon(":/rc/varinomics.ico"));
 
     // Register QML types
     vnm::plot::register_qml_types();
