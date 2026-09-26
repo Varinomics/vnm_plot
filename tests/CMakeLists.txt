@@ -267,6 +267,7 @@ if(_vnm_plot_package_smoke_viable AND VNM_PLOT_ENABLE_TEXT)
 endif()
 
 if(_vnm_plot_package_smoke_viable)
+    include(GNUInstallDirs)
     include("${PROJECT_SOURCE_DIR}/cmake/vnm_cmake_dependency.cmake")
     vnm_write_toolchain_context("${CMAKE_CURRENT_BINARY_DIR}/nested-toolchain.cmake")
     set(_dependency_context "${CMAKE_CURRENT_BINARY_DIR}/package-dependencies.cmake")
@@ -282,6 +283,7 @@ if(_vnm_plot_package_smoke_viable)
         NAME PackageSmoke
         COMMAND ${CMAKE_COMMAND}
             "-DVNM_PLOT_BINARY_DIR=${PROJECT_BINARY_DIR}"
+            "-DVNM_PLOT_INSTALL_CMAKEDIR=${CMAKE_INSTALL_LIBDIR}/cmake/vnm_plot"
             "-DVNM_PLOT_DEPENDENCY_CONTEXT=${_dependency_context}"
             "-DVNM_PLOT_TEST_CONFIG=$<CONFIG>"
             "-DVNM_TOOLCHAIN_CONTEXT=${CMAKE_CURRENT_BINARY_DIR}/nested-toolchain.cmake"

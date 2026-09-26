@@ -3,6 +3,7 @@ include("${VNM_TOOLCHAIN_CONTEXT}")
 
 foreach(_required_var IN ITEMS
     VNM_PLOT_BINARY_DIR
+    VNM_PLOT_INSTALL_CMAKEDIR
     VNM_PLOT_DEPENDENCY_CONTEXT)
     if(NOT DEFINED ${_required_var} OR "${${_required_var}}" STREQUAL "")
         message(FATAL_ERROR "tests/package_smoke.cmake requires ${_required_var}.")
@@ -12,6 +13,8 @@ endforeach()
 get_filename_component(_binary_dir "${VNM_PLOT_BINARY_DIR}" ABSOLUTE)
 set(_work_dir "${_binary_dir}/package_smoke")
 set(_install_prefix "${_work_dir}/install")
+get_filename_component(_package_dir "${VNM_PLOT_INSTALL_CMAKEDIR}" ABSOLUTE
+    BASE_DIR "${_install_prefix}")
 
 file(TO_CMAKE_PATH "${_binary_dir}" _binary_dir_cmake)
 file(TO_CMAKE_PATH "${_work_dir}" _work_dir_cmake)
@@ -47,7 +50,7 @@ function(vnm_plot_consumer_configure_command out_var consumer_source_dir consume
         -S "${consumer_source_dir}"
         -B "${consumer_build_dir}"
         -C "${VNM_PLOT_DEPENDENCY_CONTEXT}"
-        "-Dvnm_plot_DIR=${_install_prefix}/lib/cmake/vnm_plot"
+        "-Dvnm_plot_DIR=${_package_dir}"
         -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=TRUE
         -DCMAKE_FIND_USE_PACKAGE_REGISTRY=FALSE
         -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=FALSE)
