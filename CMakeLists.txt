@@ -232,6 +232,7 @@ set(VNM_PLOT_DATA_HEADERS
     include/vnm_plot/core/color_palette.h
     include/vnm_plot/core/constants.h
     include/vnm_plot/core/plot_config.h
+    include/vnm_plot/core/zoom_inertia.h
     include/vnm_plot/core/series_builder.h
     include/vnm_plot/core/lcd.h
     include/vnm_plot/core/time_units.h

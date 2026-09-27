@@ -7,6 +7,7 @@
 #include <vnm_plot/core/access_policy.h>
 #include <vnm_plot/core/algo.h>
 #include <vnm_plot/core/time_units.h>
+#include <vnm_plot/core/zoom_inertia.h>
 #include <vnm_plot/rhi/asset_loader.h>
 #include <vnm_plot/rhi/series_renderer.h>
 #include <vnm_plot/qt/plot_widget.h>
@@ -24,6 +25,7 @@
 #include <QThread>
 #include <QMouseEvent>
 #include <QVariantMap>
+#include <QWheelEvent>
 
 #include <algorithm>
 #include <cmath>
@@ -41,6 +43,7 @@ namespace {
 class test_interaction_item_t : public plot::Plot_interaction_item
 {
 public:
+    using plot::Plot_interaction_item::wheelEvent;
     using plot::Plot_interaction_item::mousePressEvent;
     using plot::Plot_interaction_item::mouseDoubleClickEvent;
 };
@@ -147,8 +150,8 @@ zoom_state_t advance_zoom(double initial_velocity, const std::vector<double>& el
 {
     zoom_state_t state{1.0, initial_velocity};
     for (double elapsed_step : elapsed_steps) {
-        state.scale    *= plot::Plot_interaction_item::zoom_animation_scale_factor(state.velocity, elapsed_step);
-        state.velocity  = plot::Plot_interaction_item::zoom_animation_velocity_after(state.velocity, elapsed_step);
+        state.scale    *= plot::zoom_inertia::scale_factor(state.velocity, elapsed_step);
+        state.velocity  = plot::zoom_inertia::velocity_after(state.velocity, elapsed_step);
     }
     return state;
 }
@@ -308,6 +311,36 @@ bool test_zoom_math_handles_zero_velocity()
     TEST_ASSERT(nearly_equal(state.scale, 1.0),    "zero velocity should keep identity scale");
     TEST_ASSERT(nearly_equal(state.velocity, 0.0), "zero velocity should stay zero");
 
+    return true;
+}
+
+bool test_wheel_event_uses_platform_pixel_policy()
+{
+    constexpr std::int64_t k_start = 0;
+    constexpr std::int64_t k_end   = 2'000'000'000;
+    plot::Plot_widget widget;
+    configure_view(widget, k_start, k_end, 0.0f, 100.0f);
+    widget.set_available_t_range(-k_end, 2 * k_end);
+
+    test_interaction_item_t item;
+    item.setWidth(1000.0);
+    item.setHeight(500.0);
+    item.set_plot_widget(&widget);
+
+    // Opposing deltas expose which unit source reaches the real wheel path.
+    QWheelEvent event(
+        QPointF(500.0, 250.0), QPointF(500.0, 250.0),
+        QPoint(0, -30), QPoint(0, 120), Qt::NoButton, Qt::NoModifier,
+        Qt::NoScrollPhase, false);
+    item.wheelEvent(&event);
+    TEST_ASSERT(event.isAccepted(), "a mixed-delta wheel event is handled");
+    const auto span = widget.t_max() - widget.t_min();
+    if (QGuiApplication::platformName() == QStringLiteral("xcb")) {
+        TEST_ASSERT(span < k_end - k_start, "X11 zoom uses the reliable angle delta");
+    }
+    else {
+        TEST_ASSERT(span > k_end - k_start, "reliable pixel deltas determine zoom direction");
+    }
     return true;
 }
 
@@ -1250,6 +1283,7 @@ int main(int argc, char** argv)
     RUN_TEST(test_zoom_math_stays_composable_across_small_velocity_decay);
     RUN_TEST(test_zoom_math_handles_negative_velocity);
     RUN_TEST(test_zoom_math_handles_zero_velocity);
+    RUN_TEST(test_wheel_event_uses_platform_pixel_policy);
     RUN_TEST(test_wheel_zoom_handles_near_zero_value_range);
     RUN_TEST(test_indicator_samples_linearly_interpolate_between_samples);
     RUN_TEST(test_indicator_samples_step_after_holds_previous_sample);

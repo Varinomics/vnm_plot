@@ -33,9 +33,6 @@ public:
     explicit Plot_interaction_item(QQuickItem* parent = nullptr);
     ~Plot_interaction_item() override;
 
-    static qreal zoom_animation_scale_factor(qreal velocity, qreal elapsed_timer_steps);
-    static qreal zoom_animation_velocity_after(qreal velocity, qreal elapsed_timer_steps);
-
     Plot_widget* plot_widget() const;
     void set_plot_widget(Plot_widget* widget);
 
@@ -113,12 +110,7 @@ private:
     std::chrono::steady_clock::time_point
                            m_last_zoom_step_time;
 
-    static constexpr qreal k_zoom_friction           = 0.75;
-    static constexpr qreal k_zoom_impulse_per_step   = 1.0;
-    static constexpr qreal k_zoom_max_vel            = 5.0;
-    static constexpr qreal k_zoom_per_notch          = 1.05;
     static constexpr qreal k_click_move_tolerance_px = 4.0;
-    static constexpr int   k_zoom_timer_interval_ms  = 16;
 };
 
 } // namespace vnm::plot

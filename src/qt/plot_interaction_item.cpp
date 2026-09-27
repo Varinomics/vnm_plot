@@ -1,6 +1,9 @@
 #include <vnm_plot/qt/plot_interaction_item.h>
 
 #include <vnm_plot/core/time_units.h>
+#include <vnm_plot/core/zoom_inertia.h>
+
+#include <QGuiApplication>
 
 #include <QMouseEvent>
 #include <QWheelEvent>
@@ -147,33 +150,6 @@ qreal Plot_interaction_item::t_stop_max() const
     return 1.0 - static_cast<qreal>(numerator / denominator);
 }
 
-qreal Plot_interaction_item::zoom_animation_scale_factor(qreal velocity, qreal elapsed_timer_steps)
-{
-    if (elapsed_timer_steps <= 0.0) {
-        return 1.0;
-    }
-
-    const qreal velocity_decay = std::pow(k_zoom_friction, elapsed_timer_steps);
-    const qreal integrated_velocity = std::abs(1.0 - k_zoom_friction) > 1e-12
-        ? velocity * (1.0 - velocity_decay) / (1.0 - k_zoom_friction)
-        : velocity * elapsed_timer_steps;
-    static const qreal s_base_k =
-        std::pow(k_zoom_per_notch, (1.0 - k_zoom_friction) / k_zoom_impulse_per_step);
-
-    return std::pow(s_base_k, integrated_velocity);
-}
-
-qreal Plot_interaction_item::zoom_animation_velocity_after(
-    qreal  velocity,
-    qreal  elapsed_timer_steps)
-{
-    if (elapsed_timer_steps <= 0.0) {
-        return velocity;
-    }
-
-    return velocity * std::pow(k_zoom_friction, elapsed_timer_steps);
-}
-
 void Plot_interaction_item::apply_zoom_step()
 {
     apply_zoom_step(std::chrono::steady_clock::now());
@@ -186,39 +162,38 @@ void Plot_interaction_item::apply_zoom_step(std::chrono::steady_clock::time_poin
         return;
     }
 
-    constexpr qreal eps        = 1e-3;
     bool            active     = false;
     qreal           elapsed_ms = std::chrono::duration<qreal, std::milli>(now - m_last_zoom_step_time).count();
     m_last_zoom_step_time = now;
 
     if (elapsed_ms <= 0.0) {
-        elapsed_ms = k_zoom_timer_interval_ms;
+        elapsed_ms = zoom_inertia::k_timer_interval_ms;
     }
 
-    const qreal dt = elapsed_ms / k_zoom_timer_interval_ms;
+    const qreal dt = elapsed_ms / zoom_inertia::k_timer_interval_ms;
 
-    if (std::abs(m_zoom_vel_t) > eps) {
+    if (std::abs(m_zoom_vel_t) > zoom_inertia::k_velocity_epsilon) {
         Plot_widget* target = time_target_widget();
         if (!target) {
             m_zoom_vel_t = 0.0;
         }
         else {
-            const qreal factor_t = zoom_animation_scale_factor(m_zoom_vel_t, dt);
+            const qreal factor_t = zoom_inertia::scale_factor(m_zoom_vel_t, dt);
             if (factor_t < 1.0 && !target->can_zoom_in()) {
                 m_zoom_vel_t = 0.0;
             }
             else {
                 target->adjust_t_from_pivot_and_scale(m_last_pivot_x, factor_t);
-                m_zoom_vel_t = zoom_animation_velocity_after(m_zoom_vel_t, dt);
+                m_zoom_vel_t = zoom_inertia::velocity_after(m_zoom_vel_t, dt);
                 active = true;
             }
         }
     }
 
-    if (std::abs(m_zoom_vel_v) > eps) {
-        const qreal factor_v = zoom_animation_scale_factor(m_zoom_vel_v, dt);
+    if (std::abs(m_zoom_vel_v) > zoom_inertia::k_velocity_epsilon) {
+        const qreal factor_v = zoom_inertia::scale_factor(m_zoom_vel_v, dt);
         m_plot_widget->adjust_v_from_pivot_and_scale(m_last_pivot_y, factor_v);
-        m_zoom_vel_v = zoom_animation_velocity_after(m_zoom_vel_v, dt);
+        m_zoom_vel_v = zoom_inertia::velocity_after(m_zoom_vel_v, dt);
         active = true;
     }
 
@@ -415,15 +390,16 @@ bool Plot_interaction_item::handle_wheel(
         return false;
     }
 
-    qreal dy = angle_delta_y;
-    if (dy == 0.0) { dy = pixel_delta_y; }
-    if (dy == 0.0) { dy = angle_delta_x; }
-    if (dy == 0.0) { dy = pixel_delta_x; }
-    if (dy == 0.0) { return false;       }
+    // X11 pixel deltas are driver-specific, so use its angle deltas.
+    const auto delta = zoom_inertia::select_wheel_delta(
+        angle_delta_x, angle_delta_y, pixel_delta_x, pixel_delta_y,
+        QGuiApplication::platformName() != QStringLiteral("xcb"));
+    if (delta.value == 0.0) {
+        return false;
+    }
 
     const auto  mods       = Qt::KeyboardModifiers::fromInt(modifiers);
-    const qreal steps      = dy / 120.0;
-    const qreal impulse    = -steps * k_zoom_impulse_per_step;
+    const qreal impulse    = zoom_inertia::wheel_impulse(delta);
     const bool  zoom_both  = mods.testFlag(Qt::ControlModifier);
     const bool  zoom_alt   = mods.testFlag(Qt::AltModifier);
     const bool  zoom_value = zoom_both || zoom_alt;
@@ -466,16 +442,16 @@ bool Plot_interaction_item::handle_wheel(
         m_zoom_vel_v = 0.0;
     }
 
-    m_zoom_vel_t = std::clamp(m_zoom_vel_t, -k_zoom_max_vel, k_zoom_max_vel);
-    m_zoom_vel_v = std::clamp(m_zoom_vel_v, -k_zoom_max_vel, k_zoom_max_vel);
+    m_zoom_vel_t = std::clamp(m_zoom_vel_t, -zoom_inertia::k_max_velocity, zoom_inertia::k_max_velocity);
+    m_zoom_vel_v = std::clamp(m_zoom_vel_v, -zoom_inertia::k_max_velocity, zoom_inertia::k_max_velocity);
 
     const auto now = std::chrono::steady_clock::now();
-    m_last_zoom_step_time = now - std::chrono::milliseconds(k_zoom_timer_interval_ms);
+    m_last_zoom_step_time = now - std::chrono::milliseconds(zoom_inertia::k_timer_interval_ms);
 
     apply_zoom_step(now);
 
     if (!m_zoom_timer.isActive()) {
-        m_zoom_timer.start(k_zoom_timer_interval_ms, this);
+        m_zoom_timer.start(zoom_inertia::k_timer_interval_ms, this);
     }
 
     return true;

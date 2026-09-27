@@ -7,6 +7,7 @@
 #include <vnm_plot/core/plot_config.h>
 #include <vnm_plot/core/lcd.h>
 #include <vnm_plot/core/time_units.h>
+#include <vnm_plot/core/zoom_inertia.h>
 #include <vnm_plot/core/types.h>
 #include <vnm_plot/rhi/text_renderer.h>
 #include "../src/core/label_fade_tracker.h"
@@ -650,6 +651,63 @@ bool test_default_elapsed_time_distinguishes_day_boundaries()
         std::numeric_limits<std::int64_t>::max(), k_minute) == "106751d 23:47",
         "the maximum elapsed timestamp should format without overflow");
 
+    return true;
+}
+
+bool test_duration_format_preserves_full_nanosecond_domain()
+{
+    constexpr auto k_ms = plot::k_ns_per_ms;
+    TEST_ASSERT(plot::default_format_duration(0, k_ms) == "00:00:00.000",
+        "zero report duration retains millisecond precision");
+    TEST_ASSERT(plot::default_format_duration(86'400'123'999'999ULL, k_ms) == "1d 00:00:00.123",
+        "duration formatting retains days and truncates fractional milliseconds");
+    TEST_ASSERT(plot::default_format_elapsed_time(-999'999, k_ms) == "-00:00:00.000",
+        "submillisecond elapsed timestamps retain their sign");
+    TEST_ASSERT(plot::default_format_elapsed_time(
+        std::numeric_limits<std::int64_t>::min(), k_ms) == "-106751d 23:47:16.854",
+        "minimum signed elapsed time must not overflow its magnitude");
+    TEST_ASSERT(plot::default_format_duration(
+        std::numeric_limits<std::uint64_t>::max(), k_ms) == "213503d 23:34:33.709",
+        "the duration between signed endpoint extremes must not saturate");
+    TEST_ASSERT(plot::default_format_duration(
+        std::numeric_limits<std::uint64_t>::max(), 1) == "213503d 23:34:33.709551615",
+        "full unsigned duration retains all requested nanosecond digits");
+    return true;
+}
+
+bool test_wheel_delta_selection_preserves_units_and_reliability()
+{
+    namespace zoom = plot::zoom_inertia;
+    struct wheel_case_t
+    {
+        double angle_x;
+        double angle_y;
+        double pixel_x;
+        double pixel_y;
+        bool   reliable_pixels;
+        double expected_value;
+        bool   expected_pixels;
+    };
+    const wheel_case_t cases[] = {
+        {  0, 120,  0, -30, true,  -30, true },
+        {  0, 120,  0, -30, false, 120, false},
+        {  0, 120, 15,   0, true,   15, true },
+        {120,   0,  0,   0, true,  120, false},
+        {120, -60,  0,   0, false, -60, false},
+        {  0,   0,  0,  30, false,   0, false},
+        {  0,   0,  0,   0, true,    0, false},
+    };
+    for (const auto& sample : cases) {
+        const auto delta = zoom::select_wheel_delta(
+            sample.angle_x, sample.angle_y, sample.pixel_x, sample.pixel_y,
+            sample.reliable_pixels);
+        TEST_ASSERT(delta.value == sample.expected_value && delta.pixels == sample.expected_pixels,
+            "wheel deltas choose reliable pixels before angles and retain scrolling units");
+    }
+    TEST_ASSERT(zoom::wheel_impulse({120, false}) == -1.0,
+        "one wheel notch retains its signed zoom impulse");
+    TEST_ASSERT(zoom::wheel_impulse({120, true}) == -1.0,
+        "a 120-pixel stroke has the same impulse as one wheel notch");
     return true;
 }
 
@@ -1357,6 +1415,8 @@ int main()
     RUN_TEST(test_format_axis_fixed_or_int);
     RUN_TEST(test_default_timestamp_precision_follows_step);
     RUN_TEST(test_default_elapsed_time_distinguishes_day_boundaries);
+    RUN_TEST(test_duration_format_preserves_full_nanosecond_domain);
+    RUN_TEST(test_wheel_delta_selection_preserves_units_and_reliability);
     RUN_TEST(test_horizontal_label_fades_do_not_restore_duplicate_text);
     RUN_TEST(test_horizontal_label_crossfades_suppress_rendered_duplicate_text);
     RUN_TEST(test_time_unit_helpers_handle_edges);
