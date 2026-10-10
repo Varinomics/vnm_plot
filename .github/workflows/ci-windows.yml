@@ -38,6 +38,8 @@ jobs:
         with:
           version: '6.12.0'
           arch: 'win64_msvc2022_64'
+          # Upstream aqt handles the architecture-specific Qt 6.11+ Windows repositories.
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git'
           archives: 'qtbase qtdeclarative'
           modules: 'qtshadertools'
           cache: 'true'

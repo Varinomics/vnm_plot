@@ -1,6 +1,7 @@
 name: CI macOS
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main, master, dev ]
   pull_request:
@@ -21,10 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: QRhi (macOS)
-            text: OFF
-            benchmark: OFF
-            examples: OFF
+          # Restore the full matrix and suite after the native pixel failure is fixed.
           - name: QRhi+Text (macOS)
             text: ON
             benchmark: ON
@@ -53,11 +51,47 @@ jobs:
             -DVNM_PLOT_BUILD_FUNCTION_PLOTTER=OFF
 
       - name: Build
-        run: cmake --build build --config ${CMAKE_BUILD_TYPE}
+        run: cmake --build build --config ${CMAKE_BUILD_TYPE} --target test_sample_upload_reuse --parallel 2
+
+      - name: Record resolved native test inputs
+        if: always()
+        run: |
+          mkdir -p build/sample-upload-reuse
+          {
+            git rev-parse HEAD
+            sw_vers
+            xcodebuild -version
+            cmake --version
+            clang++ --version
+            qmake -query QT_VERSION
+            qmake -query QT_INSTALL_PREFIX
+            for source in build/_deps/*-src; do
+              if [ -d "$source/.git" ]; then
+                printf '\n%s\n' "$source"
+                git -C "$source" rev-parse HEAD
+              fi
+            done
+            shasum -a 256 tests/test_sample_upload_reuse.cpp src/core/series_renderer.cpp shaders/qsb/plot_area.*
+          } > build/sample-upload-reuse/inputs.txt 2>&1
+          cat build/sample-upload-reuse/inputs.txt
+          cp build/CMakeCache.txt build/sample-upload-reuse/CMakeCache.txt
 
       - name: Run tests
         working-directory: build
-        run: ctest --output-on-failure
+        env:
+          QSG_RHI_BACKEND: metal
+          VNM_PLOT_SAMPLE_REUSE_ARTIFACT_DIR: ${{ github.workspace }}/build/sample-upload-reuse
+        run: ctest --output-on-failure --verbose -R '^SampleUploadReuse$'
+
+      - name: Retain native frame diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-upload-reuse-metal
+          path: |
+            build/sample-upload-reuse/
+            build/Testing/Temporary/LastTest.log
+          if-no-files-found: error
 
       - name: Build summary
         run: |

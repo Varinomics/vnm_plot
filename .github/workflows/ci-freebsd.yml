@@ -26,14 +26,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Build and test (FreeBSD 15.0)
+      - name: Build and test (FreeBSD 15.x)
         uses: vmactions/freebsd-vm@v1
         env:
           TEXT: ${{ matrix.text }}
           BENCHMARK: ${{ matrix.benchmark }}
           EXAMPLES: ${{ matrix.examples }}
         with:
-          release: "15.0"
+          # Keep the userland aligned with the FreeBSD:15 latest package repository.
+          release: "15"
           usesh: true
           envs: 'TEXT BENCHMARK EXAMPLES'
           prepare: |

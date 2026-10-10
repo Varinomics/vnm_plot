@@ -10,12 +10,18 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <QDir>
+#include <QFile>
 #include <QGuiApplication>
 #include <QImage>
 #include <QQuickRenderControl>
 #include <QQuickWindow>
+#include <QString>
+#include <QTextStream>
+#include <QtGlobal>
 #include <rhi/qrhi.h>
 
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <map>
@@ -29,6 +35,60 @@ namespace {
 constexpr int k_width = 320;
 constexpr int k_height = 128;
 constexpr int k_sample_count = 65'536;
+
+bool save_frame_comparison(const QString& name, const QImage& initial, const QImage& compared)
+{
+    const QString output_path = qEnvironmentVariable("VNM_PLOT_SAMPLE_REUSE_ARTIFACT_DIR");
+    if (output_path.isEmpty()) {
+        return true;
+    }
+    QDir output(output_path);
+    TEST_ASSERT(output.mkpath("."), "frame diagnostic directory must be writable");
+    QFile report(output.filePath(name + "-difference.txt"));
+    TEST_ASSERT(report.open(QIODevice::WriteOnly | QIODevice::Text),
+        "frame difference report must be writable");
+    QTextStream text(&report);
+    text << "initial: " << initial.width() << 'x' << initial.height()
+         << " format=" << initial.format() << " stride=" << initial.bytesPerLine() << '\n'
+         << "compared: " << compared.width() << 'x' << compared.height()
+         << " format=" << compared.format() << " stride=" << compared.bytesPerLine() << '\n'
+         << "exact_equal=" << (initial == compared) << '\n'
+         << "x,y,initial_rgba,compared_rgba\n";
+    const int width  = std::min(initial.width(),  compared.width());
+    const int height = std::min(initial.height(), compared.height());
+    QImage difference(width, height, QImage::Format_RGB32);
+    difference.fill(Qt::black);
+    int changed_pixels = 0;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const QRgb before = initial.pixel(x, y);
+            const QRgb after  = compared.pixel(x, y);
+            if (before != after) {
+                ++changed_pixels;
+                difference.setPixel(x, y, qRgb(255, 255, 255));
+                text << x << ',' << y << ','
+                     << qRed(before) << ':' << qGreen(before) << ':'
+                     << qBlue(before) << ':' << qAlpha(before) << ','
+                     << qRed(after) << ':' << qGreen(after) << ':'
+                     << qBlue(after) << ':' << qAlpha(after) << '\n';
+            }
+        }
+    }
+    text << "changed_pixels=" << changed_pixels << '\n';
+    text.flush();
+    const bool report_written = text.status() == QTextStream::Ok && report.flush();
+    std::cout << name.toStdString() << ": changed_pixels=" << changed_pixels
+              << " initial=" << initial.width() << 'x' << initial.height()
+              << " compared=" << compared.width() << 'x' << compared.height() << '\n';
+    TEST_ASSERT(report_written, "frame difference report must be saved");
+    TEST_ASSERT(initial.isNull() || initial.save(output.filePath(name + "-initial.png")),
+        "initial native frame must be saved");
+    TEST_ASSERT(compared.isNull() || compared.save(output.filePath(name + "-compared.png")),
+        "compared native frame must be saved");
+    TEST_ASSERT(difference.isNull() || difference.save(output.filePath(name + "-difference.png")),
+        "native frame difference mask must be saved");
+    return true;
+}
 
 struct sample_t { std::int64_t t; float value; };
 
@@ -94,6 +154,16 @@ public:
         }
         auto* rhi = m_control.rhi();
         std::cout << "Sample reuse backend: " << rhi->backendName() << '\n';
+        const auto driver = rhi->driverInfo();
+        std::cout << "Qt compiled=" << QT_VERSION_STR << " runtime=" << qVersion()
+                  << " device=" << driver.deviceName.toStdString()
+                  << " device_type=" << driver.deviceType
+                  << " device_id=" << driver.deviceId
+                  << " vendor_id=" << driver.vendorId << '\n';
+        if (qEnvironmentVariable("QSG_RHI_BACKEND") == "metal" && rhi->backend() != QRhi::Metal) {
+            std::cerr << "Requested native Metal backend was not selected\n";
+            return false;
+        }
         m_color.reset(rhi->newTexture(QRhiTexture::RGBA8, QSize(k_width, k_height), 1,
             QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
         if (!m_color->create()) {
@@ -129,6 +199,11 @@ public:
         }
         ctx.cb->endPass(updates);
         m_control.endFrame();
+        if (read_pixels) {
+            std::cout << "Readback bytes=" << readback.data.size()
+                      << " size=" << readback.pixelSize.width() << 'x' << readback.pixelSize.height()
+                      << " format=" << readback.format << '\n';
+        }
         if (!read_pixels || readback.data.size() != k_width * k_height * 4) {
             return {};
         }
@@ -205,7 +280,10 @@ bool test_reuse(Native_frames& frames, plot::Display_style style)
               << ": frames=" << measured_frames << " mean_ms=" << milliseconds / measured_frames
               << " uploads=" << upload_count << " bytes=" << upload_bytes << '\n';
     const QImage reused = frames.render(renderer, ctx, series_map, true);
+    const QString case_name = style == plot::Display_style::NONE ? "custom" : "mixed";
+    const bool reuse_saved = save_frame_comparison(case_name + "-reuse", initial, reused);
     TEST_ASSERT(reused == initial, "unchanged native frame must retain exactly the same pixels");
+    TEST_ASSERT(reuse_saved, "requested reuse diagnostics must be saved");
     TEST_ASSERT(observations.valid_inputs && observations.prepares == observations.records &&
         observations.prepares == measured_frames + 10, "every frame must prepare and record with current inputs");
     TEST_ASSERT(observations.buffer == initial_buffer, "unchanged frame must retain its sample buffer");
@@ -214,8 +292,10 @@ bool test_reuse(Native_frames& frames, plot::Display_style style)
 
     source->set_data(samples);
     const QImage reuploaded = frames.render(renderer, ctx, series_map, true);
+    const bool reupload_saved = save_frame_comparison(case_name + "-reupload", initial, reuploaded);
     TEST_ASSERT(view.last_sample_upload_count == 1, "changed source sequence must force an upload");
     TEST_ASSERT(reuploaded == initial, "forced upload of equal data must agree with reused pixels");
+    TEST_ASSERT(reupload_saved, "requested reupload diagnostics must be saved");
     return true;
 }
 
