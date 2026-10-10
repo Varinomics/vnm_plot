@@ -2731,9 +2731,11 @@ void Series_renderer::rhi_record_series_primitive(
         return;
     }
     cb->setGraphicsPipeline(cached.pipeline.get());
+    // Metal uses the current SRB layout to place vertex buffers. Bind the live
+    // per-draw SRB before vertex input can consult the pipeline's creation SRB.
+    cb->setShaderResources(srb_entry.srb.get());
 
     if (is_dots) {
-        cb->setShaderResources(srb_entry.srb.get());
         if (view_state.rhi->vbo) {
             QRhiCommandBuffer::VertexInput input{
                 view_state.rhi->vbo.get(), 0u};
@@ -2775,7 +2777,6 @@ void Series_renderer::rhi_record_series_primitive(
                 { vbo, next_offset }
             };
             cb->setVertexInput(0, 2, inputs);
-            cb->setShaderResources(srb_entry.srb.get());
             cb->draw(6, instance_count);
 #if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
             ++view_state.last_recorded_area_span_count;
@@ -2784,7 +2785,6 @@ void Series_renderer::rhi_record_series_primitive(
         }
     }
     else {
-        cb->setShaderResources(srb_entry.srb.get());
         // LINE: triangle-strip quads per segment, one instance per segment.
         // The four vertex inputs all reference the line_window_vbo at
         // increasing element offsets so each instance reads a sliding
