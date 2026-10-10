@@ -30,8 +30,8 @@ endif()
 # -----------------------------------------------------------------------------
 
 # QRhi is the only renderer backend.
-find_package(Qt6 REQUIRED COMPONENTS Core Gui GuiPrivate Quick)
-find_package(Qt6ShaderTools QUIET)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui GuiPrivate Quick)
+find_package(Qt6ShaderTools 6.12 QUIET)
 if(NOT Qt6ShaderTools_FOUND)
     message(FATAL_ERROR
         "vnm_plot: Qt6ShaderTools is required for the QSB shader pipeline. "

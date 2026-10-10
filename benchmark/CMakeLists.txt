@@ -5,7 +5,7 @@
 # Note: This file is included as a subdirectory from the root CMakeLists.txt
 # and inherits cmake_minimum_required and project settings from parent.
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui GuiPrivate Quick)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui GuiPrivate Quick)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(Threads REQUIRED)
 

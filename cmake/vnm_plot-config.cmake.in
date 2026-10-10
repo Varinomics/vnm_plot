@@ -39,9 +39,9 @@ foreach(_vnm_plot_component IN LISTS vnm_plot_FIND_COMPONENTS)
 endforeach()
 
 if(_vnm_plot_needs_qtquick_dependencies)
-    find_dependency(Qt6 REQUIRED COMPONENTS Core Gui GuiPrivate Quick)
+    find_dependency(Qt6 6.12 REQUIRED COMPONENTS Core Gui GuiPrivate Quick)
 elseif(_vnm_plot_needs_rhi_dependencies)
-    find_dependency(Qt6 REQUIRED COMPONENTS Gui GuiPrivate)
+    find_dependency(Qt6 6.12 REQUIRED COMPONENTS Gui GuiPrivate)
 endif()
 
 set(_vnm_plot_msdf_text_components)

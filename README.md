@@ -247,7 +247,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-Qt 6 (Core, Gui, Quick, GuiPrivate, ShaderTools) is required. The build fetches
+Qt 6.12 or newer (Core, Gui, Quick, GuiPrivate, ShaderTools) is required. The build fetches
 glm when it is not already available. Public vnm_plot headers use the
 dependency-light `vnm_msdf_text` LCD contract component, and the Qt wrapper uses
 its `qt_lcd` display resolver. Text-enabled builds use `vnm_msdf_text::rhi` for
@@ -283,7 +283,7 @@ straight from its bytes and enters no font database, so `vnm::fonts` is
 deliberately not linked and the marking would change nothing.
 
 CI currently builds QRhi and QRhi+Text on Linux, macOS, Windows, and FreeBSD.
-The GitHub Actions jobs use the Qt 6.10.1 SDK on Linux, macOS, and Windows so
+The GitHub Actions jobs use the Qt 6.12 SDK on Linux, macOS, and Windows so
 the QRhi private headers and `qsb` shader compiler are available consistently.
 
 To disable text rendering (skips the full MSDF atlas/text renderer path, while
@@ -384,7 +384,7 @@ required only when building vnm_plot from source.
 
 ## Requirements
 
-- Qt 6.7+ with Qt Shader Tools
+- Qt 6.12+ with Qt Shader Tools
 
 ## License
 

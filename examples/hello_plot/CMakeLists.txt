@@ -13,7 +13,7 @@ endif()
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Quick)
 
 if(NOT TARGET vnm_plot::qtquick)
     set(VNM_PLOT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)

@@ -24,7 +24,7 @@ set(CMAKE_AUTORCC ON)
 # -----------------------------------------------------------------------------
 
 # Qt6
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Multimedia)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Multimedia)
 
 # vnm_plot library (from parent repo)
 if(NOT TARGET vnm_plot::qtquick)
