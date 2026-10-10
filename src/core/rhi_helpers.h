@@ -207,10 +207,10 @@ struct alpha_blended_pipeline_desc_t
 
 // Builds a graphics pipeline with the standard vnm_plot alpha blend and a
 // layout-only SRB containing a single UBO at slot 0. The SRB and the
-// throwaway UBO it references live only long enough for the pipeline's
-// create() call; Qt validates layout, not handles, at create-time, so the
-// caller is free to bind a per-draw SRB with a different UBO handle
-// (matching layout) at draw time.
+// throwaway UBO it references live only through the pipeline's create() call.
+// Callers must bind a live, layout-compatible per-draw SRB before setting
+// vertex input: Metal otherwise consults the pipeline's creation SRB to
+// determine the first vertex-buffer binding.
 inline std::unique_ptr<QRhiGraphicsPipeline> build_alpha_blended_pipeline(
     QRhi*                                  rhi,
     QRhiRenderTarget*                      rt,
