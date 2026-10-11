@@ -10,6 +10,7 @@
 
 // The reference keeps the resource object in statically linked applications.
 int qInitResources_vnm_plot();
+int qInitResources_qmlcache_vnm_plot_qtquick();
 
 namespace vnm::plot {
 
@@ -17,6 +18,8 @@ void detail::initialize_qml_resources()
 {
     static const int initialized = qInitResources_vnm_plot();
     Q_UNUSED(initialized);
+    static const int compiled_initialized = qInitResources_qmlcache_vnm_plot_qtquick();
+    Q_UNUSED(compiled_initialized);
 }
 
 void register_qml_types()

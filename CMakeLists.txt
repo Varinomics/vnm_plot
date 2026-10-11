@@ -30,7 +30,8 @@ endif()
 # -----------------------------------------------------------------------------
 
 # QRhi is the only renderer backend.
-find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui GuiPrivate Quick)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui GuiPrivate Qml Quick)
+include(cmake/vnm_cmake_dependency.cmake)
 find_package(Qt6ShaderTools 6.12 QUIET)
 if(NOT Qt6ShaderTools_FOUND)
     message(FATAL_ERROR
@@ -478,8 +479,6 @@ list(APPEND VNM_PLOT_RHI_RESOURCE_TARGETS ${VNM_PLOT_FONT_RESOURCE_TARGETS})
 # Qt Resources (only if building Qt wrapper)
 # -----------------------------------------------------------------------------
 
-qt6_add_resources(VNM_PLOT_QRC_SOURCES vnm_plot.qrc)
-
 # -----------------------------------------------------------------------------
 # Qt Quick target
 # -----------------------------------------------------------------------------
@@ -487,9 +486,7 @@ qt6_add_resources(VNM_PLOT_QRC_SOURCES vnm_plot.qrc)
 add_library(vnm_plot_qtquick STATIC
     ${VNM_PLOT_QTQUICK_SOURCES}
     ${VNM_PLOT_QTQUICK_HEADERS}
-    ${VNM_PLOT_QRC_SOURCES}
 )
-
 add_library(vnm_plot::qtquick ALIAS vnm_plot_qtquick)
 
 set_target_properties(vnm_plot_qtquick PROPERTIES
@@ -498,6 +495,12 @@ set_target_properties(vnm_plot_qtquick PROPERTIES
 )
 
 vnm_plot_configure_library_target(vnm_plot_qtquick)
+
+vnm_add_qml_resources(vnm_plot_qtquick
+    URI VnmPlot RESOURCE_PREFIX "/vnm_plot/qml"
+    QRC_FILES vnm_plot.qrc)
+get_target_property(VNM_PLOT_QML_RESOURCE_TARGETS
+    vnm_plot_qtquick VNM_QML_RESOURCE_TARGETS)
 
 target_compile_definitions(vnm_plot_qtquick PUBLIC VNM_PLOT_WITH_QT=1)
 
@@ -578,6 +581,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         vnm_plot_rhi
         vnm_plot_qtquick
         ${VNM_PLOT_RHI_RESOURCE_TARGETS}
+        ${VNM_PLOT_QML_RESOURCE_TARGETS}
     )
 
     # install(EXPORT) needs every link dependency to be IMPORTED (or in a
