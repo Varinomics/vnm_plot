@@ -48,6 +48,7 @@ jobs:
         run: |
           cmake -B build -S . \
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+            -DCMAKE_CONFIGURATION_TYPES=${CMAKE_BUILD_TYPE} \
             -DVNM_PLOT_ENABLE_TEXT=${{ matrix.text }} \
             -DVNM_PLOT_BUILD_TESTS=ON \
             -DVNM_PLOT_BUILD_BENCHMARK=${{ matrix.benchmark }} \
