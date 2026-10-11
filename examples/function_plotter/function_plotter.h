@@ -11,6 +11,7 @@
 #include <QtCore/QAbstractListModel>
 #include <QtCore/QMetaType>
 #include <QtCore/QObject>
+#include <QtCore/QPointer>
 #include <QtCore/QString>
 #include <QtGui/QColor>
 #include <QtQuick/QQuickItem>
@@ -205,6 +206,8 @@ private:
     QString get_unique_expression() const;
     int index_of_entry(Function_entry* entry) const;
 
+    // Entry destructors detach their series, so the widget guard must outlive them.
+    QPointer<vnm::plot::Plot_widget> m_plot_widget;
     std::vector<std::unique_ptr<Function_entry>> m_entries;
     int m_next_series_id = 1;
     int m_color_index = 0;
@@ -213,7 +216,6 @@ private:
     double m_x_max = 10.0;
     bool m_stack_functions = false;
 
-    vnm::plot::Plot_widget* m_plot_widget = nullptr;
 };
 
 // Preset expressions for demo

@@ -3,6 +3,7 @@
 #include <QGuiApplication>
 
 #include <iostream>
+#include <memory>
 
 int main(int argc, char** argv)
 {
@@ -52,6 +53,49 @@ int main(int argc, char** argv)
     if (widget.format_timestamp_precise(1250) != QStringLiteral("1.250")) {
         std::cerr << "function indicator x value lost fractional precision\n";
         return 1;
+    }
+
+    {
+        vnm::plot::Plot_widget surviving_widget;
+        {
+            Function_plotter temporary_plotter;
+            temporary_plotter.set_plot_widget(&surviving_widget);
+        }
+        if (!surviving_widget.get_series_snapshot().empty()) {
+            std::cerr << "destroyed plotter left its series attached\n";
+            return 1;
+        }
+    }
+
+    {
+        Function_plotter surviving_plotter;
+        {
+            vnm::plot::Plot_widget temporary_widget;
+            surviving_plotter.set_plot_widget(&temporary_widget);
+        }
+        if (surviving_plotter.plot_widget()) {
+            std::cerr << "plotter retained a destroyed widget\n";
+            return 1;
+        }
+        surviving_plotter.recompute_all();
+        surviving_plotter.add_function();
+        surviving_plotter.remove_function(0);
+
+        auto previous_widget = std::make_unique<vnm::plot::Plot_widget>();
+        vnm::plot::Plot_widget replacement_widget;
+        surviving_plotter.set_plot_widget(previous_widget.get());
+        surviving_plotter.set_plot_widget(&replacement_widget);
+        if (!previous_widget->get_series_snapshot().empty()) {
+            std::cerr << "replaced widget retained the plotter's series\n";
+            return 1;
+        }
+        previous_widget.reset();
+        if (surviving_plotter.plot_widget() != &replacement_widget ||
+            replacement_widget.get_series_snapshot().size() !=
+                static_cast<size_t>(surviving_plotter.function_count())) {
+            std::cerr << "replacing a widget lost the active connection\n";
+            return 1;
+        }
     }
 
     return 0;
