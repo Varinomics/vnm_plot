@@ -285,6 +285,9 @@ deliberately not linked and the marking would change nothing.
 CI currently builds QRhi and QRhi+Text on Linux, macOS, Windows, and FreeBSD.
 The GitHub Actions jobs use the Qt 6.12 SDK on Linux, macOS, and Windows so
 the QRhi private headers and `qsb` shader compiler are available consistently.
+FreeBSD downloads a compatible installed SDK from
+[qt-freebsd](https://github.com/Varinomics/qt-freebsd). A missing SDK fails the
+job; project CI never falls back to compiling Qt.
 
 To disable text rendering (skips the full MSDF atlas/text renderer path, while
 still keeping the public LCD contract dependency):

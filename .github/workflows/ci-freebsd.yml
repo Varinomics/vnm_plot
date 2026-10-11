@@ -10,10 +10,6 @@ jobs:
   build-rhi:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    env:
-      # Selected source material; the project's compatible minimum remains Qt 6.12.
-      QT_SOURCE_VERSION: '6.12.0'
-      QT_SOURCE_SHA256: '98ff4f44bac6ec3e1e62ee2a4316ae0e3d15badb015d753cc0268a20db52f165'
     strategy:
       fail-fast: false
       matrix:
@@ -30,72 +26,43 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Download shared FreeBSD Qt SDK
+        id: qt-sdk
+        uses: Varinomics/qt-freebsd@master
+        with:
+          minimum-qt-version: '6.12'
+
       - name: Build and test (FreeBSD 15.x)
         uses: vmactions/freebsd-vm@v1
         env:
           TEXT: ${{ matrix.text }}
           BENCHMARK: ${{ matrix.benchmark }}
           EXAMPLES: ${{ matrix.examples }}
+          QT_SDK_DIRECTORY: ${{ steps.qt-sdk.outputs.directory }}
+          QT_SDK_PREFIX: ${{ steps.qt-sdk.outputs.prefix }}
         with:
           # Keep the userland aligned with the FreeBSD:15 latest package repository.
           release: "15"
           cpu: 2
           usesh: true
-          envs: 'TEXT BENCHMARK EXAMPLES QT_SOURCE_VERSION QT_SOURCE_SHA256'
-          cache-after-prepare: true
-          cache-after-prepare-key-suffix: qt-${{ env.QT_SOURCE_VERSION }}-${{ env.QT_SOURCE_SHA256 }}
+          envs: 'TEXT BENCHMARK EXAMPLES QT_SDK_DIRECTORY QT_SDK_PREFIX'
           prepare: |
             set -eu
-            export CMAKE_BUILD_PARALLEL_LEVEL=2
             pkg bootstrap -fy
-            test "$(pkg version -t "$QT_SOURCE_VERSION" 6.12)" != '<'
             mkdir -p /usr/local/etc/pkg/repos
             echo 'FreeBSD-ports: { enabled: no }' > /usr/local/etc/pkg/repos/FreeBSD-ports.conf
             echo 'FreeBSD: { url: https://pkg.FreeBSD.org/${ABI}/latest }' > /usr/local/etc/pkg/repos/FreeBSD.conf
             pkg update -f
-            # The package repository currently provides Qt 6.11; build the selected
-            # official source with the native compiler and the normal X11 backend.
-            pkg install -y git cmake ninja pkgconf python311 perl5 xauth xorg-vfbserver \
-              mesa-libs mesa-dri fontconfig freetype2 libX11 libXext libXrender libXi \
-              libSM libICE libxcb libxkbcommon xcb-util xcb-util-cursor xcb-util-image \
-              xcb-util-keysyms xcb-util-renderutil xcb-util-wm
-            qt_archive="qt-everywhere-src-${QT_SOURCE_VERSION}.tar.xz"
-            qt_url="https://download.qt.io/official_releases/qt/${QT_SOURCE_VERSION%.*}/${QT_SOURCE_VERSION}/single/${qt_archive}"
-            mkdir -p /tmp/vnm-plot-qt-source /tmp/vnm-plot-qt-build
-            fetch -o "/tmp/${qt_archive}" "$qt_url"
-            test "$(sha256 -q "/tmp/${qt_archive}")" = "$QT_SOURCE_SHA256"
-            tar -xf "/tmp/${qt_archive}" -C /tmp/vnm-plot-qt-source --strip-components 1
-            cd /tmp/vnm-plot-qt-build
-            /tmp/vnm-plot-qt-source/configure -prefix /opt/vnm-plot-qt -release \
-              -submodules qtbase,qtdeclarative,qtshadertools -nomake examples -nomake tests \
-              -opengl desktop -xcb -- -DCMAKE_PREFIX_PATH=/usr/local \
-              -DQT_INSTALL_CONFIG_INFO_FILES=ON
-            cmake --build . --parallel 2
-            cmake --install .
-            test "$(/opt/vnm-plot-qt/bin/qtpaths --qt-version)" = "$QT_SOURCE_VERSION"
-            {
-              echo "qt_source_version=${QT_SOURCE_VERSION}"
-              echo "qt_source_sha256=${QT_SOURCE_SHA256}"
-              echo "qt_source_url=${qt_url}"
-              echo "qt_actual_version=$(/opt/vnm-plot-qt/bin/qtpaths --qt-version)"
-              freebsd-version -ku
-              cc --version
-              cmake --version
-              ninja --version
-              pkg query '%n-%v'
-            } > /opt/vnm-plot-qt/source-build-identity.txt
+            pkg install -y git cmake ninja pkgconf python3 xauth xorg-vfbserver
           run: |
             set -eu
             export CMAKE_BUILD_PARALLEL_LEVEL=2
-            test "$(pkg version -t "$QT_SOURCE_VERSION" 6.12)" != '<'
-            grep -Fx "qt_source_version=${QT_SOURCE_VERSION}" /opt/vnm-plot-qt/source-build-identity.txt
-            grep -Fx "qt_source_sha256=${QT_SOURCE_SHA256}" /opt/vnm-plot-qt/source-build-identity.txt
-            test "$(/opt/vnm-plot-qt/bin/qtpaths --qt-version)" = "$QT_SOURCE_VERSION"
-            cat /opt/vnm-plot-qt/source-build-identity.txt
+            python3 "$QT_SDK_DIRECTORY/sdk.py" install \
+              --directory "$QT_SDK_DIRECTORY" --minimum-qt-version 6.12
             mkdir -p build
             cmake -S . -B build \
               -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_PREFIX_PATH=/opt/vnm-plot-qt \
+              -DCMAKE_PREFIX_PATH="$QT_SDK_PREFIX" \
               -DVNM_PLOT_ENABLE_TEXT=${TEXT} \
               -DVNM_PLOT_BUILD_TESTS=ON \
               -DVNM_PLOT_BUILD_BENCHMARK=${BENCHMARK} \
