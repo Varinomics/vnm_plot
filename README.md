@@ -256,16 +256,6 @@ a sibling `../vnm_msdf_text` checkout when present, otherwise it fetches the
 GitHub `master` branch. The atlas path fetches FreeType and msdfgen when they
 are not already available as targets.
 
-Text is laid out in framebuffer pixels. Queued batches are uploaded together
-before the pass, then recorded in cursor ranges; every range draws its shadows
-before its foregrounds and rebinds the text pipeline. Draw-size changes share
-the baked font and its GPU atlas. Disk caches retain the complete build result,
-including partial-coverage diagnostics, and include the provider's bake
-compatibility version in their key.
-
-The shared MTSDF shader treats zero alpha as a valid negative signed distance.
-Zero does not signal a missing alpha channel in an MTSDF atlas.
-
 The fonts vnm_plot ships come from
 [vnm_fonts](https://github.com/Varinomics/vnm_fonts): the monospace face
 `vnm_plot_rhi` embeds, and the icon face the function plotter example loads. A
@@ -273,13 +263,6 @@ tree that has already added vnm_fonts has published the verbatim files in
 `VNM_FONTS_DIRECTORY`, and that is used as it stands; otherwise CMake uses a
 sibling `../vnm_fonts` checkout when present and fetches the GitHub `master`
 branch when it is not, and `FETCHCONTENT_SOURCE_DIR_VNM_FONTS` overrides that pair.
-
-Only the file contract is used. vnm_fonts also builds a `vnm::fonts` library
-that marks a family name on the way into `QFontDatabase`, which is what a font
-entering a font database needs so it cannot merge with an identically named one
-the user has installed. The face vnm_plot embeds is baked into an MSDF atlas
-straight from its bytes and enters no font database, so `vnm::fonts` is
-deliberately not linked and the marking would change nothing.
 
 A Qt SDK for FreeBSD is available from
 [qt-freebsd](https://github.com/Varinomics/qt-freebsd).
@@ -301,7 +284,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVNM_PLOT_BUILD_EXAMPLES=ON
 cmake --build build
 ```
 
-- `vnm_plot_hello` - renders a sine wave using the example function-source helper
+- `vnm_plot_hello` - renders a sample curve using the example function-source helper
 - `vnm_plot_preview_config` - preview uses a separate data source and AREA style via `preview_config`
 - `function_plotter` - expressions, per-series styles, and a stacked-series demo via mexce
 
@@ -351,7 +334,7 @@ FetchContent_MakeAvailable(vnm_plot)
 target_link_libraries(your_app PRIVATE vnm_plot::qtquick)
 ```
 
-For non-Qt consumers, link the narrow target needed by the code:
+For data/layout code or Qt RHI rendering without Qt Quick, link the target needed:
 
 ```cmake
 target_link_libraries(data_tool PRIVATE vnm_plot::data)
@@ -377,10 +360,6 @@ Installed package targets are `vnm_plot::data`, `vnm_plot::layout`,
 components does not require Qt private modules. Requesting `rhi` or `qtquick`
 requires Qt GuiPrivate because those targets use QRhi. Qt ShaderTools is
 required only when building vnm_plot from source.
-
-## Requirements
-
-- Qt 6.12+ with Qt Shader Tools
 
 ## License
 

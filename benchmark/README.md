@@ -45,7 +45,3 @@ to measured frames.
 
 On Windows, benchmark file operations support extended-length native paths
 while reports keep their ordinary logical path spelling.
-
-The `benchmark_native_smoke` CTest runs a short offscreen render, validates the
-selected backend, reads pixels, rejects clear-only output, checks key renderer
-counters, and validates the phase trace.
