@@ -264,8 +264,7 @@ including partial-coverage diagnostics, and include the provider's bake
 compatibility version in their key.
 
 The shared MTSDF shader treats zero alpha as a valid negative signed distance.
-This corrects stray shadow pixels produced by the former RGB fallback at zero
-alpha; zero does not signal a missing alpha channel in an MTSDF atlas.
+Zero does not signal a missing alpha channel in an MTSDF atlas.
 
 The fonts vnm_plot ships come from
 [vnm_fonts](https://github.com/Varinomics/vnm_fonts): the monospace face
@@ -282,12 +281,8 @@ the user has installed. The face vnm_plot embeds is baked into an MSDF atlas
 straight from its bytes and enters no font database, so `vnm::fonts` is
 deliberately not linked and the marking would change nothing.
 
-CI currently builds QRhi and QRhi+Text on Linux, macOS, Windows, and FreeBSD.
-The GitHub Actions jobs use the Qt 6.12 SDK on Linux, macOS, and Windows so
-the QRhi private headers and `qsb` shader compiler are available consistently.
-FreeBSD downloads a compatible installed SDK from
-[qt-freebsd](https://github.com/Varinomics/qt-freebsd). A missing SDK fails the
-job; project CI never falls back to compiling Qt.
+A Qt SDK for FreeBSD is available from
+[qt-freebsd](https://github.com/Varinomics/qt-freebsd).
 
 To disable text rendering (skips the full MSDF atlas/text renderer path, while
 still keeping the public LCD contract dependency):
@@ -364,10 +359,8 @@ target_link_libraries(layout_tool PRIVATE vnm_plot::layout)
 target_link_libraries(rhi_tool PRIVATE vnm_plot::rhi)
 ```
 
-This source tree declares CMake project version `0.1.0`. Varinomics-owned
-consumers intentionally track `master` so integration breakage surfaces and is
-fixed immediately instead of being hidden by revision pins. External consumers
-may still use installed or package-manager-provided builds.
+This source tree declares CMake project version `0.1.0`. External consumers
+may also use installed or package-manager-provided builds.
 
 Install exports are find_package-ready only when exported dependencies are
 already imported package targets. Configure with `-DVNM_PLOT_USE_SYSTEM_LIBS=ON`
