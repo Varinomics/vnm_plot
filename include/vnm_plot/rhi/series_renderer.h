@@ -153,7 +153,7 @@ private:
         std::vector<line_draw_span_t>  line_draw_spans;
         bool                           line_window_geometry_dirty = true;
         std::vector<std::uint64_t>     stack_cache_key;
-        data_snapshot_t                stack_cache_snapshot;
+        Data_snapshot                  stack_cache_snapshot;
         bool                           stack_cache_resampled      = false;
         bool                           last_stack_view_suppressed = false;
 

@@ -85,7 +85,7 @@ struct Series_window_snapshot_cache
     std::uint64_t              cached_snapshot_frame_id = 0;
     std::size_t                cached_snapshot_level    = std::numeric_limits<std::size_t>::max();
     const Data_source*         cached_snapshot_source   = nullptr;
-    data_snapshot_t            cached_snapshot;
+    Data_snapshot              cached_snapshot;
     std::shared_ptr<void>      cached_snapshot_hold;
 };
 

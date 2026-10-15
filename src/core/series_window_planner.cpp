@@ -35,7 +35,7 @@ struct drawable_window_result_t
 };
 
 drawable_window_result_t build_drawable_window(
-    const data_snapshot_t&         snapshot,
+    const Data_snapshot&           snapshot,
     const erased_access_policy_t&  access,
     Nonfinite_sample_policy        nonfinite_policy,
     std::size_t                    source_first,
@@ -133,7 +133,7 @@ drawable_window_result_t build_drawable_window(
 }
 
 bool select_hold_source_index(
-    const data_snapshot_t&         snapshot,
+    const Data_snapshot&           snapshot,
     const erased_access_policy_t&  access,
     Nonfinite_sample_policy        nonfinite_policy,
     std::size_t                    candidate_index,

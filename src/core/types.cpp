@@ -32,7 +32,7 @@ Data_query_status status_from_snapshot(snapshot_result_t::Snapshot_status status
     return Data_query_status::FAILED;
 }
 
-Data_query_status invalid_ready_snapshot_status(const data_snapshot_t& snapshot)
+Data_query_status invalid_ready_snapshot_status(const Data_snapshot& snapshot)
 {
     return snapshot.count == 0
         ? Data_query_status::EMPTY
@@ -95,7 +95,7 @@ sample_scan_status sample_value_range(
 }
 
 bool scan_value_range(
-    const data_snapshot_t&         snapshot,
+    const Data_snapshot&           snapshot,
     const Data_access_policy&      access,
     const data_query_context_t&    query,
     value_range_t&                 range,

@@ -56,7 +56,7 @@ struct Scoped_temp_dir
 
 struct Scoped_cache_options
 {
-    plot::font_disk_cache_options_t previous_options = plot::font_disk_cache_options();
+    plot::Font_disk_cache_options previous_options = plot::font_disk_cache_options();
     bool previous_enabled = plot::font_disk_cache_enabled();
 
     ~Scoped_cache_options()
@@ -104,7 +104,7 @@ bool test_renderer_publishes_within_host_directory_and_budget()
 {
     Scoped_temp_dir tmp;
     Scoped_cache_options restore;
-    plot::font_disk_cache_options_t options;
+    plot::Font_disk_cache_options options;
     options.directory = tmp.path / "profile" / "font-cache";
     options.max_bytes = 20u * 1024u * 1024u;
     plot::set_font_disk_cache_options(options);
@@ -141,7 +141,7 @@ bool test_draw_heights_share_one_baked_atlas()
 {
     Scoped_temp_dir tmp;
     Scoped_cache_options restore;
-    plot::font_disk_cache_options_t options;
+    plot::Font_disk_cache_options options;
     options.directory = tmp.path;
     plot::set_font_disk_cache_options(options);
     plot::set_font_disk_cache_enabled(true);

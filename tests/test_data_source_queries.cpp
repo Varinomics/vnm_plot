@@ -35,7 +35,7 @@ public:
 
     plot::snapshot_result_t try_snapshot(std::size_t /*lod*/) override
     {
-        plot::data_snapshot_t snapshot;
+        plot::Data_snapshot snapshot;
         snapshot.data     = m_samples.data();
         snapshot.count    = m_samples.size();
         snapshot.stride   = sizeof(sample_t);

@@ -31,7 +31,7 @@ namespace {
 bool test_font_cache_configuration_is_available_without_text()
 {
     const auto previous = plot::font_disk_cache_options();
-    plot::font_disk_cache_options_t requested;
+    plot::Font_disk_cache_options requested;
     requested.directory = std::filesystem::temp_directory_path() / "plot-profile" / "font-cache";
     requested.max_bytes = 32u * 1024u * 1024u;
     plot::set_font_disk_cache_options(requested);

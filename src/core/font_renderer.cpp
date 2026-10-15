@@ -32,7 +32,6 @@
 #include <iomanip>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <sstream>
 #include <type_traits>
 #include <vector>
@@ -51,40 +50,6 @@ constexpr float         k_atlas_px_range      = 10.0f;
 // font-dependent encode the builder produced before that conversion.
 constexpr float k_sharpness_bias     = 1.0f;
 constexpr int   k_atlas_texture_size = 2048;
-
-std::atomic<bool> s_disk_cache_enabled{true};
-std::mutex s_disk_cache_options_mutex;
-font_disk_cache_options_t s_disk_cache_options;
-
-} // anonymous namespace
-
-// -----------------------------------------------------------------------------
-// Font Cache Configuration
-// -----------------------------------------------------------------------------
-
-void set_font_disk_cache_enabled(bool enabled)
-{
-    s_disk_cache_enabled.store(enabled, std::memory_order_relaxed);
-}
-
-bool font_disk_cache_enabled()
-{
-    return s_disk_cache_enabled.load(std::memory_order_relaxed);
-}
-
-void set_font_disk_cache_options(const font_disk_cache_options_t& options)
-{
-    std::lock_guard<std::mutex> lock(s_disk_cache_options_mutex);
-    s_disk_cache_options = options;
-}
-
-font_disk_cache_options_t font_disk_cache_options()
-{
-    std::lock_guard<std::mutex> lock(s_disk_cache_options_mutex);
-    return s_disk_cache_options;
-}
-
-namespace {
 
 using msdf_atlas_t       = vnm::msdf_text::atlas_t;
 using msdf_glyph_t       = vnm::msdf_text::glyph_t;
@@ -222,7 +187,7 @@ std::string digest_to_hex(const std::array<std::uint8_t, 32>& digest)
         ).toHex().toStdString();
 }
 
-std::filesystem::path resolve_cache_directory(const font_disk_cache_options_t& options)
+std::filesystem::path resolve_cache_directory(const Font_disk_cache_options& options)
 {
     auto cache_dir = options.directory;
     if (cache_dir.empty()) {

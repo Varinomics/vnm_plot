@@ -56,7 +56,7 @@ void set_font_disk_cache_enabled(bool enabled);
 // Returns true if disk caching is enabled.
 [[nodiscard]] bool font_disk_cache_enabled();
 
-struct font_disk_cache_options_t
+struct Font_disk_cache_options
 {
     // Empty selects QStandardPaths::CacheLocation / "vnm_plot". Hosts can set
     // an absolute directory to keep disposable atlases within their profile.
@@ -68,8 +68,8 @@ struct font_disk_cache_options_t
 // Completed cache files are pruned by least recent use to this byte budget.
 // A zero budget disables disk storage. Cleanup is best effort if files are in
 // use by another process; fresh atomic-write temporaries are never removed.
-void set_font_disk_cache_options(const font_disk_cache_options_t& options);
-[[nodiscard]] font_disk_cache_options_t font_disk_cache_options();
+void set_font_disk_cache_options(const Font_disk_cache_options& options);
+[[nodiscard]] Font_disk_cache_options font_disk_cache_options();
 
 #if defined(VNM_PLOT_ENABLE_TEXT) && defined(VNM_PLOT_ENABLE_TEST_HOOKS)
 namespace detail {

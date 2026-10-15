@@ -4,58 +4,14 @@
 
 #include <vnm_plot/rhi/font_renderer.h>
 
-#include <atomic>
-#include <mutex>
-
 namespace vnm::plot {
 
 #if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
-std::uint64_t Font_renderer::atlas_upload_enqueues_for_test() const
-{
-    return 0;
-}
+std::uint64_t Font_renderer::atlas_upload_enqueues_for_test() const { return 0; }
 #endif
 
-namespace {
-
-std::atomic<bool> s_disk_cache_enabled{true};
-std::mutex s_disk_cache_options_mutex;
-font_disk_cache_options_t s_disk_cache_options;
-
-} // namespace
-
-// Provide an empty definition so std::unique_ptr<impl_t> is complete in this TU.
+// Completes the private type owned by the renderer in text-disabled builds.
 struct Font_renderer::impl_t {};
-
-// -----------------------------------------------------------------------------
-// Font Cache Configuration
-// -----------------------------------------------------------------------------
-
-void set_font_disk_cache_enabled(bool enabled)
-{
-    s_disk_cache_enabled.store(enabled, std::memory_order_relaxed);
-}
-
-bool font_disk_cache_enabled()
-{
-    return s_disk_cache_enabled.load(std::memory_order_relaxed);
-}
-
-void set_font_disk_cache_options(const font_disk_cache_options_t& options)
-{
-    std::lock_guard<std::mutex> lock(s_disk_cache_options_mutex);
-    s_disk_cache_options = options;
-}
-
-font_disk_cache_options_t font_disk_cache_options()
-{
-    std::lock_guard<std::mutex> lock(s_disk_cache_options_mutex);
-    return s_disk_cache_options;
-}
-
-// -----------------------------------------------------------------------------
-// Font Renderer (stub)
-// -----------------------------------------------------------------------------
 
 Font_renderer::Font_renderer(Asset_loader&)
 {
@@ -64,110 +20,53 @@ Font_renderer::Font_renderer(Asset_loader&)
 
 Font_renderer::~Font_renderer() = default;
 
-void Font_renderer::initialize_metrics(int, bool)
-{
-    // No-op in stub.
-}
+void Font_renderer::initialize_metrics(int, bool) {}
 
 void Font_renderer::set_log_callbacks(
     std::function<void(const std::string&)>,
-    std::function<void(const std::string&)>)
-{
-    // No-op in stub.
-}
+    std::function<void(const std::string&)>) {}
 
-float Font_renderer::measure_text_px(const char*) const
-{
-    return 0.0f;
-}
+float Font_renderer::measure_text_px(const char*) const { return 0.0f; }
 
-bool Font_renderer::text_visual_bounds_px(const char*, float, float, glm::vec4&) const
-{
-    return false;
-}
+bool Font_renderer::text_visual_bounds_px(const char*, float, float, glm::vec4&) const { return false; }
 
-bool Font_renderer::text_ink_bounds_px(const char*, float, float, glm::vec4&) const
-{
-    return false;
-}
+bool Font_renderer::text_ink_bounds_px(const char*, float, float, glm::vec4&) const { return false; }
 
-std::uint64_t Font_renderer::text_measure_cache_key() const
-{
-    return 0;
-}
+std::uint64_t Font_renderer::text_measure_cache_key() const { return 0; }
 
-float Font_renderer::monospace_advance_px() const
-{
-    return 0.0f;
-}
+float Font_renderer::monospace_advance_px() const { return 0.0f; }
 
-bool Font_renderer::monospace_advance_is_reliable() const
-{
-    return false;
-}
+bool Font_renderer::monospace_advance_is_reliable() const { return false; }
 
-float Font_renderer::compute_numeric_bottom() const
-{
-    return 0.0f;
-}
+float Font_renderer::compute_numeric_bottom() const { return 0.0f; }
 
-float Font_renderer::baseline_offset_px() const
-{
-    return 0.0f;
-}
+float Font_renderer::baseline_offset_px() const { return 0.0f; }
 
-void Font_renderer::batch_text(float, float, const char*)
-{
-    // No-op in stub.
-}
+void Font_renderer::batch_text(float, float, const char*) {}
 
-void Font_renderer::rhi_begin_frame()
-{
-    // No-op in stub.
-}
+void Font_renderer::rhi_begin_frame() {}
 
 void Font_renderer::rhi_queue_draw(
     const frame_context_t&,
     const glm::vec4&,
     const text_scissor_t&,
-    const text_shadow_t&)
-{
-    // No-op in stub.
-}
+    const text_shadow_t&) {}
 
 void Font_renderer::rhi_queue_draw(
     const frame_context_t&,
     const glm::vec4&,
     const text_scissor_t&,
     const text_shadow_t&,
-    const text_lcd_t&)
-{
-    // No-op in stub.
-}
+    const text_lcd_t&) {}
 
-void Font_renderer::rhi_finalize_frame(const frame_context_t&)
-{
-    // No-op in stub.
-}
+void Font_renderer::rhi_finalize_frame(const frame_context_t&) {}
 
-std::size_t Font_renderer::queued_draw_count() const
-{
-    return 0;
-}
+std::size_t Font_renderer::queued_draw_count() const { return 0; }
 
-void Font_renderer::rhi_record_draws(const frame_context_t&, std::size_t)
-{
-    // No-op in stub.
-}
+void Font_renderer::rhi_record_draws(const frame_context_t&, std::size_t) {}
 
-void Font_renderer::rhi_record_frame(const frame_context_t&)
-{
-    // No-op in stub.
-}
+void Font_renderer::rhi_record_frame(const frame_context_t&) {}
 
-void Font_renderer::rhi_reset_frame()
-{
-    // No-op in stub.
-}
+void Font_renderer::rhi_reset_frame() {}
 
 } // namespace vnm::plot

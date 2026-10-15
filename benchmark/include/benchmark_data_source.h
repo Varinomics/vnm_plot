@@ -41,7 +41,7 @@ public:
 
         // Only LOD level 0 is supported
         if (lod_level > 0) {
-            return {vnm::plot::data_snapshot_t{}, Status::FAILED};
+            return {vnm::plot::Data_snapshot{}, Status::FAILED};
         }
 
         const auto started = std::chrono::steady_clock::now();
@@ -59,7 +59,7 @@ public:
             m_profiler->record_observation("benchmark.snapshot.copied_bytes", 0.0);
         }
 
-        vnm::plot::data_snapshot_t snapshot;
+        vnm::plot::Data_snapshot snapshot;
         snapshot.data = view.data;
         snapshot.count = view.count;
         snapshot.stride = sizeof(T);

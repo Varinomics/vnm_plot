@@ -97,17 +97,17 @@ public:
     {
         ++m_snapshot_calls;
         if (lod_level != 0) {
-            return {plot::data_snapshot_t{}, plot::snapshot_result_t::Snapshot_status::FAILED};
+            return {plot::Data_snapshot{}, plot::snapshot_result_t::Snapshot_status::FAILED};
         }
         if (m_busy_snapshots_remaining > 0) {
             --m_busy_snapshots_remaining;
-            return {plot::data_snapshot_t{}, plot::snapshot_result_t::Snapshot_status::BUSY};
+            return {plot::Data_snapshot{}, plot::snapshot_result_t::Snapshot_status::BUSY};
         }
         if (m_advance_during_next_snapshot) {
             m_advance_during_next_snapshot = false;
             ++m_sequence;
         }
-        plot::data_snapshot_t snapshot;
+        plot::Data_snapshot snapshot;
         snapshot.data     = m_samples.data();
         snapshot.count    = m_samples.size();
         snapshot.stride   = sizeof(test_sample_t);

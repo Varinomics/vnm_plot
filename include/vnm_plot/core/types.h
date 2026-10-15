@@ -144,28 +144,28 @@ template<typename Arg, typename Policy>
 class Access_policy_base;
 
 template<typename Signature>
-class access_function_slot_t;
+class Access_function_slot;
 
 template<typename R, typename... Args>
-class access_function_slot_t<R(Args...)>
+class Access_function_slot<R(Args...)>
 {
 public:
     using function_t = std::function<R(Args...)>;
 
-    access_function_slot_t() = default;
-    access_function_slot_t(const access_function_slot_t& other)
+    Access_function_slot() = default;
+    Access_function_slot(const Access_function_slot& other)
     :
         m_function(other.m_function)
     {}
 
-    access_function_slot_t(access_function_slot_t&& other)
+    Access_function_slot(Access_function_slot&& other)
     :
         m_function(std::move(other.m_function))
     {
         other.clear_internal_access();
     }
 
-    access_function_slot_t& operator=(const access_function_slot_t& other)
+    Access_function_slot& operator=(const Access_function_slot& other)
     {
         if (this != &other) {
             m_function = other.m_function;
@@ -174,7 +174,7 @@ public:
         return *this;
     }
 
-    access_function_slot_t& operator=(access_function_slot_t&& other)
+    Access_function_slot& operator=(Access_function_slot&& other)
     {
         if (this != &other) {
             m_function = std::move(other.m_function);
@@ -187,15 +187,15 @@ public:
     template<
         typename Callable,
         typename = std::enable_if_t<
-            !std::is_same_v<std::decay_t<Callable>, access_function_slot_t>>>
-    access_function_slot_t& operator=(Callable&& callable)
+            !std::is_same_v<std::decay_t<Callable>, Access_function_slot>>>
+    Access_function_slot& operator=(Callable&& callable)
     {
         m_function = std::forward<Callable>(callable);
         clear_internal_access();
         return *this;
     }
 
-    access_function_slot_t& operator=(std::nullptr_t)
+    Access_function_slot& operator=(std::nullptr_t)
     {
         m_function = nullptr;
         clear_internal_access();
@@ -269,9 +269,9 @@ template<typename Arg, typename Policy>
 class Access_policy_base
 {
 public:
-    using timestamp_accessor_t = access_function_slot_t<std::int64_t(Arg)>;
-    using value_accessor_t     = access_function_slot_t<float(Arg)>;
-    using range_accessor_t     = access_function_slot_t<std::pair<float, float>(Arg)>;
+    using timestamp_accessor_t = Access_function_slot<std::int64_t(Arg)>;
+    using value_accessor_t     = Access_function_slot<float(Arg)>;
+    using range_accessor_t     = Access_function_slot<std::pair<float, float>(Arg)>;
 
     // --- Sample value extraction ---
     // Values narrow to float before upload. For large-biased signals, subtract
@@ -402,7 +402,7 @@ using Byte_buffer = std::string;
 using Byte_view   = std::string_view;
 
 // -----------------------------------------------------------------------------
-// data_snapshot_t: A view of sample data (optionally split into two segments)
+// Data_snapshot: A view of sample data (optionally split into two segments)
 // -----------------------------------------------------------------------------
 // Represents a snapshot of data that can be safely read. The data pointer
 // points to a contiguous array of samples, each `stride` bytes apart.
@@ -418,7 +418,7 @@ using Byte_view   = std::string_view;
 //   read for exactly as long as the caller keeps `hold` alive.
 // - Consumers must not cache `data`/`data2` beyond the lifetime of the
 //   snapshot unless they also retain `hold`.
-struct data_snapshot_t
+struct Data_snapshot
 {
     const void*            data     = nullptr; ///< Pointer to first sample
     size_t                 count    = 0;       ///< Number of samples
@@ -461,7 +461,7 @@ struct data_snapshot_t
 
 struct snapshot_result_t
 {
-    data_snapshot_t snapshot;
+    Data_snapshot snapshot;
     enum class Snapshot_status { READY, EMPTY, BUSY, FAILED } status = Snapshot_status::READY;
 
     explicit operator bool() const { return status == Snapshot_status::READY && snapshot; }
@@ -691,10 +691,10 @@ public:
     // Callers that want buffering must implement it in their Data_source.
     virtual snapshot_result_t try_snapshot(size_t lod_level = 0) = 0;
 
-    data_snapshot_t snapshot(size_t lod_level = 0)
+    Data_snapshot snapshot(size_t lod_level = 0)
     {
         auto result = try_snapshot(lod_level);
-        return result ? result.snapshot : data_snapshot_t{};
+        return result ? result.snapshot : Data_snapshot{};
     }
 
     virtual size_t lod_levels() const { return 1; }
@@ -793,7 +793,7 @@ public:
             payload = m_payload;
         }
         if (payload->data.empty()) {
-            data_snapshot_t snapshot;
+            Data_snapshot snapshot;
             snapshot.stride   = sizeof(T);
             snapshot.sequence = payload->sequence;
             snapshot.hold     = payload;
@@ -803,7 +803,7 @@ public:
             };
         }
         return {
-            data_snapshot_t{
+            Data_snapshot{
                 payload->data.data(),
                 payload->data.size(),
                 sizeof(T),

@@ -66,7 +66,7 @@ public:
 
     plot::snapshot_result_t try_snapshot(std::size_t /*lod*/) override
     {
-        return {plot::data_snapshot_t{}, plot::snapshot_result_t::Snapshot_status::EMPTY};
+        return {plot::Data_snapshot{}, plot::snapshot_result_t::Snapshot_status::EMPTY};
     }
 
     std::size_t lod_levels() const override { return m_scales.size(); }
@@ -106,7 +106,7 @@ bool test_compute_lod_scales_forces_minimum_of_one()
     public:
         plot::snapshot_result_t try_snapshot(std::size_t) override
         {
-            return {plot::data_snapshot_t{}, plot::snapshot_result_t::Snapshot_status::EMPTY};
+            return {plot::Data_snapshot{}, plot::snapshot_result_t::Snapshot_status::EMPTY};
         }
         std::size_t lod_levels() const override { return 3; }
         std::size_t lod_scale(std::size_t level) const override
@@ -313,7 +313,7 @@ bool test_bounds_on_segmented_snapshot()
         head.push_back({static_cast<std::int64_t>(i), 0.0f});
     }
 
-    plot::data_snapshot_t snap;
+    plot::Data_snapshot snap;
     snap.data   = tail.data();
     snap.count  = 10;
     snap.stride = sizeof(sample_t);
@@ -343,7 +343,7 @@ bool test_select_visible_sample_window_monotonic_extends_bounds()
         samples.push_back({static_cast<std::int64_t>(i), static_cast<float>(i)});
     }
 
-    plot::data_snapshot_t snap;
+    plot::Data_snapshot snap;
     snap.data   = samples.data();
     snap.count  = samples.size();
     snap.stride = sizeof(sample_t);
@@ -385,7 +385,7 @@ bool test_select_visible_sample_window_non_monotonic_scans()
         { 2,  0.0f}
     };
 
-    plot::data_snapshot_t snap;
+    plot::Data_snapshot snap;
     snap.data   = samples.data();
     snap.count  = samples.size();
     snap.stride = sizeof(sample_t);
@@ -424,7 +424,7 @@ bool test_aggregate_visible_sample_range_includes_step_after_hold()
         {15, 8.0f}
     };
 
-    plot::data_snapshot_t snap;
+    plot::Data_snapshot snap;
     snap.data   = samples.data();
     snap.count  = samples.size();
     snap.stride = sizeof(sample_t);
@@ -461,7 +461,7 @@ bool test_aggregate_visible_sample_range_rejects_nonfinite_range_endpoints()
         {10, 1.0f}
     };
 
-    plot::data_snapshot_t snap;
+    plot::Data_snapshot snap;
     snap.data   = samples.data();
     snap.count  = samples.size();
     snap.stride = sizeof(sample_t);
@@ -494,7 +494,7 @@ bool test_snapshot_truthiness_requires_usable_stride()
 {
     std::vector<sample_t> samples = {{0, 1.0f}};
 
-    plot::data_snapshot_t snap;
+    plot::Data_snapshot snap;
     snap.data   = samples.data();
     snap.count  = samples.size();
     snap.stride = 0;
@@ -517,7 +517,7 @@ bool test_snapshot_count1_clamps_malformed_count2()
     std::vector<sample_t> first  = {{0, 1.0f}};
     std::vector<sample_t> second = {{1, 2.0f}};
 
-    plot::data_snapshot_t snap;
+    plot::Data_snapshot snap;
     snap.data   = first.data();
     snap.count  = first.size();
     snap.stride = sizeof(sample_t);
@@ -1034,7 +1034,7 @@ bool test_timestamp_positions_preserve_epoch_nanoseconds()
         { k_epoch + 127, 2.0f },
         { k_epoch + 254, 3.0f },
     };
-    const plot::data_snapshot_t snapshot{
+    const plot::Data_snapshot snapshot{
         samples.data(), samples.size(), sizeof(sample_t), 1};
     const auto bracket = plot::detail::bracket_timestamp(
         snapshot,

@@ -51,13 +51,13 @@ struct Blocking_sample
     }
 };
 
-const sample_t* sample_at(const plot::data_snapshot_t& snapshot, std::size_t index)
+const sample_t* sample_at(const plot::Data_snapshot& snapshot, std::size_t index)
 {
     return reinterpret_cast<const sample_t*>(snapshot.at(index));
 }
 
 const Blocking_sample* blocking_sample_at(
-    const plot::data_snapshot_t&   snapshot,
+    const plot::Data_snapshot&     snapshot,
     std::size_t                    index)
 {
     return reinterpret_cast<const Blocking_sample*>(snapshot.at(index));

@@ -28,7 +28,7 @@ using plot::Display_style;
 using plot::Empty_window_behavior;
 using plot::Plot_config;
 using Series_renderer = plot::Test_series_renderer;
-using plot::data_snapshot_t;
+using plot::Data_snapshot;
 using plot::frame_context_t;
 using plot::frame_layout_result_t;
 using plot::preview_config_t;
@@ -65,12 +65,12 @@ public:
     snapshot_result_t try_snapshot(size_t lod_level) override
     {
         if (lod_level != 0) {
-            return {data_snapshot_t{}, snapshot_result_t::Snapshot_status::FAILED};
+            return {Data_snapshot{}, snapshot_result_t::Snapshot_status::FAILED};
         }
         ++snapshot_calls;
         auto hold = std::make_shared<int>(7);
         last_hold = hold;
-        data_snapshot_t snapshot{
+        Data_snapshot snapshot{
             samples.data(),
             samples.size(),
             sizeof(Test_sample),
@@ -80,7 +80,7 @@ public:
             hold
         };
         if (samples.empty()) {
-            return {data_snapshot_t{}, snapshot_result_t::Snapshot_status::EMPTY};
+            return {Data_snapshot{}, snapshot_result_t::Snapshot_status::EMPTY};
         }
         return {snapshot, snapshot_result_t::Snapshot_status::READY};
     }
@@ -111,12 +111,12 @@ public:
     snapshot_result_t try_snapshot(size_t lod_level) override
     {
         if (lod_level >= 2) {
-            return {data_snapshot_t{}, snapshot_result_t::Snapshot_status::FAILED};
+            return {Data_snapshot{}, snapshot_result_t::Snapshot_status::FAILED};
         }
         ++snapshot_calls[lod_level];
         const auto& data = (lod_level == 0) ? lod0 : lod1;
         auto hold = std::make_shared<int>(21);
-        data_snapshot_t snapshot{
+        Data_snapshot snapshot{
             data.data(),
             data.size(),
             sizeof(Test_sample),
@@ -126,7 +126,7 @@ public:
             hold
         };
         if (data.empty()) {
-            return {data_snapshot_t{}, snapshot_result_t::Snapshot_status::EMPTY};
+            return {Data_snapshot{}, snapshot_result_t::Snapshot_status::EMPTY};
         }
         return {snapshot, snapshot_result_t::Snapshot_status::READY};
     }

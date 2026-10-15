@@ -30,7 +30,7 @@ using plot::Series_interpolation;
 using plot::data_config_t;
 using plot::data_query_context_t;
 using plot::data_query_result_t;
-using plot::data_snapshot_t;
+using plot::Data_snapshot;
 using plot::series_data_t;
 using plot::snapshot_result_t;
 using plot::value_range_t;
@@ -64,9 +64,9 @@ public:
     {
         ++snapshot_calls;
         if (lod_level >= levels) {
-            return {data_snapshot_t{}, snapshot_result_t::Snapshot_status::FAILED};
+            return {Data_snapshot{}, snapshot_result_t::Snapshot_status::FAILED};
         }
-        data_snapshot_t snapshot{
+        Data_snapshot snapshot{
             samples.data(),
             samples.size(),
             sizeof(Test_sample),
@@ -76,7 +76,7 @@ public:
             std::make_shared<int>(7)
         };
         if (samples.empty()) {
-            return {data_snapshot_t{}, snapshot_result_t::Snapshot_status::EMPTY};
+            return {Data_snapshot{}, snapshot_result_t::Snapshot_status::EMPTY};
         }
         return {snapshot, snapshot_result_t::Snapshot_status::READY};
     }
@@ -116,7 +116,7 @@ public:
     snapshot_result_t try_snapshot(std::size_t /*lod_level*/) override
     {
         ++snapshot_calls;
-        data_snapshot_t snapshot{
+        Data_snapshot snapshot{
             samples.data(),
             samples.size(),
             sizeof(Test_sample),
@@ -126,7 +126,7 @@ public:
             std::make_shared<int>(11)
         };
         if (samples.empty()) {
-            return {data_snapshot_t{}, snapshot_result_t::Snapshot_status::EMPTY};
+            return {Data_snapshot{}, snapshot_result_t::Snapshot_status::EMPTY};
         }
         return {snapshot, snapshot_result_t::Snapshot_status::READY};
     }

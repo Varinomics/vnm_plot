@@ -52,7 +52,7 @@ bool scan_global_series_range(
     float&                     out_min,
     float&                     out_max)
 {
-    data_snapshot_t snapshot = source.snapshot(level);
+    Data_snapshot snapshot = source.snapshot(level);
     if (!snapshot.is_valid()) {
         return false;
     }
@@ -268,12 +268,15 @@ bool query_or_scan_series_range(
     if (query_result.status == Data_query_status::UNSUPPORTED) {
         query_result = source.Data_source::query_v_range(level, query);
     }
-    if (query_result.status == Data_query_status::READY) {
-        if (!valid_query_range(query_result.value)) {
-            return false;
+    const bool ready = query_result.status == Data_query_status::READY;
+    if (ready || query_result.status == Data_query_status::EMPTY) {
+        if (ready) {
+            if (!valid_query_range(query_result.value)) {
+                return false;
+            }
+            out_min = query_result.value.min;
+            out_max = query_result.value.max;
         }
-        out_min = query_result.value.min;
-        out_max = query_result.value.max;
         if (!query.semantics_key.conservative && entries && query_result.sequence != 0) {
             (*entries)[series_id] = make_cache_entry(
                 source,
@@ -284,21 +287,7 @@ bool query_or_scan_series_range(
                 query_result.status,
                 query_result.value);
         }
-        return true;
-    }
-
-    if (query_result.status == Data_query_status::EMPTY) {
-        if (!query.semantics_key.conservative && entries && query_result.sequence != 0) {
-            (*entries)[series_id] = make_cache_entry(
-                source,
-                access,
-                level,
-                query,
-                query_result.sequence,
-                query_result.status,
-                query_result.value);
-        }
-        return false;
+        return ready;
     }
 
     if (query_result.status == Data_query_status::UNSUPPORTED && !visible_only) {

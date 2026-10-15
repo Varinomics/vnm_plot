@@ -1202,7 +1202,7 @@ void Series_renderer::prepare(
                 set_reuses_uploaded_geometry(
                     *members[i],
                     cache_hit && view_state.has_uploaded_vbo);
-                const data_snapshot_t snapshot = view_state.stack_cache_snapshot;
+                const Data_snapshot snapshot = view_state.stack_cache_snapshot;
                 if (main_validity) {
                     (*main_validity)[i].cumulative = snapshot;
                 }
@@ -2031,7 +2031,7 @@ bool Series_renderer::rhi_prepare_series_view_samples(
         view_state.rhi = std::make_unique<vbo_view_state_t::rhi_buffers_t>();
     }
 
-    const data_snapshot_t& snapshot = window.snapshot;
+    const Data_snapshot& snapshot = window.snapshot;
     const detail::erased_access_policy_t access_view = window.access
         ? detail::make_erased_access_policy_view(*window.access)
         : detail::erased_access_policy_t{};

@@ -60,7 +60,7 @@ struct Rendered_stack_source
     std::size_t            lod           = 0;
     std::uint64_t          sequence      = 0;
     Series_interpolation   interpolation = Series_interpolation::LINEAR;
-    data_snapshot_t        cumulative;
+    Data_snapshot          cumulative;
 };
 
 struct Rendered_stack_status
@@ -86,7 +86,7 @@ struct sample_window_t
     // Consumers receive a valid frame-scoped snapshot for drawable sample
     // windows. If the renderer cannot acquire one, it skips drawable windows
     // instead of passing empty data as drawable.
-    data_snapshot_t                        snapshot;
+    Data_snapshot                          snapshot;
     const Data_access_policy*              access            = nullptr;
 
     // Source window in `snapshot`, before synthetic draw-only samples.
@@ -135,7 +135,7 @@ struct value_range_plan_t
 
 struct Planned_snapshot
 {
-    data_snapshot_t            snapshot;
+    Data_snapshot              snapshot;
     std::uint64_t              sequence  = 0;
 };
 

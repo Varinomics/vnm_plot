@@ -313,7 +313,7 @@ std::vector<std::size_t> compute_lod_scales(const DataSourceT& data_source)
 // using a callback to extract timestamps. Assumes ascending timestamp order.
 
 // Core binary-search loop shared by lower_bound / upper_bound and by raw
-// strided / data_snapshot_t addressing. The Addr functor maps an index to a
+// strided / Data_snapshot addressing. The Addr functor maps an index to a
 // sample pointer; nullptr means malformed or torn input and fails the search.
 template<typename AddrFn, typename GetTimestampFn, typename Cmp>
 std::optional<std::size_t> bsearch_ts_impl(
@@ -365,10 +365,10 @@ std::size_t lower_bound_timestamp(
     return result.value_or(0);
 }
 
-// Overload for data_snapshot_t (supports segmented snapshots).
+// Overload for Data_snapshot (supports segmented snapshots).
 template<typename GetTimestampFn>
 std::size_t lower_bound_timestamp(
-    const data_snapshot_t& snapshot,
+    const Data_snapshot& snapshot,
     GetTimestampFn&&       get_timestamp,
     std::int64_t           t_ns)
 {
@@ -407,10 +407,10 @@ std::size_t upper_bound_timestamp(
     return result.value_or(0);
 }
 
-// Overload for data_snapshot_t (supports segmented snapshots).
+// Overload for Data_snapshot (supports segmented snapshots).
 template<typename GetTimestampFn>
 std::size_t upper_bound_timestamp(
-    const data_snapshot_t& snapshot,
+    const Data_snapshot& snapshot,
     GetTimestampFn&&       get_timestamp,
     std::int64_t           t_ns)
 {
@@ -446,7 +446,7 @@ struct visible_sample_window_t
 
 template<typename GetTimestampFn>
 visible_sample_window_t select_visible_sample_window(
-    const data_snapshot_t& snapshot,
+    const Data_snapshot& snapshot,
     GetTimestampFn&&       get_timestamp,
     std::int64_t           t_min_ns,
     std::int64_t           t_max_ns,
@@ -512,7 +512,7 @@ struct visible_sample_aggregate_t
 
 template<typename GetTimestampFn, typename GetRangeFn>
 visible_sample_aggregate_t aggregate_visible_sample_range(
-    const data_snapshot_t& snapshot,
+    const Data_snapshot& snapshot,
     GetTimestampFn&&       get_timestamp,
     GetRangeFn&&           get_range,
     std::int64_t           window_tmin_ns,
@@ -649,7 +649,7 @@ timestamp_bracket_t bracket_timestamp_impl(
 
 template<typename GetTimestampFn>
 timestamp_bracket_t bracket_timestamp(
-    const data_snapshot_t& snapshot,
+    const Data_snapshot& snapshot,
     GetTimestampFn&&       get_timestamp,
     std::int64_t           t_ns)
 {
