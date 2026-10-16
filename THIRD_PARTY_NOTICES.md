@@ -46,8 +46,9 @@ Compiled into the `function_plotter` example's Qt resources from
 draws its play, pause, close and add glyphs.
 
 License: SIL Open Font License 1.1.
-Local license text: `LICENSES/FontAwesome-7.2.0-OFL-1.1.txt`, the 7.2.0
-release's own licence file.
+The selected `vnm_fonts` input supplies Font Awesome 7.3.1.
+Local license text: `LICENSES/FontAwesome-7.2.0-OFL-1.1.txt`; its contents are
+byte-identical to the licence text supplied with 7.3.1.
 
 Copyright notice carried in the font:
 
