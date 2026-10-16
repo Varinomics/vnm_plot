@@ -43,9 +43,11 @@ The fonts come from [vnm_fonts](https://github.com/Varinomics/vnm_fonts): the
 monospace face `vnm_plot_rhi` embeds, and the icon face the function plotter
 example loads. A tree that has already added vnm_fonts publishes the verbatim
 files in `VNM_FONTS_DIRECTORY`, which is used as it stands. Otherwise CMake
-uses a sibling `../vnm_fonts` checkout when present and fetches the GitHub
-`master` branch when it is not. `FETCHCONTENT_SOURCE_DIR_VNM_FONTS` overrides
-that pair. Font licensing is described in
+uses a local checkout found by `vnm_cmake`'s workspace discovery (beside this
+one or in the adjacent `bsd_licensed` or `varinomics` directory; a linked
+worktree resolves from its Git common directory) and fetches the GitHub
+`master` branch when none exists. `FETCHCONTENT_SOURCE_DIR_VNM_FONTS` overrides
+that discovery. Font licensing is described in
 [third-party notices](../THIRD_PARTY_NOTICES.md).
 
 ## Components and headers
