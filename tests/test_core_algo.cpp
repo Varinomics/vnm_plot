@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -157,14 +158,14 @@ bool test_decimal_precision_helpers_reject_invalid_scaled_values()
     const double upper = 0x1p63;
     const double below_upper = std::nextafter(upper, 0.0);
     const double below_lower = std::nextafter(-upper, -std::numeric_limits<double>::infinity());
-    TEST_ASSERT(plot::format_axis_fixed_or_int(upper, 0) == "0",
-        "the positive int64 endpoint is excluded even with binary64 long double");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(upper, 0) == "9.223372036854776e+18",
+        "the positive int64 endpoint is excluded from integer text even with binary64 long double");
     TEST_ASSERT(plot::format_axis_fixed_or_int(-upper, 0) == "-9223372036854775808",
         "the negative int64 endpoint is representable");
     TEST_ASSERT(plot::format_axis_fixed_or_int(below_upper, 0) == "9223372036854774784",
         "the nearest double below the upper endpoint is representable");
-    TEST_ASSERT(plot::format_axis_fixed_or_int(below_lower, 0) == "0",
-        "values below the negative endpoint are rejected");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(below_lower, 0) == "-9.223372036854778e+18",
+        "values below the negative endpoint use general notation instead of integer text");
     TEST_ASSERT(!plot::detail::trailing_zero_decimal_for_all({upper / 10.0}, 1),
         "decimal analysis must not convert the positive int64 endpoint");
     TEST_ASSERT(plot::detail::trailing_zero_decimal_for_all({12.0, -7.0}, 1),
@@ -617,8 +618,54 @@ bool test_format_axis_fixed_or_int()
     TEST_ASSERT(plot::format_axis_fixed_or_int(1.234, 2) == "1.23", "fixed 2 digits");
     TEST_ASSERT(plot::format_axis_fixed_or_int(-0.0001, 2) == "0.00",
         "near-zero negative value should format as 0.00");
-    TEST_ASSERT(plot::format_axis_fixed_or_int(std::numeric_limits<double>::max(), 1) == "0",
-        "finite values that overflow fixed rounding should use the invalid-value label");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(std::numeric_limits<double>::max(), 1) ==
+            "1.7976931348623157e+308",
+        "finite values that overflow fixed rounding should keep their magnitude");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(1e300, 10) == "1e+300",
+        "a value whose scaled form overflows keeps its magnitude");
+    return true;
+}
+
+bool test_format_axis_fixed_or_int_keeps_values_beyond_int64()
+{
+    TEST_ASSERT(plot::format_axis_fixed_or_int(1e20, 0) == "1e+20",
+        "a value beyond int64 must not be labelled zero");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(-1e20, 0) == "-1e+20",
+        "a negative value beyond int64 must not be labelled zero");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(1e23, 0) == "1e+23",
+        "decade ticks must not show representation noise");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(3e25, 0) == "3e+25",
+        "mantissa digits must be the shortest that round-trip");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(1.5e19, 0) == "1.5e+19",
+        "a fractional mantissa must be kept");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(0x1p63, 0) == "9.223372036854776e+18",
+        "2^63 is the first value outside the integer text range");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(-0x1p63, 0) == "-9223372036854775808",
+        "-2^63 is the last value inside the integer text range");
+
+    // Distinct doubles beyond int64 must give distinct text that reads back
+    // as the same double.
+    const double inf = std::numeric_limits<double>::infinity();
+    for (const double base : {0x1p63, -0x1p63, 1e20, -1e20, 1e30, 0x1p100}) {
+        const double up   = std::nextafter(base, inf);
+        const double down = std::nextafter(base, -inf);
+        const std::string labels[3] = {
+            plot::format_axis_fixed_or_int(down, 0),
+            plot::format_axis_fixed_or_int(base, 0),
+            plot::format_axis_fixed_or_int(up, 0)};
+        const double values[3] = {down, base, up};
+        TEST_ASSERT(labels[0] != labels[1] && labels[1] != labels[2] && labels[0] != labels[2],
+            "adjacent doubles must keep distinct labels");
+        for (int i = 0; i < 3; ++i) {
+            TEST_ASSERT(labels[i] != "0" && std::strtod(labels[i].c_str(), nullptr) == values[i],
+                "a label must read back as the double it was made from");
+        }
+    }
+
+    TEST_ASSERT(plot::format_axis_fixed_or_int(1234567.0, 0) == "1234567" &&
+        plot::format_axis_fixed_or_int(-42.0, 0) == "-42" &&
+        plot::format_axis_fixed_or_int(2.5, 3) == "2.500",
+        "ordinary values keep their labels");
     return true;
 }
 
@@ -1433,6 +1480,7 @@ int main()
     RUN_TEST(test_snapshot_count1_clamps_malformed_count2);
     RUN_TEST(test_layout_cache_key_distinguishes_adjacent_int64_time_windows);
     RUN_TEST(test_format_axis_fixed_or_int);
+    RUN_TEST(test_format_axis_fixed_or_int_keeps_values_beyond_int64);
     RUN_TEST(test_default_timestamp_precision_follows_step);
     RUN_TEST(test_default_elapsed_time_distinguishes_day_boundaries);
     RUN_TEST(test_duration_format_preserves_full_nanosecond_domain);

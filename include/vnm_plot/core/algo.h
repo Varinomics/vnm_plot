@@ -15,6 +15,7 @@
 #include "types.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -40,12 +41,23 @@ inline std::string format_axis_fixed_or_int(double v, int digits)
         return "0";
     }
 
+    // Finite values the integer or fixed text cannot represent keep their
+    // magnitude: the shortest scientific text that reads back as the same
+    // double, such as "1e+20". Labelling them "0" would make distinct ticks
+    // look equal and be merged.
+    const auto general = [v]() {
+        char buffer[32];
+        const auto result =
+            std::to_chars(buffer, buffer + sizeof(buffer), v, std::chars_format::scientific);
+        return std::string(buffer, result.ptr);
+    };
+
     if (digits <= 0) {
         const double rounded = std::round(v);
         // The upper endpoint is exclusive and exactly representable, including
         // when long double has no more precision than double.
         if (rounded < -0x1p63 || rounded >= 0x1p63) {
-            return "0";
+            return general();
         }
         const std::int64_t iv = static_cast<std::int64_t>(rounded);
         if (iv == 0) {
@@ -56,14 +68,14 @@ inline std::string format_axis_fixed_or_int(double v, int digits)
 
     const double scale = std::pow(10.0, double(digits));
     if (!std::isfinite(scale) || scale <= 0.0) {
-        return "0";
+        return general();
     }
     const long double scale_ld = static_cast<long double>(scale);
     const long double scaled   = static_cast<long double>(v) * scale_ld;
     if (!std::isfinite(scaled) ||
         std::abs(scaled) > static_cast<long double>(std::numeric_limits<double>::max()))
     {
-        return "0";
+        return general();
     }
 
     const long double rounded_scaled = std::round(scaled);
@@ -71,7 +83,7 @@ inline std::string format_axis_fixed_or_int(double v, int digits)
     if (!std::isfinite(rounded) ||
         std::abs(rounded) > static_cast<long double>(std::numeric_limits<double>::max()))
     {
-        return "0";
+        return general();
     }
 
     double       r   = static_cast<double>(rounded);

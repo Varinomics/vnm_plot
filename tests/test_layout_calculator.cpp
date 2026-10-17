@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -552,6 +553,36 @@ bool test_vertical_axis_suppresses_only_consecutive_equal_text()
     return true;
 }
 
+bool test_default_vertical_labels_beyond_int64_are_not_collapsed()
+{
+    std::vector<Recorded_call> recorded;
+    auto params = make_minimal_params(0LL, 60LL * k_ns_per_second, recorded);
+
+    // Every tick above 2^63 used to be labelled "0" and the equal texts were
+    // then merged into one label.
+    params.v_min = 5e18f;
+    params.v_max = 2e19f;
+
+    plot::Layout_calculator calc;
+    const auto result = calc.calculate(params);
+
+    std::size_t beyond_int64 = 0;
+    for (std::size_t i = 0; i < result.v_labels.size(); ++i) {
+        const auto& label = result.v_labels[i];
+        TEST_ASSERT(std::strtod(label.text.c_str(), nullptr) == label.value,
+            "every default vertical label must read back as its tick value");
+        beyond_int64 += label.value >= 0x1p63 ? 1 : 0;
+        if (i > 0) {
+            TEST_ASSERT(result.v_labels[i - 1].text != label.text,
+                "distinct ticks must keep distinct labels");
+        }
+    }
+    TEST_ASSERT(beyond_int64 >= 3,
+        "the ticks above 2^63 must all be retained");
+
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -572,6 +603,7 @@ int main()
     RUN_TEST(test_vertical_labels_keep_dense_level_when_glyphs_fit);
     RUN_TEST(test_default_small_vertical_layout_labels_are_distinct);
     RUN_TEST(test_vertical_axis_suppresses_only_consecutive_equal_text);
+    RUN_TEST(test_default_vertical_labels_beyond_int64_are_not_collapsed);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;
