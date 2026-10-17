@@ -150,6 +150,26 @@ bool test_get_shift_handles_invalid_inputs()
 
 bool test_decimal_precision_helpers_reject_invalid_scaled_values()
 {
+    // 2^63 is the first double above the int64 range. INT64_MAX itself is not a
+    // double, so a long double comparison against it is exact only where long
+    // double is wider than double; the expectations below hold on every
+    // platform.
+    const double upper = 0x1p63;
+    const double below_upper = std::nextafter(upper, 0.0);
+    const double below_lower = std::nextafter(-upper, -std::numeric_limits<double>::infinity());
+    TEST_ASSERT(plot::format_axis_fixed_or_int(upper, 0) == "0",
+        "the positive int64 endpoint is excluded even with binary64 long double");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(-upper, 0) == "-9223372036854775808",
+        "the negative int64 endpoint is representable");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(below_upper, 0) == "9223372036854774784",
+        "the nearest double below the upper endpoint is representable");
+    TEST_ASSERT(plot::format_axis_fixed_or_int(below_lower, 0) == "0",
+        "values below the negative endpoint are rejected");
+    TEST_ASSERT(!plot::detail::trailing_zero_decimal_for_all({upper / 10.0}, 1),
+        "decimal analysis must not convert the positive int64 endpoint");
+    TEST_ASSERT(plot::detail::trailing_zero_decimal_for_all({12.0, -7.0}, 1),
+        "ordinary trailing-zero detection is unchanged");
+
     const double inf = std::numeric_limits<double>::infinity();
     const double nan = std::numeric_limits<double>::quiet_NaN();
 

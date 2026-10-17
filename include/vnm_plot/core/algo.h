@@ -41,11 +41,10 @@ inline std::string format_axis_fixed_or_int(double v, int digits)
     }
 
     if (digits <= 0) {
-        const double      rounded    = std::round(v);
-        const long double rounded_ld = static_cast<long double>(rounded);
-        if (rounded_ld < static_cast<long double>(std::numeric_limits<std::int64_t>::min()) ||
-            rounded_ld > static_cast<long double>(std::numeric_limits<std::int64_t>::max()))
-        {
+        const double rounded = std::round(v);
+        // The upper endpoint is exclusive and exactly representable, including
+        // when long double has no more precision than double.
+        if (rounded < -0x1p63 || rounded >= 0x1p63) {
             return "0";
         }
         const std::int64_t iv = static_cast<std::int64_t>(rounded);
@@ -152,14 +151,11 @@ inline bool trailing_zero_decimal_for_all(const std::vector<double>& values, int
 
     const double scale = std::pow(10.0, double(digits));
     for (double v : values) {
-        const double scaled = std::abs(v) * scale;
-        if (!std::isfinite(scaled) ||
-            static_cast<long double>(scaled) >
-                static_cast<long double>(std::numeric_limits<std::int64_t>::max()))
-        {
+        const double rounded = std::round(std::abs(v) * scale);
+        if (!std::isfinite(rounded) || rounded >= 0x1p63) {
             return false;
         }
-        const std::int64_t q = static_cast<std::int64_t>(std::round(scaled));
+        const std::int64_t q = static_cast<std::int64_t>(rounded);
         if ((q % 10) != 0) {
             return false;
         }
