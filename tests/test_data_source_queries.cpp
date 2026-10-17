@@ -292,6 +292,41 @@ bool test_step_after_draw_nothing_includes_visible_held_sample()
     return true;
 }
 
+bool test_step_after_duplicate_timestamp_uses_last_candidate()
+{
+    const auto access = make_value_access();
+    Query_source source({{0, 100.0f}, {0, 200.0f}, {10, 300.0f}});
+    for (const auto behavior : {plot::Empty_window_behavior::DRAW_NOTHING,
+                               plot::Empty_window_behavior::HOLD_LAST_FORWARD}) {
+        auto query = make_hold_query(access, 4, 6);
+        query.empty_window_behavior = behavior;
+        const auto result = source.query_v_range(0, query);
+        TEST_ASSERT(result.status == plot::Data_query_status::READY &&
+            result.value.min == 200.0f && result.value.max == 200.0f,
+            "the final sample at a duplicate timestamp supplies the visible held step");
+    }
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    Query_source nonfinite({{0, 100.0f}, {0, nan}, {10, 300.0f}});
+    auto query = make_hold_query(access, 4, 6);
+    TEST_ASSERT(nonfinite.query_v_range(0, query).status == plot::Data_query_status::EMPTY,
+        "a later nonfinite duplicate must break the earlier held step");
+    query.nonfinite_policy = plot::Nonfinite_sample_policy::SKIP;
+    const auto skipped = nonfinite.query_v_range(0, query);
+    TEST_ASSERT(skipped.status == plot::Data_query_status::READY &&
+        skipped.value.min == 100.0f && skipped.value.max == 100.0f,
+        "SKIP must retain the drawable duplicate before a nonfinite one");
+    query.nonfinite_policy = plot::Nonfinite_sample_policy::REPLACE_WITH_ZERO;
+    const auto replaced = nonfinite.query_v_range(0, query);
+    TEST_ASSERT(replaced.status == plot::Data_query_status::READY &&
+        replaced.value.min == 0.0f && replaced.value.max == 0.0f,
+        "REPLACE_WITH_ZERO must replace the held value with the final duplicate");
+    query.nonfinite_policy = plot::Nonfinite_sample_policy::REJECT_WINDOW;
+    TEST_ASSERT(nonfinite.query_v_range(0, query).status == plot::Data_query_status::FAILED,
+        "REJECT_WINDOW must inspect the final duplicate held into the window");
+    return true;
+}
+
 bool test_hold_forward_value_range_includes_pre_window_sample()
 {
     Query_source source(
@@ -420,6 +455,7 @@ int main()
     RUN_TEST(test_busy_and_failed_snapshot_status_map_through_queries);
     RUN_TEST(test_nonfinite_values_are_skipped_or_zeroed_by_policy);
     RUN_TEST(test_step_after_draw_nothing_includes_visible_held_sample);
+    RUN_TEST(test_step_after_duplicate_timestamp_uses_last_candidate);
     RUN_TEST(test_hold_forward_value_range_includes_pre_window_sample);
     RUN_TEST(test_hold_forward_value_range_ready_from_held_sample_only);
     RUN_TEST(test_hold_forward_does_not_use_nonfinite_break_segment_sample);

@@ -124,7 +124,7 @@ bool scan_value_range(
         }
 
         if (step_after && before_window &&
-            has_held_candidate && timestamp_ns <= held_timestamp_ns)
+            has_held_candidate && timestamp_ns < held_timestamp_ns)
         {
             continue;
         }

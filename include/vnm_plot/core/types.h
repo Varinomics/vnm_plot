@@ -716,6 +716,8 @@ public:
     /// the drawable value held in from before its left edge when a following
     /// sample exists, even if that sample is beyond the right edge. With no
     /// following sample, only HOLD_LAST_FORWARD extends the last value.
+    /// Later samples in storage order resolve timestamp ties, subject to the
+    /// nonfinite policy.
     /// Overrides must apply the query's nonfinite policy to held values too.
     virtual data_query_result_t<value_range_t> query_v_range(
         std::size_t                    lod,
