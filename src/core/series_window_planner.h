@@ -31,6 +31,7 @@ struct series_window_planner_state_t
     std::uint64_t              last_sequence                       = 0;
     const void*                cached_data_identity                = nullptr;
     std::uint64_t              last_timestamp_order_sequence       = 0;
+    std::size_t                last_timestamp_order_lod_level      = 0;
     const void*                last_timestamp_order_identity       = nullptr;
     access_policy_cache_key_t  last_timestamp_order_access_key;
     bool                       last_timestamp_order_scan_performed = false;

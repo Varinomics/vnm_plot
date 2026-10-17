@@ -391,8 +391,11 @@ Series_view_plan plan_series_window(const series_window_plan_request_t& request)
             state.last_synthetic_hold_count = 0;
             state.last_drawable_spans.clear();
             state.last_hold_last_forward    = false;
-            state.last_timestamps_monotonic = true;
             plan.snapshot.sequence          = snapshot_result.snapshot.sequence;
+
+            // The empty snapshot replaces the verdict, invalidating the revision it described.
+            state.last_timestamp_order_sequence = 0;
+            state.last_timestamps_monotonic     = true;
         }
 
         if (!snapshot_result) {
@@ -415,6 +418,7 @@ Series_view_plan plan_series_window(const series_window_plan_request_t& request)
             const bool need_monotonicity_scan =
                 snapshot.sequence == 0 ||
                 state.last_timestamp_order_sequence   != snapshot.sequence ||
+                state.last_timestamp_order_lod_level  != applied_level     ||
                 state.last_timestamp_order_identity   != current_identity  ||
                 state.last_timestamp_order_access_key != access_key;
             if (need_monotonicity_scan) {
@@ -435,6 +439,7 @@ Series_view_plan plan_series_window(const series_window_plan_request_t& request)
                     prev_ts = ts;
                 }
                 state.last_timestamp_order_sequence   = snapshot.sequence;
+                state.last_timestamp_order_lod_level  = applied_level;
                 state.last_timestamp_order_identity   = current_identity;
                 state.last_timestamp_order_access_key = access_key;
                 state.last_timestamps_monotonic       = is_monotonic;

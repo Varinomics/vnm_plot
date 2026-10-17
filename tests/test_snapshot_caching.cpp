@@ -991,6 +991,74 @@ bool test_lod_selection_has_no_hysteresis()
     return true;
 }
 
+bool test_lod_snapshots_with_equal_revisions_validate_order_separately()
+{
+    Two_level_source source;
+    fill_lod_samples(source);
+    source.lod1[1].t = -4;
+
+    const Data_access_policy       access = make_policy();
+    const std::vector<std::size_t> scales = {1, 4};
+    plot::detail::series_window_planner_state_t state;
+    plot::detail::Series_window_snapshot_cache cache;
+
+    const auto wide_plan = plan_two_level_lod_width(
+        source, access, scales, state, cache, 1, 50.0);
+    TEST_ASSERT(wide_plan.lod_level == 0 && wide_plan.gpu_count > 0 &&
+        state.last_timestamps_monotonic,
+        "the ordered full-resolution snapshot should draw");
+
+    const auto narrow_plan = plan_two_level_lod_width(
+        source, access, scales, state, cache, 2, 39.0);
+    TEST_ASSERT(narrow_plan.gpu_count == 0 && !state.last_timestamps_monotonic,
+        "a decreasing coarse snapshot must be rejected even when its revision "
+        "equals the ordered full-resolution snapshot's revision");
+
+    const auto rewide_plan = plan_two_level_lod_width(
+        source, access, scales, state, cache, 3, 50.0);
+    TEST_ASSERT(rewide_plan.lod_level == 0 && rewide_plan.gpu_count > 0 &&
+        state.last_timestamps_monotonic,
+        "the ordered full-resolution snapshot must not inherit another LOD's rejection");
+    return true;
+}
+
+bool test_empty_lod_cannot_clear_fallback_order_rejection()
+{
+    Two_level_source source;
+    fill_lod_samples(source);
+
+    const Data_access_policy       access = make_policy();
+    const std::vector<std::size_t> scales = {1, 4};
+    plot::detail::series_window_planner_state_t state;
+    plot::detail::Series_window_snapshot_cache cache;
+
+    const auto initial_plan = plan_two_level_lod_width(
+        source, access, scales, state, cache, 1, 39.0);
+    TEST_ASSERT(initial_plan.lod_level == 1 && initial_plan.gpu_count > 0,
+        "the initial narrow view should draw the coarse snapshot");
+
+    source.lod1.clear();
+    ++source.sequences[1];
+    source.lod0[1].t = -1;
+    ++source.sequences[0];
+    for (std::uint64_t frame_id = 2; frame_id <= 3; ++frame_id) {
+        const auto plan = plan_two_level_lod_width(
+            source, access, scales, state, cache, frame_id, 39.0);
+        TEST_ASSERT(plan.gpu_count == 0 && !state.last_timestamps_monotonic,
+            "an empty coarse snapshot must not clear the unchanged fallback "
+            "snapshot's timestamp-order rejection on a later frame");
+    }
+
+    source.lod0[1].t = 1;
+    ++source.sequences[0];
+    const auto restored_plan = plan_two_level_lod_width(
+        source, access, scales, state, cache, 4, 39.0);
+    TEST_ASSERT(restored_plan.lod_level == 0 && restored_plan.gpu_count > 0 &&
+        state.last_timestamps_monotonic,
+        "the fallback snapshot should draw again once its timestamp order is restored");
+    return true;
+}
+
 bool test_stacking_composes_different_timestamps_from_independent_lods()
 {
     Two_level_source lower_source;
@@ -2163,6 +2231,8 @@ int main()
     RUN_TEST(test_preview_honors_hold_last_forward);
     RUN_TEST(test_lod_level_separation);
     RUN_TEST(test_lod_selection_has_no_hysteresis);
+    RUN_TEST(test_lod_snapshots_with_equal_revisions_validate_order_separately);
+    RUN_TEST(test_empty_lod_cannot_clear_fallback_order_rejection);
     RUN_TEST(test_stacking_composes_different_timestamps_from_independent_lods);
     RUN_TEST(test_stacking_interpolates_sub_256ns_epoch_intervals);
     RUN_TEST(test_stacking_cursor_matches_equivalent_source_representations);
