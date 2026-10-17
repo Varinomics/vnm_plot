@@ -16,25 +16,10 @@ class Profiler;
 
 namespace detail {
 
-// Timestamp ordering observed in snapshots and selected stack inputs.
-enum class Time_order
-{
-    UNKNOWN,
-    ASCENDING,
-    DESCENDING,
-};
-
 enum class Snapshot_requirement
 {
     Optional,
     Frame_snapshot_required
-};
-
-enum class Timestamp_window_search
-{
-    NONE,
-    BINARY,
-    LINEAR,
 };
 
 struct series_window_planner_state_t
@@ -51,9 +36,11 @@ struct series_window_planner_state_t
     bool                       last_timestamp_order_scan_performed = false;
     std::size_t                last_timestamp_order_scan_samples   = 0;
     bool                       last_timestamps_monotonic           = true;
-    Time_order                 last_selected_time_order            = Time_order::UNKNOWN;
-    Timestamp_window_search last_timestamp_window_search =
-        Timestamp_window_search::NONE;
+    // First decrease the order scan found: its sample index and the timestamps
+    // before and at it. Meaningful while last_timestamps_monotonic is false.
+    std::size_t                last_timestamp_decrease_index       = 0;
+    std::int64_t               last_timestamp_decrease_from_ns     = 0;
+    std::int64_t               last_timestamp_decrease_to_ns       = 0;
     access_dispatch_kind_t last_access_dispatch_kind =
         access_dispatch_kind_t::NONE;
     access_policy_cache_key_t  last_access_key;
@@ -144,13 +131,6 @@ std::size_t stack_timestamp_budget(
 // order and contain cumulative tops plus bases.
 Stack_rejection_reason compose_stacked_series(
     const std::vector<const Series_view_plan*>&    plans,
-    std::vector<std::vector<stacked_sample_t>>&    layers,
-    std::size_t                                    timestamp_budget,
-    stack_composition_stats_t*                     stats = nullptr);
-
-Stack_rejection_reason compose_stacked_series(
-    const std::vector<const Series_view_plan*>&    plans,
-    const std::vector<Time_order>&                 selected_time_orders,
     std::vector<std::vector<stacked_sample_t>>&    layers,
     std::size_t                                    timestamp_budget,
     stack_composition_stats_t*                     stats = nullptr);

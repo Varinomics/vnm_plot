@@ -1632,6 +1632,89 @@ bool test_nonfinite_reject_window_invalidates_prior_upload_before_busy()
     return true;
 }
 
+bool test_unordered_snapshot_draws_nothing_and_does_not_resurrect_prior_upload()
+{
+    constexpr std::int64_t k_second_ns = 1'000'000'000LL;
+
+    auto source = std::make_shared<Test_source>();
+    source->set_samples({
+        { 0LL,               1.0f},
+        { 1LL * k_second_ns, 2.0f},
+        { 2LL * k_second_ns, 3.0f}
+    });
+
+    auto series = std::make_shared<plot::series_data_t>();
+    series->style       = plot::Display_style::DOTS;
+    series->data_source = source;
+    series->access      = make_access_policy();
+
+    std::map<int, std::shared_ptr<const plot::series_data_t>> series_map;
+    const int series_id = 105;
+    series_map[series_id] = series;
+
+    plot::Asset_loader asset_loader;
+    plot::Test_series_renderer renderer;
+    renderer.initialize(asset_loader);
+
+    Offscreen_rhi_fixture rhi_fixture;
+    std::string error_message;
+    TEST_ASSERT(rhi_fixture.initialize(error_message), error_message);
+
+    std::vector<layer_event_t> events;
+    plot::Plot_config config;
+    const plot::frame_layout_result_t layout = make_layout();
+    plot::frame_context_t ctx = make_context(layout, config);
+    ctx.t0                                   = 0;
+    ctx.t1                                   = 2LL * k_second_ns;
+    ctx.t_available_min                      = ctx.t0;
+    ctx.t_available_max                      = ctx.t1;
+
+    TEST_ASSERT(
+        rhi_fixture.render_layer_frame(renderer, ctx, series_map, events, error_message),
+        error_message);
+    auto state_it = renderer.m_vbo_states.find(series_id);
+    TEST_ASSERT(state_it != renderer.m_vbo_states.end(),
+        "expected renderer VBO state for unordered snapshot test");
+    TEST_ASSERT(state_it->second.main_view.has_uploaded_vbo &&
+        !renderer.m_last_recorded_draw_z_orders.empty(),
+        "an ordered snapshot should upload and draw");
+
+    source->set_samples({
+        { 0LL,               1.0f},
+        { 2LL * k_second_ns, 3.0f},
+        { 1LL * k_second_ns, 2.0f}
+    });
+    TEST_ASSERT(
+        rhi_fixture.render_layer_frame(renderer, ctx, series_map, events, error_message),
+        error_message);
+    TEST_ASSERT(!state_it->second.main_view.has_uploaded_vbo,
+        "a snapshot whose timestamps decrease must invalidate the previous upload");
+    TEST_ASSERT(renderer.m_last_recorded_draw_z_orders.empty(),
+        "a snapshot whose timestamps decrease must not be drawn");
+
+    source->return_busy_once();
+    TEST_ASSERT(
+        rhi_fixture.render_layer_frame(renderer, ctx, series_map, events, error_message),
+        error_message);
+    TEST_ASSERT(!state_it->second.main_view.has_uploaded_vbo &&
+        renderer.m_last_recorded_draw_z_orders.empty(),
+        "BUSY after an unordered snapshot must not resurrect the earlier upload");
+
+    source->set_samples({
+        { 0LL,               1.0f},
+        { 1LL * k_second_ns, 2.0f},
+        { 2LL * k_second_ns, 3.0f}
+    });
+    TEST_ASSERT(
+        rhi_fixture.render_layer_frame(renderer, ctx, series_map, events, error_message),
+        error_message);
+    TEST_ASSERT(state_it->second.main_view.has_uploaded_vbo &&
+        !renderer.m_last_recorded_draw_z_orders.empty(),
+        "the series should draw again once its snapshot is ordered");
+
+    return true;
+}
+
 bool test_custom_layer_zero_gpu_window_invalidates_prior_upload_before_busy()
 {
     constexpr std::int64_t k_second_ns = 1'000'000'000LL;
@@ -3865,6 +3948,7 @@ int main()
     RUN_TEST(test_nonfinite_replace_with_zero_keeps_contiguous_span);
     RUN_TEST(test_nonfinite_reject_window_suppresses_drawable_upload);
     RUN_TEST(test_nonfinite_reject_window_invalidates_prior_upload_before_busy);
+    RUN_TEST(test_unordered_snapshot_draws_nothing_and_does_not_resurrect_prior_upload);
     RUN_TEST(test_custom_layer_zero_gpu_window_invalidates_prior_upload_before_busy);
     RUN_TEST(test_non_drawable_window_invalidates_prior_upload_before_fast_path);
     RUN_TEST(test_non_rhi_prepare_invalidates_prior_upload_before_fast_path);

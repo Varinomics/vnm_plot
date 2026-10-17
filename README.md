@@ -69,6 +69,10 @@ auto series = vnm::plot::Series_builder()
 plot_widget->add_series(0, series);
 ```
 
+Sample timestamps must be non-decreasing in snapshot order;
+[Using vnm_plot](docs/usage.md#data-sources-and-snapshots) states the
+data-source contract.
+
 The widget renders on Qt's RHI render thread. Keep registered series
 configuration immutable, replace it with `add_series` when it changes, and
 make data sources safe to read from that thread.

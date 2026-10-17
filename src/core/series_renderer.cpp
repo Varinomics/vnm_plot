@@ -26,7 +26,6 @@
 
 namespace vnm::plot {
 using detail::choose_origin_ns;
-using detail::Time_order;
 using detail::k_scissor_pad_px;
 using detail::positive_span_ns_for_signed_api;
 
@@ -63,6 +62,21 @@ const char* stack_rejection_reason_text(Stack_rejection_reason reason)
         case Stack_rejection_reason::OUTPUT_LIMIT:            return "output limit";
     }
     return "unknown";
+}
+
+std::string timestamp_order_message(
+    int                                          series_id,
+    const char*                                  view_name,
+    const detail::series_window_planner_state_t& planner)
+{
+    return
+        "Series " + std::to_string(series_id) + " is not drawn in the " + view_name +
+        " view: its timestamps decrease from " +
+        std::to_string(planner.last_timestamp_decrease_from_ns) + " ns at sample " +
+        std::to_string(planner.last_timestamp_decrease_index - 1u) + " to " +
+        std::to_string(planner.last_timestamp_decrease_to_ns) + " ns at sample " +
+        std::to_string(planner.last_timestamp_decrease_index) +
+        ". A data source must provide samples in non-decreasing timestamp order.";
 }
 
 std::vector<std::size_t> source_lod_scales(const Data_source& source)
@@ -965,6 +979,22 @@ void Series_renderer::prepare(
             preview_plan.window_alpha = static_cast<float>(preview_visibility);
         }
 
+        const bool main_unordered =
+            !vbo_state.main_view.planner->last_timestamps_monotonic;
+        const bool preview_unordered =
+            preview_visible && preview_valid &&
+            !vbo_state.preview_view.planner->last_timestamps_monotonic;
+        if (!main_unordered && !preview_unordered) {
+            vbo_state.timestamp_order_reported = false;
+        }
+        else
+        if (!vbo_state.timestamp_order_reported && ctx.config && ctx.config->log_error) {
+            vbo_state.timestamp_order_reported = true;
+            ctx.config->log_error(main_unordered
+                ? timestamp_order_message(id, "main", *vbo_state.main_view.planner)
+                : timestamp_order_message(id, "preview", *vbo_state.preview_view.planner));
+        }
+
         series_draw_state_t draw_state;
         draw_state.id           = id;
         draw_state.series_order = next_series_order++;
@@ -1030,21 +1060,18 @@ void Series_renderer::prepare(
             published.sources.reserve(members.size());
             std::vector<const Series_view_plan*> plans;
             plans.reserve(members.size());
-            std::vector<Time_order> selected_time_orders;
-            selected_time_orders.reserve(members.size());
             std::size_t input_samples = 0;
             std::vector<std::uint64_t> cache_key;
             cache_key.reserve(members.size() * 22u + 2u);
             bool cacheable = true;
+            bool unordered = false;
             for (auto* member : members) {
                 const Series_view_plan* plan = view_kind == Series_view_kind::MAIN
                     ? &member->main_plan
                     : &member->preview_plan;
                 plans.push_back(plan);
-                const auto& view_state = view_state_for(*member);
-                selected_time_orders.push_back(view_state.planner
-                    ? view_state.planner->last_selected_time_order
-                    : Time_order::UNKNOWN);
+                unordered = unordered ||
+                    !view_state_for(*member).planner->last_timestamps_monotonic;
                 published.status.affected_series_ids.push_back(member->id);
                 const std::uint64_t attempt_sequence = plan->snapshot.sequence != 0
                     ? plan->snapshot.sequence
@@ -1125,11 +1152,11 @@ void Series_renderer::prepare(
                 });
             std::vector<std::vector<detail::stacked_sample_t>> layers;
             detail::stack_composition_stats_t composition_stats;
-            const Stack_rejection_reason rejection = cache_hit
-                ? Stack_rejection_reason::NONE
-                : detail::compose_stacked_series(
+            const Stack_rejection_reason rejection =
+                unordered ? Stack_rejection_reason::NONMONOTONIC_TIMESTAMPS :
+                cache_hit ? Stack_rejection_reason::NONE                    :
+                detail::compose_stacked_series(
                     plans,
-                    selected_time_orders,
                     layers,
                     timestamp_budget,
                     &composition_stats);

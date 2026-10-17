@@ -181,6 +181,9 @@ private:
     struct vbo_state_t
     {
         int                stack_group = 0;
+        // Set while a timestamp-order violation of this series has been
+        // reported, so one episode produces one log_error message.
+        bool               timestamp_order_reported = false;
         vbo_view_state_t   main_view;
         vbo_view_state_t   preview_view;
         std::unique_ptr<detail::Series_window_snapshot_cache>

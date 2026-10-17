@@ -151,26 +151,6 @@ bool test_ready_value_range_scan_populates_sequence()
     return true;
 }
 
-bool test_unordered_value_range_aggregates_discontiguous_matches()
-{
-    Query_source source(
-        {
-            { 0,   1.0f   },
-            { 100, 100.0f },
-            { 5,   2.0f   },
-            });
-
-    const plot::Data_access_policy access = make_value_access();
-    const auto result = source.query_v_range(0, make_query(access, 0, 10));
-
-    TEST_ASSERT(result.status == plot::Data_query_status::READY,
-        "unordered value-range query should aggregate discontiguous matches");
-    TEST_ASSERT(result.value.min == 1.0f && result.value.max == 2.0f,
-        "unordered value-range query should exclude out-of-window gap samples");
-
-    return true;
-}
-
 bool test_empty_status_for_empty_snapshot_and_no_matches()
 {
     const plot::Data_access_policy access = make_value_access();
@@ -264,31 +244,24 @@ bool test_nonfinite_values_are_skipped_or_zeroed_by_policy()
 bool test_step_after_draw_nothing_includes_visible_held_sample()
 {
     const auto access = make_value_access();
-    for (const bool descending : {false, true})
-    {
-        std::vector<sample_t> samples = {{0, 5.0f}, {10, 1.0f}};
-        if (descending) {
-            std::reverse(samples.begin(), samples.end());
-        }
-        Query_source source(std::move(samples));
-        auto query = make_draw_query(access, 5, 15);
-        query.interpolation = plot::Series_interpolation::STEP_AFTER;
-        const auto range = source.query_v_range(0, query);
-        TEST_ASSERT(range.status == plot::Data_query_status::READY &&
-            range.value.min == 1.0f && range.value.max == 5.0f,
-            "STEP_AFTER range must include the step drawn from the left window edge");
+    Query_source source({{0, 5.0f}, {10, 1.0f}});
+    auto query = make_draw_query(access, 5, 15);
+    query.interpolation = plot::Series_interpolation::STEP_AFTER;
+    const auto range = source.query_v_range(0, query);
+    TEST_ASSERT(range.status == plot::Data_query_status::READY &&
+        range.value.min == 1.0f && range.value.max == 5.0f,
+        "STEP_AFTER range must include the step drawn from the left window edge");
 
-        query.time_window = {5, 9};
-        const auto between = source.query_v_range(0, query);
-        TEST_ASSERT(between.status == plot::Data_query_status::READY &&
-            between.value.min == 5.0f && between.value.max == 5.0f,
-            "STEP_AFTER range must include a held step whose endpoint is beyond the window");
+    query.time_window = {5, 9};
+    const auto between = source.query_v_range(0, query);
+    TEST_ASSERT(between.status == plot::Data_query_status::READY &&
+        between.value.min == 5.0f && between.value.max == 5.0f,
+        "STEP_AFTER range must include a held step whose endpoint is beyond the window");
 
-        query.time_window = {11, 15};
-        const auto after = source.query_v_range(0, query);
-        TEST_ASSERT(after.status == plot::Data_query_status::EMPTY,
-            "DRAW_NOTHING must not extend the last step beyond the source");
-    }
+    query.time_window = {11, 15};
+    const auto after = source.query_v_range(0, query);
+    TEST_ASSERT(after.status == plot::Data_query_status::EMPTY,
+        "DRAW_NOTHING must not extend the last step beyond the source");
     return true;
 }
 
@@ -450,7 +423,6 @@ int main()
 
     RUN_TEST(test_query_v_range_without_access_is_unsupported);
     RUN_TEST(test_ready_value_range_scan_populates_sequence);
-    RUN_TEST(test_unordered_value_range_aggregates_discontiguous_matches);
     RUN_TEST(test_empty_status_for_empty_snapshot_and_no_matches);
     RUN_TEST(test_busy_and_failed_snapshot_status_map_through_queries);
     RUN_TEST(test_nonfinite_values_are_skipped_or_zeroed_by_policy);

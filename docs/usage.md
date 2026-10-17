@@ -12,6 +12,19 @@ templates in the rendering code. Data sources decide whether snapshots are
 copies or direct views; buffering, if needed, lives in the data source.
 The renderer automatically selects a level of detail for the current zoom.
 
+Within every snapshot a source returns, sample timestamps must be
+non-decreasing in index order. Equal timestamps are allowed, so ticks or
+commits that share a timestamp are valid. The renderer finds the visible window
+by binary search on that order, so a source that cannot guarantee it must sort,
+or drop out-of-order samples, before handing them to the library. The renderer
+checks the order once per snapshot revision (`sequence`), and on every frame for
+a snapshot without one. A snapshot with a decrease is rejected whole: nothing is
+drawn for that series while the violation lasts, and the optional
+`Plot_config::log_error` callback receives one message per violation, naming the
+series and the decreasing timestamps. The series draws again from the first
+ordered snapshot. A stack group that contains such a series is suppressed with
+the `NONMONOTONIC_TIMESTAMPS` reason described under Stacked series.
+
 ## Rendering and thread safety
 
 `Plot_widget` renders on a separate RHI render thread. Treat `series_data_t`

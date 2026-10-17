@@ -278,11 +278,10 @@ const plot::detail::series_window_planner_state_t* render_source_and_get_main_st
     return state_it->second.main_view.planner.get();
 }
 
-bool run_defensive_time_order_scan_case(
-    std::vector<std::int64_t>              timestamps,
-    plot::detail::Timestamp_window_search  expected_search,
-    bool                                   expected_monotonic,
-    const std::string&                     label)
+bool run_time_order_scan_case(
+    std::vector<std::int64_t>  timestamps,
+    bool                       expected_monotonic,
+    const std::string&         label)
 {
     auto data_source = make_single_level_source(timestamps);
 
@@ -306,103 +305,158 @@ bool run_defensive_time_order_scan_case(
 
     TEST_ASSERT(state, label + " source should produce planner state");
     TEST_ASSERT(state->last_timestamp_order_scan_performed,
-        label + " source should run the defensive monotonicity scan");
+        label + " source should run the timestamp order scan");
     TEST_ASSERT(state->last_timestamp_order_scan_samples > 0,
-        label + " defensive scan should inspect timestamp samples");
+        label + " order scan should inspect timestamp samples");
     TEST_ASSERT(state->last_timestamps_monotonic == expected_monotonic,
-        label + " defensive scan should record the observed timestamp order");
-    TEST_ASSERT(state->last_timestamp_window_search == expected_search,
-        label + " source should use the expected timestamp window search");
+        label + " order scan should record the observed timestamp order");
 
     return true;
 }
 
-bool test_timestamp_order_scan_selects_binary_or_linear_search()
+bool test_timestamp_order_scan_records_the_observed_order()
 {
-    const bool ascending_ok = run_defensive_time_order_scan_case(
+    const bool ascending_ok = run_time_order_scan_case(
         { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-        plot::detail::Timestamp_window_search::BINARY,
         true,
         "ascending timestamps");
     if (!ascending_ok) {
         return false;
     }
 
-    return run_defensive_time_order_scan_case(
+    return run_time_order_scan_case(
         { 0, 5, 2, 7, 3, 8, 4, 9 },
-        plot::detail::Timestamp_window_search::LINEAR,
         false,
         "unordered timestamps");
 }
 
-bool test_descending_timestamps_use_linear_window_search()
+bool mentions(const std::string& message, std::int64_t value)
 {
-    auto data_source = make_single_level_source(
-        { 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0 });
+    return message.find(std::to_string(value)) != std::string::npos;
+}
 
-    auto series         = std::make_shared<series_data_t>();
-    series->style       = Display_style::LINE;
-    series->data_source = data_source;
-    series->access      = make_policy();
+bool test_unordered_series_is_rejected_and_reported_once_per_episode()
+{
+    struct unordered_case_t
+    {
+        std::vector<std::int64_t>  timestamps;
+        std::int64_t               previous_ns;
+        std::int64_t               current_ns;
+    };
+    const std::vector<unordered_case_t> cases{
+        { { 90, 80, 70, 60, 50, 40, 30, 20, 10, 0 }, 90, 80 },
+        { { 0, 10, 20, 30, 50, 40, 60, 70, 80, 90 }, 50, 40 },
+    };
+    const std::vector<std::int64_t> ascending{ 0, 10, 20, 30, 40, 50, 60, 70, 80, 90 };
+    constexpr int k_series_id = 73;
 
-    frame_layout_result_t layout;
-    layout.usable_width  = 200.0;
-    layout.usable_height = 80.0;
+    for (const auto& unordered : cases) {
+        auto data_source = make_single_level_source(unordered.timestamps);
 
-    Plot_config config;
-    frame_context_t ctx = make_context(layout, config);
+        auto series         = std::make_shared<series_data_t>();
+        series->style       = Display_style::LINE;
+        series->data_source = data_source;
+        series->access      = make_policy();
 
-    Series_renderer renderer;
-    Asset_loader asset_loader;
-    renderer.initialize(asset_loader);
+        frame_layout_result_t layout;
+        layout.usable_width  = 200.0;
+        layout.usable_height = 80.0;
 
-    const auto* state = render_source_and_get_main_state(renderer, ctx, series, 66);
+        std::vector<std::string> errors;
+        Plot_config config;
+        config.log_error = [&errors](const std::string& message) { errors.push_back(message); };
+        frame_context_t ctx = make_context(layout, config);
+        ctx.t1              = 100;
+        ctx.t_available_max = 100;
 
-    TEST_ASSERT(state, "expected planner state for DESCENDING time-order test");
-    TEST_ASSERT(
-        state->last_timestamp_window_search ==
-            plot::detail::Timestamp_window_search::LINEAR,
-        "DESCENDING source should use linear timestamp window search");
-    TEST_ASSERT(state->last_count > 0,
-        "DESCENDING linear timestamp window search should find visible samples");
+        Series_renderer renderer;
+        Asset_loader asset_loader;
+        renderer.initialize(asset_loader);
+        std::map<int, std::shared_ptr<const series_data_t>> series_map;
+        series_map[k_series_id] = series;
 
+        const auto is_ordered = [&]() {
+            return planner_state(
+                renderer.m_vbo_states.at(k_series_id).main_view).last_timestamps_monotonic;
+        };
+        const auto planned_count = [&]() {
+            return planner_state(renderer.m_vbo_states.at(k_series_id).main_view).last_count;
+        };
+        const auto replace_samples = [&](const std::vector<std::int64_t>& timestamps) {
+            data_source->samples = make_single_level_source(timestamps)->samples;
+            ++data_source->sequence;
+        };
+
+        for (int frame = 0; frame < 3; ++frame) {
+            renderer.render(ctx, series_map);
+        }
+        TEST_ASSERT(!is_ordered() && planned_count() == 0,
+            "a series whose timestamps decrease must not be planned for drawing");
+        TEST_ASSERT(errors.size() == 1,
+            "a violation episode should be reported once, not once per frame");
+        TEST_ASSERT(mentions(errors.front(), k_series_id) &&
+            mentions(errors.front(), unordered.previous_ns) &&
+            mentions(errors.front(), unordered.current_ns),
+            "the report should name the series and the decreasing timestamp pair");
+
+        replace_samples(ascending);
+        renderer.render(ctx, series_map);
+        TEST_ASSERT(is_ordered() && planned_count() > 0 && errors.size() == 1,
+            "a source that is ordered again should draw again without a new report");
+
+        replace_samples(unordered.timestamps);
+        renderer.render(ctx, series_map);
+        renderer.render(ctx, series_map);
+        TEST_ASSERT(!is_ordered() && errors.size() == 2,
+            "a later violation should be rejected and reported as a new episode");
+    }
     return true;
 }
 
-bool test_descending_timestamps_do_not_hold_oldest_sample()
+bool test_unordered_stack_member_suppresses_its_group()
 {
-    auto data_source = make_single_level_source(
-        { 9, 7, 5, 3, 1 });
-
-    auto series = std::make_shared<series_data_t>();
-    series->style                 = Display_style::LINE;
-    series->data_source           = data_source;
-    series->access                = make_policy();
-    series->empty_window_behavior = Empty_window_behavior::HOLD_LAST_FORWARD;
+    auto lower_source = make_single_level_source({ 0, 10, 20, 30, 40 });
+    auto upper_source = make_single_level_source({ 40, 30, 20, 10, 0 });
+    const Data_access_policy access = make_policy();
+    auto lower         = std::make_shared<series_data_t>();
+    lower->data_source = lower_source;
+    lower->access      = access;
+    lower->stack_group = 1;
+    auto upper         = std::make_shared<series_data_t>();
+    upper->data_source = upper_source;
+    upper->access      = access;
+    upper->stack_group = 1;
+    std::map<int, std::shared_ptr<const series_data_t>> series_map{{1, lower}, {2, upper}};
 
     frame_layout_result_t layout;
-    layout.usable_width  = 200.0;
-    layout.usable_height = 80.0;
-
+    layout.usable_width  = 100.0;
+    layout.usable_height = 50.0;
     Plot_config config;
     frame_context_t ctx = make_context(layout, config);
-    ctx.t0              = 10;
-    ctx.t1              = 12;
-    ctx.t_available_min = ctx.t0;
-    ctx.t_available_max = ctx.t1;
+    ctx.t1              = 40;
+    ctx.t_available_max = 40;
 
     Series_renderer renderer;
     Asset_loader asset_loader;
     renderer.initialize(asset_loader);
+    renderer.render(ctx, series_map);
 
-    const auto* state = render_source_and_get_main_state(renderer, ctx, series, 68);
+    const auto status = [&]() {
+        return renderer.stack_view_statuses().at({1, plot::Series_view_kind::MAIN}).status;
+    };
+    TEST_ASSERT(status().state == plot::Stack_view_state::SUPPRESSED &&
+        status().reason == plot::Stack_rejection_reason::NONMONOTONIC_TIMESTAMPS,
+        "a stack with a member whose timestamps decrease should report that reason");
+    TEST_ASSERT(renderer.m_vbo_states.at(1).main_view.last_stack_view_suppressed &&
+        renderer.m_vbo_states.at(2).main_view.last_stack_view_suppressed,
+        "a rejected stack should suppress every member instead of drawing the ordered ones");
 
-    TEST_ASSERT(state, "expected planner state for DESCENDING hold-forward test");
-    TEST_ASSERT(!state->last_hold_last_forward,
-        "DESCENDING source should not synthesize hold-forward from the oldest physical sample");
-    TEST_ASSERT(state->last_count == 0,
-        "DESCENDING empty window should not draw the oldest physical sample as held data");
-
+    upper_source->samples = make_single_level_source({ 0, 10, 20, 30, 40 })->samples;
+    ++upper_source->sequence;
+    renderer.render(ctx, series_map);
+    TEST_ASSERT(status().state == plot::Stack_view_state::ACTIVE &&
+        status().reason == plot::Stack_rejection_reason::NONE,
+        "the stack should compose again once the member is ordered");
     return true;
 }
 
@@ -1131,65 +1185,62 @@ bool test_stacking_cursor_matches_equivalent_source_representations()
         return true;
     };
 
-    std::vector<Test_sample> canonical{{-2, 0.0f}, {0, 0.0f}, {5, 5.0f}, {10, 11.0f}};
-    std::vector<Test_sample> descending{{10, 10.0f}, {10, 11.0f}, {5, 5.0f}, {0, 0.0f}};
+    std::vector<Test_sample> canonical{{0, 0.0f}, {5, 5.0f}, {10, 11.0f}, {12, 11.0f}};
+    std::vector<Test_sample> held{{0, 0.0f}, {5, 5.0f}, {10, 10.0f}, {10, 11.0f}};
     std::vector<Test_sample> upper{{-2, 1.0f}, {4, 2.0f}, {10, 3.0f}};
-    auto canonical_plan  = make_plan(canonical, callback_access);
-    auto descending_plan = make_plan(descending, member_access, true, -2);
-    auto upper_plan      = make_plan(upper, callback_access);
+    auto canonical_plan = make_plan(canonical, callback_access);
+    auto held_plan      = make_plan(held, member_access, true, 12);
+    auto upper_plan     = make_plan(upper, callback_access);
     std::vector<std::vector<plot::detail::stacked_sample_t>> expected;
     std::vector<std::vector<plot::detail::stacked_sample_t>> actual;
     TEST_ASSERT(plot::detail::compose_stacked_series(
         {&canonical_plan, &upper_plan}, expected, 32u) ==
             plot::Stack_rejection_reason::NONE,
-        "canonical ascending stack should compose");
+        "canonical stack should compose");
     TEST_ASSERT(plot::detail::compose_stacked_series(
-        {&descending_plan, &upper_plan}, actual, 32u) ==
+        {&held_plan, &upper_plan}, actual, 32u) ==
             plot::Stack_rejection_reason::NONE && same_layers(actual, expected),
-        "descending member access, last duplicate, and synthetic hold should match explicit ascending samples");
+        "member access, last duplicate, and synthetic hold should match explicit samples");
 
     std::vector<Test_sample> canonical_no_hold{{0, 0.0f}, {5, 5.0f}, {10, 11.0f}};
-    canonical_plan  = make_plan(canonical_no_hold, callback_access);
-    descending_plan = make_plan(descending, member_access, true, 0);
+    canonical_plan = make_plan(canonical_no_hold, callback_access);
+    held_plan      = make_plan(held, member_access, true, 10);
     TEST_ASSERT(plot::detail::compose_stacked_series(
         {&canonical_plan, &upper_plan}, expected, 32u) ==
             plot::Stack_rejection_reason::NONE &&
         plot::detail::compose_stacked_series(
-        {&descending_plan, &upper_plan}, actual, 32u) ==
+        {&held_plan, &upper_plan}, actual, 32u) ==
             plot::Stack_rejection_reason::NONE && same_layers(actual, expected),
-        "a hold at the last physical timestamp should remain elided after reversal");
+        "a hold at the last physical timestamp should remain elided");
 
     constexpr std::int64_t k_min = std::numeric_limits<std::int64_t>::min();
     constexpr std::int64_t k_max = std::numeric_limits<std::int64_t>::max();
     std::vector<Test_sample> full_ascending{{k_min, 0.0f}, {-1, 2.0f}, {k_max, 4.0f}};
-    std::vector<Test_sample> full_descending(full_ascending.rbegin(), full_ascending.rend());
     std::vector<Test_sample> full_upper{{k_min, 1.0f}, {1, 3.0f}, {k_max, 5.0f}};
-    canonical_plan  = make_plan(full_ascending,  callback_access);
-    descending_plan = make_plan(full_descending, member_access);
-    upper_plan      = make_plan(full_upper,      callback_access);
+    canonical_plan = make_plan(full_ascending, callback_access);
+    held_plan      = make_plan(full_ascending, member_access);
+    upper_plan     = make_plan(full_upper,     callback_access);
     TEST_ASSERT(plot::detail::compose_stacked_series(
         {&canonical_plan, &upper_plan}, expected, 3u) ==
             plot::Stack_rejection_reason::NONE &&
         plot::detail::compose_stacked_series(
-        {&descending_plan, &upper_plan}, actual, 3u) ==
+        {&held_plan, &upper_plan}, actual, 3u) ==
             plot::Stack_rejection_reason::NONE && same_layers(actual, expected),
-        "descending cursor evaluation should match ascending input across the full int64 range");
+        "member access should match callback access across the full int64 range");
 
     std::vector<Test_sample> invalid_ascending{
         {0, std::numeric_limits<float>::quiet_NaN()}, {1, 1.0f}};
-    std::vector<Test_sample> invalid_descending(
-        invalid_ascending.rbegin(), invalid_ascending.rend());
-    canonical_plan                   = make_plan(invalid_ascending,  callback_access);
-    descending_plan                  = make_plan(invalid_descending, member_access);
-    canonical_plan.nonfinite_policy  = plot::Nonfinite_sample_policy::REJECT_WINDOW;
-    descending_plan.nonfinite_policy = plot::Nonfinite_sample_policy::REJECT_WINDOW;
+    canonical_plan                  = make_plan(invalid_ascending, callback_access);
+    held_plan                       = make_plan(invalid_ascending, member_access);
+    canonical_plan.nonfinite_policy = plot::Nonfinite_sample_policy::REJECT_WINDOW;
+    held_plan.nonfinite_policy      = plot::Nonfinite_sample_policy::REJECT_WINDOW;
     TEST_ASSERT(plot::detail::compose_stacked_series(
         {&canonical_plan, &upper_plan}, expected, 16u) ==
             plot::Stack_rejection_reason::INCOMPATIBLE_DATA &&
         plot::detail::compose_stacked_series(
-        {&descending_plan, &upper_plan}, actual, 16u) ==
+        {&held_plan, &upper_plan}, actual, 16u) ==
             plot::Stack_rejection_reason::INCOMPATIBLE_DATA,
-        "nonfinite rejection status should be independent of traversal and access dispatch");
+        "nonfinite rejection status should be independent of access dispatch");
 
     plot::Series_view_plan missing_plan;
     TEST_ASSERT(plot::detail::compose_stacked_series(
@@ -1299,7 +1350,6 @@ bool test_stacking_binary_lookup_bounds_source_reads()
         std::vector<std::vector<plot::detail::stacked_sample_t>> layers;
         const auto reason = plot::detail::compose_stacked_series(
             plan_ptrs,
-            std::vector<plot::detail::Time_order>(2, plot::detail::Time_order::ASCENDING),
             layers,
             k_timestamp_budget,
             &stats);
@@ -1324,7 +1374,7 @@ bool test_stacking_binary_lookup_bounds_source_reads()
     return true;
 }
 
-bool test_stacking_binary_lookup_matches_streaming_fallback()
+bool test_stacking_binary_lookup_matches_reference_evaluation()
 {
     const Data_access_policy callback_access = make_policy();
     const Data_access_policy member_access = plot::make_access_policy<Test_sample>(
@@ -1348,24 +1398,67 @@ bool test_stacking_binary_lookup_matches_streaming_fallback()
         plan.hold_timestamp_ns = hold_timestamp;
         return plan;
     };
-    const auto compare = [](
+    // A plain scan for the value a layer takes at `timestamp`: the last sample
+    // at or before it and, for LINEAR, the last sample of the next distinct
+    // timestamp as the interpolation target.
+    const auto reference_value = [](
+        const std::vector<Test_sample>& samples,
+        plot::Series_interpolation interpolation,
+        std::int64_t timestamp) {
+        std::size_t current = 0;
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            if (samples[i].t <= timestamp) {
+                current = i;
+            }
+        }
+        float value = samples[current].v;
+        if (interpolation == plot::Series_interpolation::LINEAR &&
+            current + 1u < samples.size() && timestamp > samples[current].t)
+        {
+            std::size_t next = current + 1u;
+            while (next + 1u < samples.size() &&
+                samples[next + 1u].t == samples[next].t)
+            {
+                ++next;
+            }
+            const double position = plot::detail::normalized_time_position_ns(
+                samples[current].t, timestamp, samples[next].t);
+            value = static_cast<float>(
+                samples[current].v + position * (samples[next].v - samples[current].v));
+        }
+        return value;
+    };
+    const auto matches_reference = [&](
         const std::vector<const plot::Series_view_plan*>& plans,
-        const std::vector<plot::detail::Time_order>& orders,
+        const std::vector<const std::vector<Test_sample>*>& logical_samples,
         std::size_t budget) {
-        plot::detail::stack_composition_stats_t streaming_stats;
-        plot::detail::stack_composition_stats_t binary_stats;
-        std::vector<std::vector<plot::detail::stacked_sample_t>> streaming;
-        std::vector<std::vector<plot::detail::stacked_sample_t>> binary;
-        return
-            plot::detail::compose_stacked_series(
-                plans, streaming, budget, &streaming_stats) ==
-                plot::Stack_rejection_reason::NONE &&
-            plot::detail::compose_stacked_series(
-                plans, orders, binary, budget, &binary_stats) ==
-                plot::Stack_rejection_reason::NONE &&
-            streaming_stats.resampled && binary_stats.resampled &&
-            binary_stats.source_read_count < streaming_stats.source_read_count &&
-            same_stacked_layers(binary, streaming);
+        plot::detail::stack_composition_stats_t stats;
+        std::vector<std::vector<plot::detail::stacked_sample_t>> layers;
+        std::size_t total_samples = 0;
+        for (const auto* samples : logical_samples) {
+            total_samples += samples->size();
+        }
+        if (plot::detail::compose_stacked_series(plans, layers, budget, &stats) !=
+                plot::Stack_rejection_reason::NONE ||
+            !stats.resampled || stats.source_read_count >= total_samples ||
+            layers.size() != plans.size())
+        {
+            return false;
+        }
+        for (std::size_t sample = 0; sample < layers.front().size(); ++sample) {
+            float base = 0.0f;
+            for (std::size_t layer = 0; layer < layers.size(); ++layer) {
+                const auto& actual = layers[layer][sample];
+                const float cumulative = base + reference_value(
+                    *logical_samples[layer], plans[layer]->interpolation,
+                    actual.timestamp_ns);
+                if (actual.base != base || actual.value != cumulative) {
+                    return false;
+                }
+                base = cumulative;
+            }
+        }
+        return true;
     };
 
     constexpr std::size_t  k_count = 2'048;
@@ -1388,39 +1481,26 @@ bool test_stacking_binary_lookup_matches_streaming_fallback()
         ascending_a, callback_access, plot::Series_interpolation::LINEAR);
     auto upper_plan = make_plan(
         ascending_b, member_access, plot::Series_interpolation::LINEAR);
-    TEST_ASSERT(compare(
-        { &ascending_plan, &upper_plan },
-        { plot::detail::Time_order::ASCENDING, plot::detail::Time_order::ASCENDING },
-        31u),
-        "binary LINEAR lookup should match streaming for epoch "
+    TEST_ASSERT(matches_reference(
+        { &ascending_plan, &upper_plan }, { &ascending_a, &ascending_b }, 31u),
+        "binary LINEAR lookup should match a plain scan for epoch "
         "timestamps, callable/member access, and last physical duplicates");
 
-    std::vector<Test_sample> descending(ascending_a.rbegin(), ascending_a.rend());
-    const auto duplicate = std::find_if(
-        descending.begin(), descending.end(),
-        [](const auto& sample) { return sample.v == 123.0f; });
-    TEST_ASSERT(duplicate != descending.end(),
-        "expected descending duplicate fixture");
-    descending.insert(duplicate + 1, {duplicate->t, 321.0f});
-    auto descending_plan = make_plan(
-        descending, member_access, plot::Series_interpolation::LINEAR,
-        true, k_epoch - 4);
-    ascending_b.insert(ascending_b.begin(), {k_epoch - 4, 9.0f});
-    upper_plan = make_plan(
-        ascending_b, callback_access, plot::Series_interpolation::LINEAR);
-    TEST_ASSERT(compare(
-        { &descending_plan, &upper_plan },
-        { plot::detail::Time_order::DESCENDING, plot::detail::Time_order::ASCENDING },
-        31u),
-        "binary descending lookup should match streaming for physical-last duplicates and synthetic holds");
+    const std::int64_t hold_timestamp = ascending_a.back().t + 8;
+    std::vector<Test_sample> held_a = ascending_a;
+    held_a.push_back({hold_timestamp, ascending_a.back().v});
+    auto held_plan = make_plan(
+        ascending_a, member_access, plot::Series_interpolation::LINEAR,
+        true, hold_timestamp);
+    TEST_ASSERT(matches_reference(
+        { &held_plan, &upper_plan }, { &held_a, &ascending_b }, 31u),
+        "binary lookup should treat a synthetic hold as the final sample");
 
     ascending_plan.interpolation = plot::Series_interpolation::STEP_AFTER;
     upper_plan.interpolation     = plot::Series_interpolation::STEP_AFTER;
-    TEST_ASSERT(compare(
-        { &ascending_plan, &upper_plan },
-        { plot::detail::Time_order::ASCENDING, plot::detail::Time_order::ASCENDING },
-        31u),
-        "binary STEP_AFTER lookup should match streaming values");
+    TEST_ASSERT(matches_reference(
+        { &ascending_plan, &upper_plan }, { &ascending_a, &ascending_b }, 31u),
+        "binary STEP_AFTER lookup should match a plain scan");
 
     constexpr std::int64_t k_min = std::numeric_limits<std::int64_t>::min();
     constexpr std::int64_t k_max = std::numeric_limits<std::int64_t>::max();
@@ -1436,11 +1516,9 @@ bool test_stacking_binary_lookup_matches_streaming_fallback()
         full_a, callback_access, plot::Series_interpolation::LINEAR);
     auto full_b_plan = make_plan(
         full_b, member_access, plot::Series_interpolation::LINEAR);
-    TEST_ASSERT(compare(
-        { &full_a_plan, &full_b_plan },
-        { plot::detail::Time_order::ASCENDING, plot::detail::Time_order::ASCENDING },
-        3u),
-        "binary lookup should match streaming across the full int64 timestamp range");
+    TEST_ASSERT(matches_reference(
+        { &full_a_plan, &full_b_plan }, { &full_a, &full_b }, 3u),
+        "binary lookup should match a plain scan across the full int64 timestamp range");
     return true;
 }
 
@@ -1604,12 +1682,6 @@ bool test_stacking_uses_separate_view_budgets_and_invalidates_resized_cache()
     TEST_ASSERT(profiler->observations["renderer.stacking.resampled_group_count"] == 1.0 &&
         profiler->observations["renderer.stacking.exact_group_count"] == 1.0,
         "the renderer should report one bounded main grid and one exact preview union");
-    TEST_ASSERT(
-        planner_state(renderer.m_vbo_states.at(1).main_view)
-                .last_selected_time_order == plot::detail::Time_order::ASCENDING &&
-        planner_state(renderer.m_vbo_states.at(1).preview_view)
-                .last_selected_time_order == plot::detail::Time_order::ASCENDING,
-        "main and preview plans should retain the planner-established selected order");
     const void* initial_main_hold    = initial_main.hold.get();
     const void* initial_preview_hold = initial_preview.hold.get();
 
@@ -1682,6 +1754,13 @@ bool test_stacking_reports_specific_rejection_reasons()
         {&a_plan, &b_plan}, layers, 16u) ==
             plot::Stack_rejection_reason::NONMONOTONIC_TIMESTAMPS,
         "unordered timestamps should have a queryable rejection reason");
+
+    a = {{1, 2.0f}, {0, 1.0f}};
+    a_plan = make_plan(a);
+    TEST_ASSERT(plot::detail::compose_stacked_series(
+        {&a_plan, &b_plan}, layers, 16u) ==
+            plot::Stack_rejection_reason::NONMONOTONIC_TIMESTAMPS,
+        "descending timestamps should be rejected, not composed in reverse");
 
     a      = {{0, 1.0f}, {1, 2.0f}};
     b      = {{2, 3.0f}, {3, 4.0f}};
@@ -2070,9 +2149,9 @@ int main()
     int passed = 0;
     int failed = 0;
 
-    RUN_TEST(test_timestamp_order_scan_selects_binary_or_linear_search);
-    RUN_TEST(test_descending_timestamps_use_linear_window_search);
-    RUN_TEST(test_descending_timestamps_do_not_hold_oldest_sample);
+    RUN_TEST(test_timestamp_order_scan_records_the_observed_order);
+    RUN_TEST(test_unordered_series_is_rejected_and_reported_once_per_episode);
+    RUN_TEST(test_unordered_stack_member_suppresses_its_group);
     RUN_TEST(test_renderer_uses_lod_scales_metadata);
     RUN_TEST(test_direct_member_policy_uses_member_dispatch_in_planner);
     RUN_TEST(test_access_policy_change_invalidates_planner_fast_path_cache);
@@ -2088,7 +2167,7 @@ int main()
     RUN_TEST(test_stacking_interpolates_sub_256ns_epoch_intervals);
     RUN_TEST(test_stacking_cursor_matches_equivalent_source_representations);
     RUN_TEST(test_stacking_binary_lookup_bounds_source_reads);
-    RUN_TEST(test_stacking_binary_lookup_matches_streaming_fallback);
+    RUN_TEST(test_stacking_binary_lookup_matches_reference_evaluation);
     RUN_TEST(test_stacking_bounds_independent_timestamp_grids);
     RUN_TEST(test_stacking_bounded_grid_handles_interpolation_and_integer_extremes);
     RUN_TEST(test_stacking_uses_separate_view_budgets_and_invalidates_resized_cache);

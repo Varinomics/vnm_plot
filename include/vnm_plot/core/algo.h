@@ -318,7 +318,8 @@ std::vector<std::size_t> compute_lod_scales(const DataSourceT& data_source)
 // Binary Search for Timestamps
 // -----------------------------------------------------------------------------
 // These functions perform binary search on a contiguous array of samples,
-// using a callback to extract timestamps. Assumes ascending timestamp order.
+// using a callback to extract timestamps. Assumes non-decreasing timestamp
+// order.
 
 // Core binary-search loop shared by lower_bound / upper_bound and by raw
 // strided / Data_snapshot addressing. The Addr functor maps an index to a
@@ -457,37 +458,13 @@ visible_sample_window_t select_visible_sample_window(
     const Data_snapshot& snapshot,
     GetTimestampFn&&       get_timestamp,
     std::int64_t           t_min_ns,
-    std::int64_t           t_max_ns,
-    bool                   timestamps_monotonic)
+    std::int64_t           t_max_ns)
 {
     if (!snapshot.is_valid()) {
         return {};
     }
 
     if (t_max_ns < t_min_ns) {
-        return {snapshot.count, snapshot.count, true};
-    }
-
-    if (!timestamps_monotonic) {
-        std::size_t match_first = snapshot.count;
-        std::size_t match_last  = 0;
-        for (std::size_t i = 0; i < snapshot.count; ++i) {
-            const void* sample = snapshot.at(i);
-            if (!sample) {
-                continue;
-            }
-            const std::int64_t ts = get_timestamp(sample);
-            if (ts < t_min_ns || ts > t_max_ns) { continue;        }
-            if (match_first == snapshot.count)  { match_first = i; }
-            match_last = i + 1;
-        }
-        if (match_first < match_last) {
-            return {
-                (match_first > 0) ? (match_first - 1) : 0,
-                std::min(match_last + 2, snapshot.count),
-                true
-            };
-        }
         return {snapshot.count, snapshot.count, true};
     }
 
@@ -609,9 +586,8 @@ timestamp_bracket_t bracket_timestamp_impl(
         return {};
     }
 
-    const std::int64_t first_ts  = get_timestamp(first_sample);
-    const std::int64_t last_ts   = get_timestamp(last_sample);
-    const bool         ascending = first_ts <= last_ts;
+    const std::int64_t first_ts = get_timestamp(first_sample);
+    const std::int64_t last_ts  = get_timestamp(last_sample);
 
     std::size_t lo = 0;
     std::size_t hi = count - 1;
@@ -623,7 +599,7 @@ timestamp_bracket_t bracket_timestamp_impl(
         }
 
         const std::int64_t ts = get_timestamp(mid_sample);
-        if (ascending ? (ts <= t_ns) : (ts >= t_ns)) {
+        if (ts <= t_ns) {
             lo = mid + 1;
         }
         else {
@@ -635,21 +611,11 @@ timestamp_bracket_t bracket_timestamp_impl(
         return {0, 0, true};
     }
 
-    if (ascending) {
-        if (t_ns < first_ts) {
-            return {0, 0, true};
-        }
-        if (t_ns >= last_ts) {
-            return {count - 1, count - 1, true};
-        }
+    if (t_ns < first_ts) {
+        return {0, 0, true};
     }
-    else {
-        if (t_ns > first_ts) {
-            return {0, 0, true};
-        }
-        if (t_ns <= last_ts) {
-            return {count - 1, count - 1, true};
-        }
+    if (t_ns >= last_ts) {
+        return {count - 1, count - 1, true};
     }
 
     return {lo > 0 ? lo - 1 : 0, lo, true};

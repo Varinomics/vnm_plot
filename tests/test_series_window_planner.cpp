@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <utility>
 #include <vector>
 
 namespace plot = vnm::plot;
@@ -177,31 +178,107 @@ bool test_unknown_revision_rescans_timestamp_order()
     Planner_fixture fixture(source);
     fixture.request.t_min_ns = 25;
     fixture.request.t_max_ns = 35;
-    fixture.next_frame();
-    TEST_ASSERT(fixture.state.last_timestamp_order_scan_performed &&
+    TEST_ASSERT(fixture.next_frame().gpu_count == 3 &&
+        fixture.state.last_timestamp_order_scan_performed &&
         fixture.state.last_timestamps_monotonic,
-        "the initial ascending snapshot should be scanned");
+        "the initial ascending snapshot should be scanned and drawn");
 
     source.set_data({{0, 1}, {100, 2}, {200, 3}, {300, 4}, {20, 5}, {30, 6}, {40, 7}});
     const auto changed = fixture.next_frame();
     TEST_ASSERT(fixture.state.last_timestamp_order_scan_performed &&
-        !fixture.state.last_timestamps_monotonic &&
-        fixture.state.last_timestamp_window_search == detail::Timestamp_window_search::LINEAR,
-        "an unversioned reordered snapshot requires a fresh order scan and linear selection");
-    bool includes_visible_sample = false;
-    for (std::size_t index = changed.source_first;
-         index < changed.source_first + changed.source_count; ++index) {
-        const auto* sample = static_cast<const sample_t*>(changed.snapshot.snapshot.at(index));
-        includes_visible_sample = includes_visible_sample || (sample && sample->t == 30);
-    }
-    TEST_ASSERT(includes_visible_sample,
-        "reordering unversioned data must not hide the sample inside the requested window");
+        !fixture.state.last_timestamps_monotonic,
+        "an unversioned reordered snapshot requires a fresh order scan");
+    TEST_ASSERT(changed.gpu_count == 0 && changed.source_count == 0,
+        "reordering unversioned data must stop it from drawing, including the samples "
+        "inside the requested window");
 
     source.set_data({{0, 1}, {10, 2}, {20, 3}, {30, 4}, {40, 5}});
-    fixture.next_frame();
-    TEST_ASSERT(fixture.state.last_timestamp_order_scan_performed &&
+    TEST_ASSERT(fixture.next_frame().gpu_count == 3 &&
+        fixture.state.last_timestamp_order_scan_performed &&
         fixture.state.last_timestamps_monotonic,
-        "restoring ascending order without a revision must also be detected");
+        "restoring ascending order without a revision must be detected and draw again");
+    return true;
+}
+
+bool test_decreasing_timestamps_reject_the_snapshot()
+{
+    const std::vector<std::vector<sample_t>> unordered_snapshots{
+        {{50, 1}, {40, 2}, {30, 3}, {20, 4}, {10, 5}, {0, 6}},
+        {{0, 1}, {10, 2}, {20, 3}, {30, 4}, {25, 5}, {40, 6}, {50, 7}},
+    };
+    // One window spans the whole snapshot; the other sees only samples that
+    // precede the first decrease in the second snapshot.
+    const std::vector<std::pair<std::int64_t, std::int64_t>> windows{{5, 45}, {5, 15}};
+
+    for (const auto& samples : unordered_snapshots) {
+        for (const auto& window : windows) {
+            for (const bool revision_available : {false, true}) {
+                for (const auto requirement : {detail::Snapshot_requirement::Optional,
+                                              detail::Snapshot_requirement::Frame_snapshot_required}) {
+                    Test_source source(samples);
+                    source.revision_available = revision_available;
+                    Planner_fixture fixture(source);
+                    fixture.request.snapshot_requirement = requirement;
+                    fixture.request.t_min_ns             = window.first;
+                    fixture.request.t_max_ns             = window.second;
+
+                    for (int frame = 0; frame < 2; ++frame) {
+                        const auto plan = fixture.next_frame();
+                        TEST_ASSERT(plan.gpu_count == 0 && plan.source_count == 0 &&
+                            plan.drawable_spans.empty() && !fixture.state.last_timestamps_monotonic,
+                            "a snapshot whose timestamps decrease must not be drawn, "
+                            "whichever samples the window shows");
+                    }
+                    TEST_ASSERT(fixture.state.last_timestamp_order_scan_performed ==
+                        !revision_available,
+                        "a known revision must keep its rejection without rescanning, "
+                        "an unknown one must rescan");
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool test_equal_timestamps_do_not_decrease()
+{
+    Test_source source(std::vector<sample_t>{
+        {0, 1}, {10, 2}, {10, 3}, {10, 4}, {20, 5}, {20, 6}, {30, 7}});
+    Planner_fixture fixture(source);
+    fixture.request.t_min_ns = 5;
+    fixture.request.t_max_ns = 25;
+    const auto plan = fixture.next_frame();
+    TEST_ASSERT(fixture.state.last_timestamps_monotonic,
+        "equal timestamps are in non-decreasing order");
+    TEST_ASSERT(plan.source_first == 0 && plan.source_count == 7 && plan.gpu_count == 7,
+        "a snapshot with duplicate timestamps should plan like any ascending snapshot");
+
+    Test_source constant(std::vector<sample_t>{{10, 1}, {10, 2}, {10, 3}});
+    Planner_fixture constant_fixture(constant);
+    constant_fixture.request.t_min_ns = 5;
+    constant_fixture.request.t_max_ns = 15;
+    const auto constant_plan = constant_fixture.next_frame();
+    TEST_ASSERT(constant_fixture.state.last_timestamps_monotonic &&
+        constant_plan.source_first == 0 && constant_plan.gpu_count == 3,
+        "a snapshot whose timestamps are all equal should be drawn");
+    return true;
+}
+
+bool test_ascending_snapshot_plans_unchanged()
+{
+    Test_source source(std::vector<sample_t>{{0, 1}, {10, 2}, {20, 3}, {30, 4}, {40, 5}});
+    Planner_fixture fixture(source);
+    fixture.request.t_min_ns = 25;
+    fixture.request.t_max_ns = 35;
+    const auto plan = fixture.next_frame();
+    TEST_ASSERT(plan.source_first == 2 && plan.source_count == 3 && plan.gpu_count == 3,
+        "the visible window should keep one preceding and two following samples");
+    TEST_ASSERT(plan.drawable_spans.size() == 1 && plan.drawable_spans.front().source_first == 2 &&
+        plan.drawable_spans.front().source_count == 3,
+        "an ascending window should be one drawable span");
+    TEST_ASSERT(fixture.state.last_timestamp_order_scan_performed &&
+        fixture.state.last_timestamp_order_scan_samples == 5,
+        "the order scan should read each sample of a new revision once");
     return true;
 }
 
@@ -230,6 +307,9 @@ int main()
     RUN_TEST(test_busy_snapshot_keeps_compatible_uploaded_plan);
     RUN_TEST(test_unknown_revision_rescans_timestamp_order);
     RUN_TEST(test_known_revision_reuses_timestamp_order);
+    RUN_TEST(test_decreasing_timestamps_reject_the_snapshot);
+    RUN_TEST(test_equal_timestamps_do_not_decrease);
+    RUN_TEST(test_ascending_snapshot_plans_unchanged);
     std::cout << "Results: " << passed << " passed, " << failed << " failed\n";
     return failed > 0 ? 1 : 0;
 }

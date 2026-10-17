@@ -409,6 +409,7 @@ using Byte_view   = std::string_view;
 // If data2/count2 is set, the logical snapshot is split into two contiguous
 // segments (e.g., ring buffer wrap). The total count is `count`.
 // `sequence` is a monotonic counter that increments on data changes.
+// Sample timestamps must be non-decreasing in index order; see Data_source.
 //
 // Lifetime contract:
 // - The Data_source implementation decides whether the pointers refer to a
@@ -611,8 +612,7 @@ enum class Empty_window_behavior
 {
     DRAW_NOTHING,
     /// Hold the most recent sample forward across an empty visible window.
-    /// The renderer synthesizes this only after observing ascending timestamps,
-    /// holding the window's last sample at `t_max`.
+    /// The renderer holds the window's last sample at `t_max`.
     HOLD_LAST_FORWARD
 };
 
@@ -692,6 +692,19 @@ struct data_query_context_t
 // -----------------------------------------------------------------------------
 // Data_source: Abstract interface for data sources
 // -----------------------------------------------------------------------------
+// Ordering contract: in every snapshot a source returns, the sample timestamps,
+// as the series' access policy reads them, are non-decreasing in snapshot index
+// order. Equal timestamps are allowed. The renderer finds the visible window
+// by binary search on that order. A source that cannot guarantee it must sort,
+// or drop out-of-order samples, before handing them over.
+//
+// The renderer checks the order once per snapshot revision (`sequence`), and on
+// every frame for a snapshot without one (sequence 0). A snapshot with a
+// decrease is rejected whole: while it lasts nothing is drawn for that series,
+// and Plot_config::log_error receives one message naming the series and the
+// decreasing timestamps. A stack group containing such a series is suppressed
+// with Stack_rejection_reason::NONMONOTONIC_TIMESTAMPS. The series draws again
+// from the first ordered snapshot.
 class Data_source
 {
 public:
