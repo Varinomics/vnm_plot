@@ -76,19 +76,33 @@ void apply_auto_v_range_padding(
     float&                             v_min,
     float&                             v_max)
 {
+    // The bounds stay float values, rounded exactly as before: the minimum pad
+    // of a constant series and the extra scale are applied to them in double
+    // and only the result is narrowed. Narrowing saturates at the float range,
+    // because a bound near FLT_MAX cannot be padded in float and narrowing an
+    // out-of-range double is undefined; near the limits the pad is therefore
+    // asymmetric rather than infinite.
+    const auto saturate_to_float = [](double value) {
+        constexpr double float_limit = std::numeric_limits<float>::max();
+        return static_cast<float>(std::clamp(value, -float_limit, float_limit));
+    };
+
     if (v_max == v_min) {
         const float pad = std::max(std::abs(v_min) * 0.01f, 0.5f);
-        v_min -= pad;
-        v_max += pad;
+        v_min = saturate_to_float(double(v_min) - double(pad));
+        v_max = saturate_to_float(double(v_max) + double(pad));
     }
 
-    if (config.auto_v_range_extra_scale > 0.0) {
+    const double extra_scale = config.auto_v_range_extra_scale;
+    if (std::isfinite(extra_scale) && extra_scale > 0.0) {
         const double span = double(v_max) - double(v_min);
         if (span > 0.0) {
             const double center      = 0.5 * (double(v_min) + double(v_max));
-            const double padded_span = span * (1.0 + config.auto_v_range_extra_scale);
-            v_min = static_cast<float>(center - padded_span * 0.5);
-            v_max = static_cast<float>(center + padded_span * 0.5);
+            const double padded_span = span * (1.0 + extra_scale);
+            // The recomputed bounds are rounded, so a scale too small to widen
+            // the span in double could still land a bound inside the data.
+            v_min = std::min(v_min, saturate_to_float(center - padded_span * 0.5));
+            v_max = std::max(v_max, saturate_to_float(center + padded_span * 0.5));
         }
     }
 
@@ -409,6 +423,9 @@ std::pair<float, float> finalize_auto_range(
 
     const bool data_range_nonnegative = v_min >= 0.0f;
     apply_auto_v_range_padding(config, data_range_nonnegative, v_min, v_max);
+    if (!std::isfinite(v_min) || !std::isfinite(v_max) || !(v_min < v_max)) {
+        return fallback_range(data_cfg);
+    }
     return {v_min, v_max};
 }
 

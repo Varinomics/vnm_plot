@@ -9,7 +9,10 @@
 #include <vnm_plot/core/plot_config.h>
 #include <vnm_plot/core/types.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -505,6 +508,259 @@ bool test_nonnegative_auto_range_floor_policy_includes_zero()
     TEST_ASSERT(range.first == 0.0f && range.second == 5.0f,
         "nonnegative auto-range floor policy should clamp padded lower bound to zero");
 
+    return true;
+}
+
+std::pair<float, float> resolve_padded_range(
+    float      data_min,
+    float      data_max,
+    double     extra_scale,
+    bool       floor_nonnegative = false,
+    bool       preview           = false)
+{
+    auto source = std::make_shared<Query_range_source>();
+    source->query_status = Data_query_status::READY;
+    source->query_range  = {data_min, data_max};
+
+    Plot_config config;
+    config.auto_v_range_mode        = Auto_v_range_mode::GLOBAL;
+    config.auto_v_range_extra_scale = extra_scale;
+    config.floor_nonnegative_auto_v_range_at_zero = floor_nonnegative;
+
+    if (preview) {
+        auto series = make_series(std::make_shared<Query_range_source>());
+        plot::preview_config_t preview_config;
+        preview_config.data_source = source;
+        preview_config.access      = make_policy();
+        preview_config.style       = Display_style::AREA;
+        series->preview_config     = preview_config;
+        return plot::detail::resolve_preview_v_range(
+            make_series_map(series),
+            make_data_config(),
+            config);
+    }
+
+    return plot::detail::resolve_main_v_range(
+        make_series_map(make_series(source)),
+        make_data_config(),
+        config,
+        true);
+}
+
+// Expected bounds are the outputs of the padding before it was reworked for
+// the float limits, so they pin the float rounding of the one percent pad and
+// of the scaled bounds as well as the policy.
+struct padded_range_case_t
+{
+    float      data_min;
+    float      data_max;
+    double     extra_scale;
+    bool       floor_nonnegative;
+    float      expected_min;
+    float      expected_max;
+};
+
+constexpr padded_range_case_t k_ordinary_padded_ranges[] = {
+    {   50.63f,    50.63f,  0.0, false,       50.123703f,     51.1362991f},
+    {    51.0f,     51.0f,  0.1, false,       50.439003f,      51.560997f},
+    {     3.0f,      3.0f,  0.0, false,             2.5f,            3.5f},
+    {   100.0f,    100.0f,  0.0, false,            99.0f,          101.0f},
+    {     0.0f,      0.0f,  0.0, false,            -0.5f,            0.5f},
+    {     0.0f,      0.0f, 0.25, false,          -0.625f,          0.625f},
+    {     0.0f,      0.0f, 0.25,  true,             0.0f,          0.625f},
+    {  -50.63f,   -50.63f,  0.0, false,     -51.1362991f,     -50.123703f},
+    {   -51.0f,    -51.0f,  0.1, false,      -51.560997f,     -50.439003f},
+    {     0.3f,      0.3f,  0.3, false,    -0.349999994f,    0.949999988f},
+    {   0.001f,    0.001f,  0.0, false,    -0.499000013f,    0.500999987f},
+    {1234.567f, 1234.567f, 0.05, false,        1221.604f,     1247.53003f},
+    {  1.0e10f,   1.0e10f,  0.2, false,  9.88000051e+09f, 1.01199995e+10f},
+    {    7.77f,     7.77f,  2.0, false,       6.2699995f,     9.27000046f},
+    {     5.5f,      5.5f,  0.5,  true,            4.75f,           6.25f},
+    {   50.63f,    50.63f, 0.37,  true,      49.9363708f,     51.3236313f},
+    {    -7.3f,     -7.3f, 0.01, false,     -7.80500031f,    -6.79500008f},
+    {     1.0f,      3.0f,  0.5, false,             0.5f,            3.5f},
+    {     1.0f,      3.0f,  0.0, false,             1.0f,            3.0f},
+    {     0.1f,      0.7f,  0.1, false,    0.0700000003f,    0.729999959f},
+    {    -8.0f,     -2.0f, 0.25, false,           -8.75f,          -1.25f},
+    {    -3.3f,      5.7f, 0.15, false,      -3.9749999f,          6.375f},
+    {    -3.3f,      5.7f,  0.0, false,     -3.29999995f,     5.69999981f},
+    {     0.0f,     10.0f, 0.05, false,           -0.25f,          10.25f},
+    {     1.1f,      2.9f, 0.33, false,     0.803000033f,     3.19700003f},
+    {   1.0e6f, 1.0001e6f,  0.1, false,        999995.0f,      1000105.0f},
+    {   12.34f,    56.78f, 0.07, false,      10.7846003f,     58.3353996f},
+    {     0.0f,    0.001f,  1.0, false, -0.000500000024f,  0.00150000001f},
+    {     1.0f,      3.0f,  2.0,  true,             0.0f,            5.0f},
+    {     0.5f,      2.2f,  1.0,  true,             0.0f,     3.05000019f},
+    {     2.5f,      9.1f,  0.9,  true,             0.0f,     12.0700006f},
+    {    -3.0f,      4.0f,  0.2,  true,     -3.70000005f,     4.69999981f},
+    {     0.0f,      4.0f,  0.2,  true,             0.0f,      4.4000001f},
+    {     0.0f,      4.0f,  0.2, false,    -0.400000006f,      4.4000001f},
+    {    -9.9f,     -0.3f, 0.77,  true,     -13.5959997f,     3.39599991f},
+    { 1.0e-20f,  3.0e-20f,  0.5, false,  4.99999984e-21f, 3.49999989e-20f},
+    { -1.0e20f,   1.0e20f,  0.1, false, -1.09999999e+20f, 1.09999999e+20f},
+    { -1.0e30f,   2.5e30f,  1.0, false, -2.75000008e+30f, 4.24999988e+30f},
+};
+
+bool auto_range_encloses_finite(
+    const std::pair<float, float>&     range,
+    float                              data_min,
+    float                              data_max)
+{
+    return std::isfinite(range.first) && std::isfinite(range.second) &&
+        range.first < range.second &&
+        range.first <= data_min && range.second >= data_max;
+}
+
+bool test_auto_range_padding_stays_finite_for_constant_float_max()
+{
+    constexpr float float_max = std::numeric_limits<float>::max();
+    for (const double extra_scale : {0.0, 0.5}) {
+        const auto high = resolve_padded_range(float_max, float_max, extra_scale);
+        TEST_ASSERT(auto_range_encloses_finite(high, float_max, float_max),
+            "padding a constant FLT_MAX series must yield a finite ordered range around it");
+        const auto low = resolve_padded_range(-float_max, -float_max, extra_scale);
+        TEST_ASSERT(auto_range_encloses_finite(low, -float_max, -float_max),
+            "padding a constant -FLT_MAX series must yield a finite ordered range around it");
+    }
+    return true;
+}
+
+bool test_auto_range_extra_scale_stays_finite_at_float_limits()
+{
+    constexpr float float_max = std::numeric_limits<float>::max();
+    TEST_ASSERT(auto_range_encloses_finite(
+        resolve_padded_range(0.0f, float_max, 0.1), 0.0f, float_max),
+        "extra scale on [0, FLT_MAX] must not push the upper bound past the float range");
+    TEST_ASSERT(auto_range_encloses_finite(
+        resolve_padded_range(-float_max, float_max, 1.0), -float_max, float_max),
+        "extra scale on the full float range must saturate instead of overflowing");
+    const double infinity = std::numeric_limits<double>::infinity();
+    const auto ignored = resolve_padded_range(1.0f, 3.0f, infinity);
+    TEST_ASSERT(ignored.first == 1.0f && ignored.second == 3.0f,
+        "a nonfinite extra scale must be ignored rather than produce a nonfinite range");
+    return true;
+}
+
+bool test_auto_range_tiny_extra_scale_keeps_the_lower_data_minimum()
+{
+    constexpr float float_max = std::numeric_limits<float>::max();
+    // The extra scale is too small to widen the span in double, so the
+    // recomputed lower bound would otherwise land above the data minimum.
+    for (const bool preview : {false, true}) {
+        const auto range = resolve_padded_range(
+            -1.0f, float_max, 1.0e-20, false, preview);
+        TEST_ASSERT(auto_range_encloses_finite(range, -1.0f, float_max),
+            "a negligible extra scale must not move the lower bound above the data minimum");
+    }
+    return true;
+}
+
+bool test_auto_range_tiny_extra_scale_keeps_the_upper_data_maximum()
+{
+    constexpr float float_max = std::numeric_limits<float>::max();
+    for (const bool preview : {false, true}) {
+        const auto range = resolve_padded_range(
+            -float_max, 1.0f, 1.0e-20, false, preview);
+        TEST_ASSERT(auto_range_encloses_finite(range, -float_max, 1.0f),
+            "a negligible extra scale must not move the upper bound below the data maximum");
+    }
+    return true;
+}
+
+// Sweeps extreme and ordinary values for both bounds and for the extra scale
+// through the real resolver, for main and preview resolution and with and
+// without the zero floor. Whatever the combination, a finite ordered data
+// range must come back finite, ordered, and containing the whole data range.
+bool test_auto_range_padding_contains_the_data_for_every_extreme_combination()
+{
+    constexpr float float_max  = std::numeric_limits<float>::max();
+    constexpr float float_min  = std::numeric_limits<float>::min();
+    constexpr float denormal   = std::numeric_limits<float>::denorm_min();
+    constexpr double dbl_max   = std::numeric_limits<double>::max();
+    constexpr double dbl_inf   = std::numeric_limits<double>::infinity();
+    constexpr double dbl_nan   = std::numeric_limits<double>::quiet_NaN();
+
+    const std::vector<float> positive_values = {
+        denormal, float_min, 1.0e-20f, 1.0e-7f, 0.01f, 0.1f, 1.0f, 3.0f,
+        1.0e20f, 1.0e38f, float_max
+    };
+    std::vector<float> values = {0.0f};
+    for (const float value : positive_values) {
+        values.push_back(value);
+        values.push_back(-value);
+    }
+    std::sort(values.begin(), values.end());
+
+    const std::vector<double> scales = {
+        0.0, 1.0e-300, 1.0e-20, 1.0e-7, 0.01, 0.1, 1.0, 1.0e20, 1.0e38,
+        dbl_max, dbl_inf, -dbl_inf, -0.5, dbl_nan
+    };
+
+    std::size_t violations = 0;
+    std::size_t checked    = 0;
+    for (const bool preview : {false, true}) {
+        for (const bool floor_nonnegative : {false, true}) {
+            for (const float data_min : values) {
+                for (const float data_max : values) {
+                    if (data_min > data_max) {
+                        continue;
+                    }
+                    for (const double scale : scales) {
+                        const auto range = resolve_padded_range(
+                            data_min, data_max, scale, floor_nonnegative, preview);
+                        ++checked;
+                        if (auto_range_encloses_finite(range, data_min, data_max)) {
+                            continue;
+                        }
+                        if (++violations <= 20) {
+                            std::cerr << std::setprecision(9)
+                                << (preview ? "preview" : "main")
+                                << " range of [" << data_min << ", " << data_max
+                                << "] with extra scale " << scale
+                                << (floor_nonnegative ? " and floor" : "")
+                                << " is [" << range.first << ", " << range.second
+                                << "]" << std::endl;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    TEST_ASSERT(checked > 0, "the sweep should check combinations");
+    TEST_ASSERT(violations == 0,
+        "every padded range must be finite, ordered and contain the data range");
+    return true;
+}
+
+bool test_auto_range_padding_is_unchanged_for_ordinary_values()
+{
+    const auto constant = resolve_padded_range(3.0f, 3.0f, 0.0);
+    TEST_ASSERT(constant.first == 2.5f && constant.second == 3.5f,
+        "a constant ordinary series should still receive the minimum pad");
+    const auto large = resolve_padded_range(100.0f, 100.0f, 0.0);
+    TEST_ASSERT(large.first == 99.0f && large.second == 101.0f,
+        "a constant series should still receive a one percent pad");
+    const auto scaled = resolve_padded_range(1.0f, 3.0f, 0.5);
+    TEST_ASSERT(scaled.first == 0.5f && scaled.second == 3.5f,
+        "extra scale should still pad the span symmetrically");
+
+    std::size_t mismatches = 0;
+    for (const padded_range_case_t& c : k_ordinary_padded_ranges) {
+        const auto range = resolve_padded_range(
+            c.data_min, c.data_max, c.extra_scale, c.floor_nonnegative);
+        if (range.first != c.expected_min || range.second != c.expected_max) {
+            ++mismatches;
+            std::cerr << std::setprecision(9)
+                << "padded range of [" << c.data_min << ", " << c.data_max
+                << "] with extra scale " << c.extra_scale
+                << (c.floor_nonnegative ? " and floor" : "")
+                << " is [" << range.first << ", " << range.second
+                << "], expected [" << c.expected_min << ", " << c.expected_max
+                << "]" << std::endl;
+        }
+    }
+    TEST_ASSERT(mismatches == 0,
+        "ordinary ranges should be padded to exactly the same float bounds as before");
     return true;
 }
 
@@ -1237,6 +1493,12 @@ int main()
     RUN_TEST(test_positive_auto_range_excludes_zero_by_default);
     RUN_TEST(test_negative_auto_range_excludes_zero_by_default);
     RUN_TEST(test_nonnegative_auto_range_floor_policy_includes_zero);
+    RUN_TEST(test_auto_range_padding_stays_finite_for_constant_float_max);
+    RUN_TEST(test_auto_range_extra_scale_stays_finite_at_float_limits);
+    RUN_TEST(test_auto_range_tiny_extra_scale_keeps_the_lower_data_minimum);
+    RUN_TEST(test_auto_range_tiny_extra_scale_keeps_the_upper_data_maximum);
+    RUN_TEST(test_auto_range_padding_contains_the_data_for_every_extreme_combination);
+    RUN_TEST(test_auto_range_padding_is_unchanged_for_ordinary_values);
     RUN_TEST(test_visible_step_after_draw_nothing_contributes_held_sample);
     RUN_TEST(test_visible_step_after_hold_forward_contributes_held_sample);
     RUN_TEST(test_visible_step_after_skip_fallback_keeps_earlier_drawable_held_sample);
