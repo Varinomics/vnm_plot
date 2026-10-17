@@ -346,6 +346,8 @@ Series_view_plan plan_series_window(const series_window_plan_request_t& request)
         mark_tried(applied_level);
         const std::size_t applied_scale     = scales[applied_level];
         bool              hold_last_forward = false;
+        snapshot_result_t snapshot_result;
+        bool              snapshot_acquired = false;
 
         const std::uint64_t current_seq = data_source.current_sequence(applied_level);
         if (current_seq                      != 0                             &&
@@ -366,7 +368,8 @@ Series_view_plan plan_series_window(const series_window_plan_request_t& request)
             if (request.snapshot_requirement ==
                 Snapshot_requirement::Frame_snapshot_required)
             {
-                snapshot_result_t snapshot_result = acquire_frame_snapshot(applied_level);
+                snapshot_result   = acquire_frame_snapshot(applied_level);
+                snapshot_acquired = true;
                 if (snapshot_result) {
                     if (snapshot_result.snapshot.sequence == current_seq) {
                         load_cached_plan(plan, applied_level);
@@ -380,7 +383,11 @@ Series_view_plan plan_series_window(const series_window_plan_request_t& request)
                     // newer frame-scoped snapshot instead of pairing cached
                     // window metadata with a different snapshot.
                 }
-                else {
+                else if (snapshot_result.status == snapshot_result_t::Snapshot_status::BUSY ||
+                         snapshot_result.status == snapshot_result_t::Snapshot_status::FAILED)
+                {
+                    // Transient unavailability keeps the uploaded plan. An
+                    // authoritative empty snapshot replans below instead.
                     load_cached_plan(plan, applied_level);
                     state.last_plan_reused_upload = true;
                     return plan;
@@ -393,10 +400,28 @@ Series_view_plan plan_series_window(const series_window_plan_request_t& request)
             }
         }
 
-        snapshot_result_t snapshot_result = acquire_frame_snapshot(applied_level);
+        if (!snapshot_acquired) {
+            snapshot_result = acquire_frame_snapshot(applied_level);
+        }
 
-        if (!snapshot_result || !snapshot_result.snapshot || snapshot_result.snapshot.count == 0) {
-            if (try_stale_fallback(plan, applied_level)) {
+        const bool empty_snapshot =
+            snapshot_result.status == snapshot_result_t::Snapshot_status::EMPTY ||
+            (snapshot_result.status == snapshot_result_t::Snapshot_status::READY &&
+             snapshot_result.snapshot.count == 0);
+        if (empty_snapshot) {
+            // EMPTY is an authoritative content change, unlike BUSY and FAILED.
+            // Drop the cached plan so that neither the stale fallback nor a
+            // later unavailable snapshot can bring back the pre-clear upload.
+            state.last_count                = 0;
+            state.last_source_count         = 0;
+            state.last_synthetic_hold_count = 0;
+            state.last_drawable_spans.clear();
+            state.last_hold_last_forward    = false;
+            plan.snapshot.sequence          = snapshot_result.snapshot.sequence;
+        }
+
+        if (!snapshot_result) {
+            if (!empty_snapshot && try_stale_fallback(plan, applied_level)) {
                 break;
             }
             if (applied_level > 0) {

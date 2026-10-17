@@ -19,7 +19,9 @@ struct sample_t
 };
 
 // A source whose revision can be withheld, as a source with no content
-// revision does: current_sequence() and the snapshot sequence are both 0.
+// revision does: current_sequence() and the snapshot sequence are both 0. It can
+// also report transient unavailability, report an empty snapshot as READY, and
+// be cleared at the moment the planner acquires its frame snapshot.
 class Test_source final : public plot::Vector_data_source<sample_t>
 {
 public:
@@ -27,9 +29,19 @@ public:
 
     plot::snapshot_result_t try_snapshot(std::size_t lod = 0) override
     {
+        if (clear_on_next_snapshot) {
+            clear_on_next_snapshot = false;
+            set_data({});
+        }
+        if (busy) {
+            return {{}, plot::snapshot_result_t::Snapshot_status::BUSY};
+        }
         auto result = plot::Vector_data_source<sample_t>::try_snapshot(lod);
         if (!revision_available) {
             result.snapshot.sequence = 0;
+        }
+        if (ready_when_empty && result.snapshot.count == 0) {
+            result.status = plot::snapshot_result_t::Snapshot_status::READY;
         }
         return result;
     }
@@ -41,7 +53,10 @@ public:
             : 0;
     }
 
-    bool revision_available = true;
+    bool busy                   = false;
+    bool revision_available     = true;
+    bool ready_when_empty       = false;
+    bool clear_on_next_snapshot = false;
 };
 
 struct Planner_fixture
@@ -77,6 +92,83 @@ struct Planner_fixture
     detail::Series_window_snapshot_cache cache;
     detail::series_window_plan_request_t request;
 };
+
+bool test_empty_snapshot_invalidates_uploaded_plan()
+{
+    for (const bool ready_when_empty : {false, true}) {
+        for (const auto requirement : {detail::Snapshot_requirement::Optional,
+                                      detail::Snapshot_requirement::Frame_snapshot_required}) {
+            Test_source source(std::vector<sample_t>{{0, 100.0f}, {10, 200.0f}});
+            source.ready_when_empty = ready_when_empty;
+            Planner_fixture fixture(source);
+            fixture.request.snapshot_requirement = requirement;
+            const auto initial = fixture.next_frame();
+            TEST_ASSERT(initial.gpu_count == 2,
+                "the initial frame should contain both bracketing samples");
+            fixture.request.has_uploaded_vbo = true;
+
+            source.set_data({});
+            for (int frame = 0; frame < 2; ++frame) {
+                const auto empty = fixture.next_frame();
+                TEST_ASSERT(empty.gpu_count == 0 && empty.source_count == 0 &&
+                    !fixture.state.last_plan_reused_upload,
+                    "a cleared source must not keep drawing the pre-clear upload");
+            }
+
+            source.busy = true;
+            const auto busy_after_empty = fixture.next_frame();
+            TEST_ASSERT(busy_after_empty.gpu_count == 0 &&
+                !fixture.state.last_plan_reused_upload,
+                "a later BUSY result must not resurrect the pre-clear upload");
+
+            source.busy = false;
+            source.set_data({{0, 300.0f}, {10, 400.0f}});
+            const auto restored = fixture.next_frame();
+            TEST_ASSERT(restored.gpu_count == 2 && !fixture.state.last_plan_reused_upload &&
+                static_cast<const sample_t*>(restored.snapshot.snapshot.at(0))->value == 300.0f,
+                "new data after a clear must produce a fresh plan");
+        }
+    }
+    return true;
+}
+
+bool test_clear_between_sequence_check_and_snapshot_is_honored()
+{
+    for (const bool ready_when_empty : {false, true}) {
+        Test_source source(std::vector<sample_t>{{0, 100.0f}, {10, 200.0f}});
+        source.ready_when_empty = ready_when_empty;
+        Planner_fixture fixture(source);
+        fixture.request.snapshot_requirement =
+            detail::Snapshot_requirement::Frame_snapshot_required;
+        TEST_ASSERT(fixture.next_frame().gpu_count == 2, "initial plan must be drawable");
+        fixture.request.has_uploaded_vbo = true;
+
+        // current_sequence() still observes the uploaded revision; the clear
+        // lands when the planner acquires its required frame snapshot.
+        source.clear_on_next_snapshot = true;
+        const auto cleared = fixture.next_frame();
+        TEST_ASSERT(cleared.gpu_count == 0 && !fixture.state.last_plan_reused_upload,
+            "a clear observed in the frame snapshot must not keep the pre-clear upload");
+    }
+    return true;
+}
+
+bool test_busy_snapshot_keeps_compatible_uploaded_plan()
+{
+    for (const auto requirement : {detail::Snapshot_requirement::Optional,
+                                  detail::Snapshot_requirement::Frame_snapshot_required}) {
+        Test_source source(std::vector<sample_t>{{0, 100.0f}, {10, 200.0f}});
+        Planner_fixture fixture(source);
+        fixture.request.snapshot_requirement = requirement;
+        TEST_ASSERT(fixture.next_frame().gpu_count == 2, "initial plan must be drawable");
+        fixture.request.has_uploaded_vbo = true;
+        source.busy = true;
+        const auto busy = fixture.next_frame();
+        TEST_ASSERT(busy.gpu_count == 2 && fixture.state.last_plan_reused_upload,
+            "temporary snapshot unavailability should retain the compatible upload");
+    }
+    return true;
+}
 
 bool test_unknown_revision_rescans_timestamp_order()
 {
@@ -133,6 +225,9 @@ int main()
 {
     int passed = 0;
     int failed = 0;
+    RUN_TEST(test_empty_snapshot_invalidates_uploaded_plan);
+    RUN_TEST(test_clear_between_sequence_check_and_snapshot_is_honored);
+    RUN_TEST(test_busy_snapshot_keeps_compatible_uploaded_plan);
     RUN_TEST(test_unknown_revision_rescans_timestamp_order);
     RUN_TEST(test_known_revision_reuses_timestamp_order);
     std::cout << "Results: " << passed << " passed, " << failed << " failed\n";

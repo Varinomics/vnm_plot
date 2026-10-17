@@ -459,6 +459,16 @@ struct Data_snapshot
     bool is_segmented() const { return data2 != nullptr && count2 > 0; }
 };
 
+// Snapshot_status contract:
+// - READY:  the snapshot holds the current content.
+// - EMPTY:  the source authoritatively holds no samples. Consumers drop any
+//           geometry they retained from earlier content, so a cleared source
+//           stops drawing. A source that is merely unable to answer right now
+//           must not report EMPTY.
+// - BUSY / FAILED: the content is temporarily unavailable. Consumers may keep
+//           showing compatible geometry retained from earlier content until a
+//           snapshot is available again.
+// A READY snapshot with no samples is treated as EMPTY.
 struct snapshot_result_t
 {
     Data_snapshot snapshot;
