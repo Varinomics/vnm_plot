@@ -11,6 +11,7 @@ set(_vnm_plot_data_tests
 set(_vnm_plot_layout_tests
     test_cache_invalidation
     test_layout_calculator
+    test_series_window_planner
     test_time_grid
 )
 
@@ -198,6 +199,7 @@ vnm_plot_add_test(ConcurrentSeries test_concurrent_series)
 vnm_plot_add_test(DataSourceQueries test_data_source_queries)
 vnm_plot_add_test(GpuSampleOrigin test_gpu_sample_origin)
 vnm_plot_add_test(LayoutCalculator test_layout_calculator)
+vnm_plot_add_test(SeriesWindowPlanner test_series_window_planner)
 vnm_plot_add_test(TimeGrid test_time_grid)
 vnm_plot_add_test(RhiHelpers test_rhi_helpers)
 vnm_plot_add_test(LabelPaneGeometry test_label_pane_geometry)

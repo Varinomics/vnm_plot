@@ -415,6 +415,7 @@ Series_view_plan plan_series_window(const series_window_plan_request_t& request)
         if (access_view.has_timestamp()) {
             const void* current_identity = data_source.identity();
             const bool need_monotonicity_scan =
+                snapshot.sequence == 0 ||
                 state.last_timestamp_order_sequence   != snapshot.sequence ||
                 state.last_timestamp_order_identity   != current_identity  ||
                 state.last_timestamp_order_access_key != access_key;
