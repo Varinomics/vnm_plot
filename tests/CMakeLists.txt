@@ -1,74 +1,60 @@
 cmake_minimum_required(VERSION 3.16)
 
-set(_vnm_plot_data_tests
-    test_typed_api
-    test_function_sample_source
-    test_concurrent_series
-    test_data_source_queries
-    test_gpu_sample_origin
-)
+set(_vnm_plot_test_names)
+set(_vnm_plot_test_targets)
+set(_vnm_plot_windows_test_targets)
 
-set(_vnm_plot_layout_tests
-    test_cache_invalidation
-    test_layout_calculator
-    test_series_window_planner
-    test_time_grid
-)
+function(vnm_plot_add_test test_name target_name component)
+    add_executable(${target_name} ${target_name}.cpp)
+    target_link_libraries(${target_name} PRIVATE vnm_plot::${component})
+    set_target_properties(${target_name} PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+    )
+    add_test(NAME ${test_name} COMMAND ${target_name})
+
+    list(APPEND _vnm_plot_test_names ${test_name})
+    set(_vnm_plot_test_names "${_vnm_plot_test_names}" PARENT_SCOPE)
+    list(APPEND _vnm_plot_test_targets ${target_name})
+    set(_vnm_plot_test_targets "${_vnm_plot_test_targets}" PARENT_SCOPE)
+    if(component STREQUAL "rhi" OR component STREQUAL "qtquick")
+        list(APPEND _vnm_plot_windows_test_targets ${target_name})
+        set(_vnm_plot_windows_test_targets "${_vnm_plot_windows_test_targets}" PARENT_SCOPE)
+    endif()
+endfunction()
 
 # Series diagnostics affect the class layout; every consumer of this test build
 # must see the same definition, including when font rendering is disabled.
 target_compile_definitions(vnm_plot_rhi PUBLIC VNM_PLOT_ENABLE_TEST_HOOKS=1)
 
-set(_vnm_plot_rhi_tests
-    test_snapshot_caching
-    test_core_algo
-    test_asset_loader
-    test_rhi_helpers
-    test_label_pane_geometry
-    test_qrhi_layer_lifecycle
-    test_qrhi_public_api
-    test_line_precision
-    test_sample_upload_reuse
-    test_msdf_lcd_shader_reference
-)
+vnm_plot_add_test(CacheInvalidation test_cache_invalidation layout)
+vnm_plot_add_test(SnapshotCaching test_snapshot_caching rhi)
+vnm_plot_add_test(TypedApi test_typed_api data)
+vnm_plot_add_test(FunctionSampleSource test_function_sample_source data)
+vnm_plot_add_test(CoreAlgo test_core_algo rhi)
+vnm_plot_add_test(AssetLoader test_asset_loader rhi)
+vnm_plot_add_test(ConcurrentSeries test_concurrent_series data)
+vnm_plot_add_test(DataSourceQueries test_data_source_queries data)
+vnm_plot_add_test(GpuSampleOrigin test_gpu_sample_origin data)
+vnm_plot_add_test(LayoutCalculator test_layout_calculator layout)
+vnm_plot_add_test(SeriesWindowPlanner test_series_window_planner layout)
+vnm_plot_add_test(TimeGrid test_time_grid layout)
+vnm_plot_add_test(RhiHelpers test_rhi_helpers rhi)
+vnm_plot_add_test(LabelPaneGeometry test_label_pane_geometry rhi)
+vnm_plot_add_test(QrhiLayerLifecycle test_qrhi_layer_lifecycle rhi)
+vnm_plot_add_test(QrhiPublicApi test_qrhi_public_api rhi)
+vnm_plot_add_test(LinePrecision test_line_precision rhi)
+vnm_plot_add_test(SampleUploadReuse test_sample_upload_reuse rhi)
 
 if(VNM_PLOT_ENABLE_TEXT)
-    list(APPEND _vnm_plot_rhi_tests
-        test_atomic_file_write
-        test_font_atlas_cache
-        test_font_disk_cache
-        test_font_identity
-        test_font_renderer_bounds
-        test_font_renderer_draw_ranges
-    )
+    vnm_plot_add_test(AtomicFileWrite test_atomic_file_write rhi)
+    vnm_plot_add_test(FontAtlasCache test_font_atlas_cache rhi)
+    vnm_plot_add_test(FontDiskCache test_font_disk_cache rhi)
+    vnm_plot_add_test(FontIdentity test_font_identity rhi)
+    vnm_plot_add_test(FontRendererBounds test_font_renderer_bounds rhi)
+    vnm_plot_add_test(FontRendererDrawRanges test_font_renderer_draw_ranges rhi)
 endif()
-
-foreach(_test IN LISTS _vnm_plot_data_tests)
-    add_executable(${_test} ${_test}.cpp)
-    target_link_libraries(${_test} PRIVATE vnm_plot::data)
-    set_target_properties(${_test} PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-    )
-endforeach()
-
-foreach(_test IN LISTS _vnm_plot_layout_tests)
-    add_executable(${_test} ${_test}.cpp)
-    target_link_libraries(${_test} PRIVATE vnm_plot::layout)
-    set_target_properties(${_test} PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-    )
-endforeach()
-
-foreach(_test IN LISTS _vnm_plot_rhi_tests)
-    add_executable(${_test} ${_test}.cpp)
-    target_link_libraries(${_test} PRIVATE vnm_plot::rhi)
-    set_target_properties(${_test} PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-    )
-endforeach()
+vnm_plot_add_test(MsdfLcdShaderReference test_msdf_lcd_shader_reference rhi)
 
 target_include_directories(test_function_sample_source PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../examples/common
@@ -124,16 +110,13 @@ if(TARGET test_msdf_lcd_shader_reference)
 endif()
 
 if(TARGET vnm_plot_qtquick)
-    add_executable(test_qml_module test_qml_module.cpp)
-    target_link_libraries(test_qml_module PRIVATE vnm_plot::qtquick)
+    vnm_plot_add_test(QmlModule test_qml_module qtquick)
 
-    add_executable(test_plot_interaction_item test_plot_interaction_item.cpp)
-    target_link_libraries(test_plot_interaction_item PRIVATE vnm_plot::qtquick)
+    vnm_plot_add_test(PlotInteractionItem test_plot_interaction_item qtquick)
 
-    add_executable(test_plot_renderer_lifecycle test_plot_renderer_lifecycle.cpp)
+    vnm_plot_add_test(PlotRendererLifecycle test_plot_renderer_lifecycle qtquick)
     target_link_libraries(test_plot_renderer_lifecycle
         PRIVATE
-            vnm_plot::qtquick
             Qt6::GuiPrivate
             Qt6::Gui
     )
@@ -141,13 +124,11 @@ if(TARGET vnm_plot_qtquick)
         ${CMAKE_CURRENT_SOURCE_DIR}/../src/qt
     )
 
-    add_executable(test_plot_time_axis test_plot_time_axis.cpp)
-    target_link_libraries(test_plot_time_axis PRIVATE vnm_plot::qtquick)
+    vnm_plot_add_test(PlotTimeAxis test_plot_time_axis qtquick)
 
-    add_executable(test_lcd_resolver test_lcd_resolver.cpp)
+    vnm_plot_add_test(LcdResolver test_lcd_resolver qtquick)
     target_link_libraries(test_lcd_resolver
         PRIVATE
-            vnm_plot::qtquick
             vnm_msdf_text::qt_lcd
             Qt6::GuiPrivate
             Qt6::Gui
@@ -156,27 +137,6 @@ if(TARGET vnm_plot_qtquick)
         ${CMAKE_CURRENT_SOURCE_DIR}/../src/qt
     )
 endif()
-
-if(TARGET vnm_plot_qtquick)
-    set_target_properties(
-        test_qml_module
-        test_plot_interaction_item
-        test_plot_renderer_lifecycle
-        test_plot_time_axis
-        test_lcd_resolver
-        PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-    )
-endif()
-
-set(_vnm_plot_test_names)
-
-function(vnm_plot_add_test test_name target_name)
-    add_test(NAME ${test_name} COMMAND ${target_name})
-    list(APPEND _vnm_plot_test_names ${test_name})
-    set(_vnm_plot_test_names "${_vnm_plot_test_names}" PARENT_SCOPE)
-endfunction()
 
 function(vnm_plot_target_is_imported out_var target_name)
     set(_imported FALSE)
@@ -188,54 +148,6 @@ function(vnm_plot_target_is_imported out_var target_name)
     endif()
     set(${out_var} ${_imported} PARENT_SCOPE)
 endfunction()
-
-vnm_plot_add_test(CacheInvalidation test_cache_invalidation)
-vnm_plot_add_test(SnapshotCaching test_snapshot_caching)
-vnm_plot_add_test(TypedApi test_typed_api)
-vnm_plot_add_test(FunctionSampleSource test_function_sample_source)
-vnm_plot_add_test(CoreAlgo test_core_algo)
-vnm_plot_add_test(AssetLoader test_asset_loader)
-vnm_plot_add_test(ConcurrentSeries test_concurrent_series)
-vnm_plot_add_test(DataSourceQueries test_data_source_queries)
-vnm_plot_add_test(GpuSampleOrigin test_gpu_sample_origin)
-vnm_plot_add_test(LayoutCalculator test_layout_calculator)
-vnm_plot_add_test(SeriesWindowPlanner test_series_window_planner)
-vnm_plot_add_test(TimeGrid test_time_grid)
-vnm_plot_add_test(RhiHelpers test_rhi_helpers)
-vnm_plot_add_test(LabelPaneGeometry test_label_pane_geometry)
-vnm_plot_add_test(QrhiLayerLifecycle test_qrhi_layer_lifecycle)
-vnm_plot_add_test(QrhiPublicApi test_qrhi_public_api)
-vnm_plot_add_test(LinePrecision test_line_precision)
-vnm_plot_add_test(SampleUploadReuse test_sample_upload_reuse)
-if(TARGET test_atomic_file_write)
-    vnm_plot_add_test(AtomicFileWrite test_atomic_file_write)
-endif()
-if(TARGET test_font_atlas_cache)
-    vnm_plot_add_test(FontAtlasCache test_font_atlas_cache)
-endif()
-if(TARGET test_font_disk_cache)
-    vnm_plot_add_test(FontDiskCache test_font_disk_cache)
-endif()
-if(TARGET test_font_identity)
-    vnm_plot_add_test(FontIdentity test_font_identity)
-endif()
-if(TARGET test_font_renderer_bounds)
-    vnm_plot_add_test(FontRendererBounds test_font_renderer_bounds)
-endif()
-if(TARGET test_font_renderer_draw_ranges)
-    vnm_plot_add_test(FontRendererDrawRanges test_font_renderer_draw_ranges)
-endif()
-if(TARGET test_msdf_lcd_shader_reference)
-    vnm_plot_add_test(MsdfLcdShaderReference test_msdf_lcd_shader_reference)
-endif()
-
-if(TARGET vnm_plot_qtquick)
-    vnm_plot_add_test(QmlModule test_qml_module)
-    vnm_plot_add_test(PlotInteractionItem test_plot_interaction_item)
-    vnm_plot_add_test(PlotRendererLifecycle test_plot_renderer_lifecycle)
-    vnm_plot_add_test(PlotTimeAxis test_plot_time_axis)
-    vnm_plot_add_test(LcdResolver test_lcd_resolver)
-endif()
 
 set(_vnm_plot_package_smoke_viable TRUE)
 set(_vnm_plot_package_smoke_skip_reason)
@@ -335,23 +247,6 @@ if(WIN32)
         endif()
     endforeach()
 
-    set(_vnm_plot_windows_test_targets ${_vnm_plot_rhi_tests} test_qml_module)
-    if(TARGET test_plot_interaction_item)
-        list(APPEND _vnm_plot_windows_test_targets test_plot_interaction_item)
-    endif()
-    if(TARGET test_plot_renderer_lifecycle)
-        list(APPEND _vnm_plot_windows_test_targets test_plot_renderer_lifecycle)
-    endif()
-    if(TARGET test_plot_time_axis)
-        list(APPEND _vnm_plot_windows_test_targets test_plot_time_axis)
-    endif()
-    if(TARGET test_lcd_resolver)
-        list(APPEND _vnm_plot_windows_test_targets test_lcd_resolver)
-    endif()
-    if(TARGET test_msdf_lcd_shader_reference)
-        list(APPEND _vnm_plot_windows_test_targets test_msdf_lcd_shader_reference)
-    endif()
-
     set(_vnm_plot_windows_test_runtime_dir "${CMAKE_CURRENT_BINARY_DIR}")
     set(_vnm_plot_windows_test_runtime_commands
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -417,18 +312,6 @@ endif()
 
 # Print test info
 message(STATUS "Configured tests:")
-foreach(_test IN LISTS _vnm_plot_data_tests)
+foreach(_test IN LISTS _vnm_plot_test_targets)
     message(STATUS "  - ${_test}")
 endforeach()
-foreach(_test IN LISTS _vnm_plot_layout_tests)
-    message(STATUS "  - ${_test}")
-endforeach()
-foreach(_test IN LISTS _vnm_plot_rhi_tests)
-    message(STATUS "  - ${_test}")
-endforeach()
-if(TARGET vnm_plot_qtquick)
-    message(STATUS "  - test_plot_interaction_item")
-    message(STATUS "  - test_plot_renderer_lifecycle")
-    message(STATUS "  - test_plot_time_axis")
-    message(STATUS "  - test_lcd_resolver")
-endif()
