@@ -255,33 +255,7 @@ std::string filtered_lcd_return_statement()
         "        : vec3(last_coverage, center_coverage, first_coverage);";
 }
 
-bool test_cpp_order_values_match_shader_reference()
-{
-    struct case_t
-    {
-        lcd::Resolved_lcd_subpixel_order order;
-        int                              value;
-        float                            uniform;
-    };
-
-    constexpr case_t cases[] = {
-        { lcd::Resolved_lcd_subpixel_order::NONE, ref::k_lcd_order_none_value, ref::k_lcd_order_none_uniform },
-        { lcd::Resolved_lcd_subpixel_order::RGB,  ref::k_lcd_order_rgb_value,  ref::k_lcd_order_rgb_uniform  },
-        { lcd::Resolved_lcd_subpixel_order::BGR,  ref::k_lcd_order_bgr_value,  ref::k_lcd_order_bgr_uniform  },
-        { lcd::Resolved_lcd_subpixel_order::VRGB, ref::k_lcd_order_vrgb_value, ref::k_lcd_order_vrgb_uniform },
-        { lcd::Resolved_lcd_subpixel_order::VBGR, ref::k_lcd_order_vbgr_value, ref::k_lcd_order_vbgr_uniform },
-    };
-
-    for (const case_t& item : cases) {
-        TEST_ASSERT(lcd::resolved_order_value(item.order) == item.value,
-            "resolved LCD order value must match shader reference");
-        TEST_ASSERT(lcd::shader_uniform_value(item.order) == item.uniform,
-            "resolved LCD shader uniform must match shader reference");
-    }
-
-    return true;
-}
-
+// The shared enum/uniform mapping is covered by lcd_contract_tests.
 bool test_plot_shader_binds_lcd_reference_literals()
 {
     const std::string grid = read_text_file(VNM_PLOT_GRID_FRAG_PATH);
@@ -343,7 +317,6 @@ int main()
     int passed = 0;
     int failed = 0;
 
-    RUN_TEST(test_cpp_order_values_match_shader_reference);
     RUN_TEST(test_plot_shader_binds_lcd_reference_literals);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
