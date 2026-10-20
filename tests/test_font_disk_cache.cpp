@@ -27,6 +27,9 @@ constexpr std::uint32_t k_cache_version          = 5;
 constexpr std::uint32_t k_previous_cache_version = 4;
 constexpr std::uint32_t k_pixel_height           = 48;
 constexpr std::uint32_t k_atlas_texture_size     = 2048;
+constexpr std::uint32_t k_fitted_atlas_size      = 1024;
+constexpr std::uint32_t k_fitted_atlas_bytes     =
+    k_fitted_atlas_size * k_fitted_atlas_size * 4u;
 constexpr std::uint32_t k_expected_atlas_bytes   =
     k_atlas_texture_size * k_atlas_texture_size * 4u;
 
@@ -132,8 +135,9 @@ bool test_renderer_publishes_within_host_directory_and_budget()
         ++files;
     }
     TEST_ASSERT(files == 1, "the configured profile directory must receive the atlas");
-    TEST_ASSERT(bytes > k_expected_atlas_bytes && bytes <= options.max_bytes,
-        "the atlas and its metrics must fit within the configured byte budget");
+    TEST_ASSERT(bytes > k_fitted_atlas_bytes && bytes < k_expected_atlas_bytes &&
+        bytes <= options.max_bytes,
+        "the normal-size atlas and metrics must use the fitted bitmap within the byte budget");
     return true;
 }
 
@@ -379,14 +383,18 @@ bool test_corrupt_atlas_size_and_bytes_are_rejected()
     Scoped_temp_dir tmp;
     const auto digest = make_digest(0x40u);
 
-    cache_file_options_t bad_size;
-    bad_size.digest     = digest;
-    bad_size.atlas_size = k_atlas_texture_size / 2u;
-    const auto bad_size_path = tmp.path / "corrupt_atlas_size.bin";
-    TEST_ASSERT(write_cache_file(bad_size_path, bad_size),
-        "corrupt atlas-size cache should be writable");
-    TEST_ASSERT(!cache_file_is_valid(bad_size_path, digest),
-        "atlas size different from the renderer texture size must be rejected");
+    for (const std::uint32_t size : {0u, 3u, 1536u, 4096u}) {
+        cache_file_options_t bad_size;
+        bad_size.digest              = digest;
+        bad_size.atlas_size          = size;
+        bad_size.atlas_bytes         = size * size * 4u;
+        bad_size.write_atlas_payload = true;
+        const auto bad_size_path = tmp.path / "corrupt_atlas_size.bin";
+        TEST_ASSERT(write_cache_file(bad_size_path, bad_size),
+            "corrupt atlas-size cache should be writable");
+        TEST_ASSERT(!cache_file_is_valid(bad_size_path, digest),
+            "atlas sizes outside the renderer's bounded doubling sequence must be rejected");
+    }
 
     cache_file_options_t bad_bytes;
     bad_bytes.digest      = digest;
@@ -397,6 +405,28 @@ bool test_corrupt_atlas_size_and_bytes_are_rejected()
     TEST_ASSERT(!cache_file_is_valid(bad_bytes_path, digest),
         "atlas byte count different from width * height * rgba must be rejected");
 
+    return true;
+}
+
+bool test_fitted_atlas_sizes_load_with_matching_payloads()
+{
+    Scoped_temp_dir tmp;
+    const auto digest = make_digest(0x41u);
+    for (std::uint32_t size = 1u; size <= k_atlas_texture_size; size *= 2u) {
+        cache_file_options_t options;
+        options.digest              = digest;
+        options.atlas_size          = size;
+        options.atlas_bytes         = size * size * 4u;
+        options.write_atlas_payload = true;
+        const auto path = tmp.path / "fitted_atlas.bin";
+        TEST_ASSERT(write_cache_file(path, options), "fitted atlas fixture must write");
+        TEST_ASSERT(cache_file_is_valid(path, digest),
+            "each fitted extent must load with its matching RGBA payload");
+        options.atlas_bytes -= 4u;
+        TEST_ASSERT(write_cache_file(path, options), "short fitted atlas fixture must write");
+        TEST_ASSERT(!cache_file_is_valid(path, digest),
+            "each fitted extent must reject a mismatched RGBA payload length");
+    }
     return true;
 }
 
@@ -467,6 +497,7 @@ int main()
     RUN_TEST(test_corrupt_glyph_count_is_rejected);
     RUN_TEST(test_corrupt_kerning_count_is_rejected);
     RUN_TEST(test_corrupt_atlas_size_and_bytes_are_rejected);
+    RUN_TEST(test_fitted_atlas_sizes_load_with_matching_payloads);
     RUN_TEST(test_same_height_changed_digest_does_not_reuse_old_cache);
     RUN_TEST(test_previous_cache_version_is_rejected);
     RUN_TEST(test_partial_build_diagnostics_survive_cache_loading);

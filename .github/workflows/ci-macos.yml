@@ -13,6 +13,10 @@ defaults:
 
 env:
   CMAKE_BUILD_TYPE: Release
+  CMAKE_GENERATOR: Ninja
+  CMAKE_C_COMPILER_LAUNCHER: sccache
+  CMAKE_CXX_COMPILER_LAUNCHER: sccache
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   build-rhi:
@@ -34,6 +38,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Set up compiler cache
+        uses: mozilla-actions/sccache-action@v0.0.11
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4.3.1
         with:
@@ -54,7 +61,11 @@ jobs:
             -DVNM_PLOT_BUILD_FUNCTION_PLOTTER=OFF
 
       - name: Build
-        run: cmake --build build --config ${CMAKE_BUILD_TYPE}
+        run: cmake --build build --config ${CMAKE_BUILD_TYPE} --parallel 2
+
+      - name: Compiler cache statistics
+        if: always()
+        run: sccache --show-stats
 
       - name: Record resolved native test inputs
         if: always()

@@ -50,6 +50,7 @@ constexpr float         k_atlas_px_range      = 10.0f;
 // font-dependent encode the builder produced before that conversion.
 constexpr float k_sharpness_bias     = 1.0f;
 constexpr int   k_atlas_texture_size = 2048;
+constexpr bool  k_auto_atlas_size    = true;
 
 using msdf_atlas_t       = vnm::msdf_text::atlas_t;
 using msdf_glyph_t       = vnm::msdf_text::glyph_t;
@@ -59,11 +60,9 @@ std::atomic<std::uint64_t> s_next_cache_epoch{1};
 using detail::cached_font_data_t;
 using detail::font_atlas_key_t;
 
-// Every retained entry is one k_atlas_texture_size RGBA bitmap (16 MiB at
-// 2048), so this budget keeps the eight most recently used (font, bake height)
-// pairs alive: enough for the handful of label sizes a plot cycles through
-// while DPI or zoom changes, and far below the ~1 GiB a 64-entry ceiling
-// allowed. Evicted entries cost a rebuild, not a wrong result.
+// Keep a 128 MiB bitmap budget: eight maximum-size atlases, or more when glyph
+// inventories fit smaller canvases. Entries are charged their actual RGBA size.
+// Evicted entries cost a rebuild, not a wrong result.
 constexpr std::size_t k_max_retained_atlas_bytes =
     8u * static_cast<std::size_t>(k_atlas_texture_size) *
     static_cast<std::size_t>(k_atlas_texture_size) * 4u;
@@ -78,6 +77,7 @@ vnm::msdf_text::options_t atlas_options()
 {
     vnm::msdf_text::options_t options;
     options.atlas_size          = k_atlas_texture_size;
+    options.auto_atlas_size     = k_auto_atlas_size;
     options.min_atlas_font_size = k_min_atlas_font_size;
     options.atlas_px_range      = k_atlas_px_range;
     options.sharpness_bias      = k_sharpness_bias;
@@ -164,6 +164,7 @@ std::array<std::uint8_t, 32> compute_font_digest(const Byte_buffer& font_bytes)
     add_bytes(k_atlas_px_range);
     add_bytes(k_sharpness_bias);
     add_bytes(k_atlas_texture_size);
+    add_bytes(k_auto_atlas_size);
     add_bytes(vnm::msdf_text::k_font_bake_compatibility_version);
     const std::string glyph_seed = glyph_seed_string();
     add_view(glyph_seed.data(), static_cast<qsizetype>(glyph_seed.size()));
@@ -296,8 +297,13 @@ std::shared_ptr<cached_font_data_t> load_cached_font_from_disk(
     font->font_digest       = digest;
 
     std::uint32_t atlas_size = 0;
-    if (!read(atlas_size))                                              { return nullptr; }
-    if (atlas_size != static_cast<std::uint32_t>(k_atlas_texture_size)) { return nullptr; }
+    if (!read(atlas_size) ||
+        atlas_size == 0 ||
+        atlas_size > static_cast<std::uint32_t>(k_atlas_texture_size) ||
+        (atlas_size & (atlas_size - 1u)) != 0)
+    {
+        return nullptr;
+    }
     build.atlas.atlas_size = static_cast<int>(atlas_size);
 
     std::uint32_t baked_pixel_height = 0;
@@ -398,9 +404,7 @@ std::shared_ptr<cached_font_data_t> load_cached_font_from_disk(
         return nullptr;
     }
     const std::uint32_t expected_atlas_bytes =
-        static_cast<std::uint32_t>(k_atlas_texture_size) *
-        static_cast<std::uint32_t>(k_atlas_texture_size) *
-        4u;
+        atlas_size * atlas_size * 4u;
     if (atlas_bytes != expected_atlas_bytes) {
         return nullptr;
     }

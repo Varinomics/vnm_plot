@@ -12,11 +12,15 @@ defaults:
 
 env:
   CMAKE_BUILD_TYPE: Release
+  CMAKE_GENERATOR: Ninja
+  CMAKE_C_COMPILER_LAUNCHER: sccache
+  CMAKE_CXX_COMPILER_LAUNCHER: sccache
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   build-rhi:
     name: ${{ matrix.name }}
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     strategy:
       fail-fast: false
       matrix:
@@ -33,6 +37,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Set up Visual Studio 2026
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          toolset: '14.51'
+
+      - name: Verify Visual Studio 2026 environment
+        shell: pwsh
+        run: |
+          if ($env:VisualStudioVersion -ne '18.0' -or $env:VCToolsVersion -notlike '14.51.*') {
+            throw 'Visual Studio 2026 with MSVC v145 is required'
+          }
+
+      - name: Set up compiler cache
+        id: compiler-cache
+        uses: mozilla-actions/sccache-action@v0.0.11
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4.3.1
         with:
@@ -48,15 +69,31 @@ jobs:
         run: |
           cmake -B build -S . \
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-            -DCMAKE_CONFIGURATION_TYPES=${CMAKE_BUILD_TYPE} \
             -DVNM_PLOT_ENABLE_TEXT=${{ matrix.text }} \
             -DVNM_PLOT_BUILD_TESTS=ON \
             -DVNM_PLOT_BUILD_BENCHMARK=${{ matrix.benchmark }} \
             -DVNM_PLOT_BUILD_EXAMPLES=${{ matrix.examples }} \
             -DVNM_PLOT_BUILD_FUNCTION_PLOTTER=OFF
 
+      - name: Verify configured compilers
+        shell: pwsh
+        run: |
+          $vs_root = $env:VSINSTALLDIR.Replace('\', '/')
+          foreach ($language in @('C', 'CXX')) {
+            $entry = Select-String -Path build/CMakeCache.txt -Pattern "^CMAKE_${language}_COMPILER:FILEPATH=(.+)$"
+            $compiler = $entry.Matches.Groups[1].Value.Replace('\', '/')
+            Write-Output "CMAKE_${language}_COMPILER=$compiler"
+            if (-not $compiler.StartsWith($vs_root, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "The configured $language compiler must belong to Visual Studio 2026"
+            }
+          }
+
       - name: Build
-        run: cmake --build build --config ${CMAKE_BUILD_TYPE}
+        run: cmake --build build --config ${CMAKE_BUILD_TYPE} --parallel 2
+
+      - name: Compiler cache statistics
+        if: always() && steps.compiler-cache.outcome == 'success'
+        run: sccache --show-stats
 
       - name: Run tests
         working-directory: build
