@@ -26,6 +26,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Restore compiler cache
+        id: compiler-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .ccache
+          key: freebsd-15-x86_64-ccache-${{ matrix.text }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: freebsd-15-x86_64-ccache-${{ matrix.text }}-
+
       - name: Download shared FreeBSD Qt SDK
         id: qt-sdk
         uses: Varinomics/qt-freebsd@master
@@ -53,15 +61,22 @@ jobs:
             echo 'FreeBSD-ports: { enabled: no }' > /usr/local/etc/pkg/repos/FreeBSD-ports.conf
             echo 'FreeBSD: { url: https://pkg.FreeBSD.org/${ABI}/latest }' > /usr/local/etc/pkg/repos/FreeBSD.conf
             pkg update -f
-            pkg install -y git cmake ninja pkgconf python3 xauth xorg-vfbserver
+            pkg install -y git cmake ninja pkgconf python3 xauth xorg-vfbserver ccache
           run: |
             set -eu
             export CMAKE_BUILD_PARALLEL_LEVEL=2
+            export CCACHE_DIR="$PWD/.ccache"
+            export CCACHE_BASEDIR="$PWD"
+            export CCACHE_COMPILERCHECK=content
+            ccache --zero-stats
+            trap 'ccache --show-stats' EXIT
             python3 "$QT_SDK_DIRECTORY/sdk.py" install \
               --directory "$QT_SDK_DIRECTORY" --minimum-qt-version 6.12
             mkdir -p build
-            cmake -S . -B build \
+            cmake -S . -B build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
               -DCMAKE_PREFIX_PATH="$QT_SDK_PREFIX" \
               -DVNM_PLOT_ENABLE_TEXT=${TEXT} \
               -DVNM_PLOT_BUILD_TESTS=ON \
@@ -72,3 +87,10 @@ jobs:
             Xvfb :99 -screen 0 1280x1024x24 >/tmp/vnm-plot-xvfb.log 2>&1 &
             export DISPLAY=:99
             (cd build && ctest --output-on-failure)
+
+      - name: Save compiler cache
+        if: always() && steps.compiler-cache.outputs.cache-primary-key != ''
+        uses: actions/cache/save@v5
+        with:
+          path: .ccache
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
