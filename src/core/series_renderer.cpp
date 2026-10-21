@@ -2266,19 +2266,21 @@ bool Series_renderer::rhi_prepare_series_primitive(
     if (count == 0) {
         return false;
     }
-    const std::vector<builtin_segment_span_t> segment_spans =
+    std::vector<builtin_segment_span_t> computed_segment_spans =
         is_dots
             ? std::vector<builtin_segment_span_t>{}
             : builtin_segment_spans(window);
-    const bool has_segment_span = !segment_spans.empty();
+    const bool has_segment_span = !computed_segment_spans.empty();
     if (!is_dots && !has_segment_span) {
         return false;
     }
     // Hand the computed spans to the caller so the record pass can reuse them
     // (empty for DOTS, which draw per-sample instances).
     if (out_segment_spans) {
-        *out_segment_spans = segment_spans;
+        *out_segment_spans = std::move(computed_segment_spans);
     }
+    const std::vector<builtin_segment_span_t>& segment_spans =
+        out_segment_spans ? *out_segment_spans : computed_segment_spans;
 
     QRhiRenderTarget* rt = ctx.render_target;
 
