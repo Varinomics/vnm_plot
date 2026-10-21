@@ -646,6 +646,14 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
             return params.format_timestamp_func(timestamp_ns, seconds_to_ns(step_seconds));
         };
 
+        struct candidate_t
+        {
+            std::int64_t t;
+            float        x0;
+            float        x1;
+            float        x_anchor;
+        };
+        std::vector<candidate_t> candidates;
         std::vector<std::pair<float, float>> accepted;
         std::vector<std::pair<float, float>> level;
 
@@ -677,14 +685,6 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                 }
             }
 
-            struct cand
-            {
-                std::int64_t t;
-                float        x0;
-                float        x1;
-                float        x_anchor;
-            };
-            std::vector<cand> candidates;
             float right_vis             = 0.0f;
             float pixel_step            = 0.0f;
             float optimistic_width      = 0.0f;
@@ -695,6 +695,7 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                 VNM_PLOT_PROFILE_SCOPE(
                     profiler,
                     "renderer.frame.calculate_layout.impl.cache_miss.pass1.horizontal_axis.step_prep");
+                candidates.clear();
                 candidates.reserve(64);
 
                 right_vis = float(params.usable_width + params.vbar_width);
@@ -789,7 +790,7 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                         break;
                     }
 
-                    cand candidate{t, x, x, x};
+                    candidate_t candidate{t, x, x, x};
                     // Use conservative width estimate for skip optimization.
                     // Must be at least as large as actual label width to avoid skipping visible labels.
                     const float skip_width = std::max(last_width, estimated_label_width);
