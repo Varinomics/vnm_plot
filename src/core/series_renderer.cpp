@@ -861,13 +861,8 @@ void Series_renderer::prepare(
 
         std::vector<std::size_t> main_scales = source_lod_scales(*main_source);
         std::vector<std::size_t> preview_scales;
-        if (preview_valid) {
-            if (preview_matches_main) {
-                preview_scales = main_scales;
-            }
-            else {
-                preview_scales = source_lod_scales(*preview_source);
-            }
+        if (preview_valid && !preview_matches_main) {
+            preview_scales = source_lod_scales(*preview_source);
         }
 
         const auto plan_series_view =
@@ -958,7 +953,7 @@ void Series_renderer::prepare(
                 vbo_state.preview_view,
                 *preview_source,
                 *preview_access,
-                preview_scales,
+                preview_matches_main ? main_scales : preview_scales,
                 ctx.t_available_min,
                 ctx.t_available_max,
                 preview_origin_ns,
