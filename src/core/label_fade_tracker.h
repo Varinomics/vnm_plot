@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <string>
 #include <type_traits>
@@ -146,11 +147,25 @@ bool update_and_draw_faded_labels(
         bool               primary    = false;
         bool               suppressed = false;
     };
+    class Emitted_texts
+    {
+    public:
+        void push_back(emitted_text_t text) { m_values[m_count++] = text; }
+        auto begin()                       { return m_values.begin(); }
+        auto end()                         { return m_values.begin() + m_count; }
+        auto begin() const                 { return m_values.begin(); }
+        auto end() const                   { return m_values.begin() + m_count; }
+
+    private:
+        // A label only emits its previous and current text during a crossfade.
+        std::array<emitted_text_t, 2> m_values{};
+        std::size_t                  m_count = 0;
+    };
     struct emitted_state_t
     {
         key_t                       key;
         const std::string*          final_text = nullptr;
-        std::vector<emitted_text_t> texts;
+        Emitted_texts               texts;
     };
 
     bool                         any_active = false;

@@ -1524,7 +1524,7 @@ void Series_renderer::prepare(
                     layer->z_order()});
             }
         }
-        // Sort by z_order before preparing. The global stable_sort of
+        // Sort by z_order before preparing. The global sort of
         // prepared_draws below independently fixes the final record order, but
         // this per-view sort is still load-bearing: it determines the order in
         // which layers are *prepared*, which is a tested contract (a lower
@@ -1786,7 +1786,8 @@ void Series_renderer::prepare(
         }
     }
 
-    std::stable_sort(
+    // The unique insertion_order breaks all ties, so stability adds no ordering guarantee.
+    std::sort(
         m_rhi_state->prepared_draws.begin(),
         m_rhi_state->prepared_draws.end(),
         [](const auto& a, const auto& b) {
