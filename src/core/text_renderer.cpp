@@ -12,6 +12,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <limits>
@@ -214,33 +215,55 @@ bool Text_renderer::render_axis_labels(
         const float snapped_x = std::floor(pen_x + k_pixel_snap);
         const float snapped_y = std::floor(pen_y + k_pixel_snap);
 
-        glm::vec4 text_bounds;
-        bool have_text_bounds        = false;
-        bool text_fits_label_backing = false;
-        if (label_lcd_possible &&
-            label_scissor.enabled &&
-            have_label_backing &&
-            alpha >= detail::k_lcd_opaque_alpha_cutoff)
-        {
-            have_text_bounds = m_fonts->text_visual_bounds_px(
-                text.c_str(), snapped_x, snapped_y, text_bounds);
-            if (have_text_bounds) {
-                text_fits_label_backing = rect_contains(label_backing_rect, text_bounds);
-            }
-        }
+        const auto draw_run = [&](
+                float       x,
+                const char* run,
+                glm::vec4   color)
+            {
+                color.a *= alpha;
+                glm::vec4 text_bounds;
+                bool text_fits_label_backing = false;
+                if (label_lcd_possible &&
+                    label_scissor.enabled &&
+                    have_label_backing &&
+                    color.a >= detail::k_lcd_opaque_alpha_cutoff)
+                {
+                    if (m_fonts->text_visual_bounds_px(run, x, snapped_y, text_bounds)) {
+                        text_fits_label_backing = rect_contains(label_backing_rect, text_bounds);
+                    }
+                }
 
-        m_fonts->batch_text(snapped_x, snapped_y, text.c_str());
-        if (ctx.rhi) {
-            const bool label_lcd_eligible =
-                label_lcd_possible                         &&
-                label_scissor.enabled                      &&
-                alpha >= detail::k_lcd_opaque_alpha_cutoff &&
-                text_fits_label_backing;
-            const text_lcd_t label_lcd =
-                text_lcd_for_background(ctx, palette.v_label_background, label_lcd_eligible);
-            glm::vec4 color = font_color;
-            color.a *= alpha;
-            m_fonts->rhi_queue_draw(ctx, color, label_scissor, {}, label_lcd);
+                m_fonts->batch_text(x, snapped_y, run);
+                if (ctx.rhi) {
+                    const bool label_lcd_eligible =
+                        label_lcd_possible                         &&
+                        label_scissor.enabled                      &&
+                        color.a >= detail::k_lcd_opaque_alpha_cutoff &&
+                        text_fits_label_backing;
+                    const text_lcd_t label_lcd =
+                        text_lcd_for_background(ctx, palette.v_label_background, label_lcd_eligible);
+                    m_fonts->rhi_queue_draw(ctx, color, label_scissor, {}, label_lcd);
+                }
+            };
+
+        const axis_label_suffix_style_t suffix_style = ctx.config && ctx.config->axis_label_suffix_style
+            ? ctx.config->axis_label_suffix_style(text, dark_mode)
+            : axis_label_suffix_style_t{};
+        assert(suffix_style.byte_count <= text.size());
+        if (suffix_style.byte_count > 0) {
+            const auto prefix_size = text.size() - suffix_style.byte_count;
+            const auto prefix      = text.substr(0, prefix_size);
+            const char* suffix     = text.c_str() + prefix_size;
+            // Retain the complete label's measured right edge, including the
+            // spacing between the numeric prefix and its unit.
+            const float suffix_x = snapped_x + text_width - m_fonts->measure_text_px(suffix);
+            if (!prefix.empty()) {
+                draw_run(snapped_x, prefix.c_str(), font_color);
+            }
+            draw_run(suffix_x, suffix, suffix_style.color);
+        }
+        else {
+            draw_run(snapped_x, text.c_str(), font_color);
         }
     };
 

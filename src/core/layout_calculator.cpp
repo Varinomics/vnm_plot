@@ -545,6 +545,7 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                 value_format_context_t context;
                 context.role                   = Value_format_role::AXIS_LABEL;
                 context.suggested_fixed_digits = res.v_label_fixed_digits;
+                context.axis_step              = finest_step_accepted;
 
                 std::string text = params.format_value_func
                     ? params.format_value_func(e.value, context)

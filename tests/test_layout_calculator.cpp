@@ -519,6 +519,46 @@ bool test_default_small_vertical_layout_labels_are_distinct()
     return true;
 }
 
+bool test_value_formatter_receives_finest_axis_step_in_original_units()
+{
+    for (const float span : {1'000'000.0f, 0.002f}) {
+        std::vector<Recorded_call> recorded;
+        auto params = make_minimal_params(0LL, 60LL * k_ns_per_second, recorded);
+        params.v_max = span;
+
+        plot::Layout_calculator calc;
+        const auto unformatted = calc.calculate(params);
+        std::vector<plot::value_format_context_t> contexts;
+        params.format_value_func = [&contexts](double, const plot::value_format_context_t& context) {
+            contexts.push_back(context);
+            return std::string{};
+        };
+        const auto result = calc.calculate(params);
+        TEST_ASSERT(result.v_labels.size() > 2 && contexts.size() == result.v_labels.size(),
+            "each visible vertical tick must receive formatting context");
+        TEST_ASSERT(result.v_labels.size() == unformatted.v_labels.size(),
+            "an empty custom format must preserve the default tick set");
+
+        double finest_spacing = std::numeric_limits<double>::max();
+        for (std::size_t i = 1; i < result.v_labels.size(); ++i) {
+            finest_spacing = std::min(
+                finest_spacing, result.v_labels[i].value - result.v_labels[i - 1].value);
+        }
+        for (std::size_t i = 0; i < contexts.size(); ++i) {
+            const auto& context = contexts[i];
+            TEST_ASSERT(context.role == plot::Value_format_role::AXIS_LABEL,
+                "vertical tick formatting must use the axis-label role");
+            TEST_ASSERT(std::isfinite(context.axis_step) && context.axis_step > 0.0,
+                "the selected axis step must be finite and positive");
+            TEST_ASSERT(std::abs(context.axis_step - finest_spacing) < finest_spacing * 1e-6,
+                "axis step must match the finest visible tick spacing in the original value units");
+            TEST_ASSERT(result.v_labels[i].text == unformatted.v_labels[i].text,
+                "supplying axis context must preserve the default numeric labels");
+        }
+    }
+    return true;
+}
+
 bool test_vertical_axis_suppresses_only_consecutive_equal_text()
 {
     std::vector<Recorded_call> recorded;
@@ -602,6 +642,7 @@ int main()
     RUN_TEST(test_default_subsecond_layout_labels_are_distinct);
     RUN_TEST(test_vertical_labels_keep_dense_level_when_glyphs_fit);
     RUN_TEST(test_default_small_vertical_layout_labels_are_distinct);
+    RUN_TEST(test_value_formatter_receives_finest_axis_step_in_original_units);
     RUN_TEST(test_vertical_axis_suppresses_only_consecutive_equal_text);
     RUN_TEST(test_default_vertical_labels_beyond_int64_are_not_collapsed);
 

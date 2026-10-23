@@ -6,6 +6,8 @@
 #include <vnm_plot/rhi/font_renderer.h>
 #include <vnm_plot/rhi/frame_context.h>
 #include <vnm_plot/rhi/primitive_renderer.h>
+#include <vnm_plot/rhi/text_renderer.h>
+#include <vnm_plot/core/plot_config.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -27,6 +29,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <memory>
+#include <string_view>
 
 namespace plot = vnm::plot;
 
@@ -77,7 +80,10 @@ public:
 
     // Runs `prepare` before the pass opens and `record` inside it, then reads
     // the color target back. A null image means the frame could not be read.
-    QImage render(const frame_step_t& prepare, const frame_step_t& record)
+    QImage render(
+        const frame_step_t& prepare,
+        const frame_step_t& record,
+        const plot::frame_layout_result_t* layout = nullptr)
     {
         QRhi* const rhi = m_control.rhi();
         m_control.beginFrame();
@@ -90,7 +96,7 @@ public:
             -1.0f,
             1.0f);
 
-        plot::frame_context_t ctx{m_layout};
+        plot::frame_context_t ctx{layout ? *layout : m_layout};
         ctx.win_w         = k_frame_width;
         ctx.win_h         = k_frame_height;
         ctx.pmv           = glm::make_mat4(rhi->clipSpaceCorrMatrix().constData()) * pixel_ortho;
@@ -465,6 +471,94 @@ bool test_changing_draw_height_rescales_the_rendered_glyphs(Offscreen_frames& fr
     return true;
 }
 
+bool test_axis_suffix_styling_preserves_numeric_pixels_and_anchor(Offscreen_frames& frames)
+{
+    plot::Asset_loader loader;
+    plot::init_embedded_assets(loader);
+    plot::Font_renderer fonts(loader);
+    fonts.initialize_metrics(k_font_px);
+    plot::Text_renderer renderer(&fonts);
+
+    plot::frame_layout_result_t layout;
+    layout.usable_width  = 250.0;
+    layout.usable_height = k_frame_height;
+    layout.v_bar_width   = k_frame_width - layout.usable_width;
+    layout.v_labels.push_back({1.0, 60.0f, " 1.05M"});
+    plot::Plot_config config;
+    const QImage blank = frames.render([](const auto&) {}, [](const auto&) {});
+    const auto render_label = [&]() {
+        return frames.render(
+            [&](const plot::frame_context_t& ctx) {
+                auto axis_ctx = ctx;
+                axis_ctx.config             = &config;
+                axis_ctx.dark_mode          = true;
+                axis_ctx.adjusted_font_px   = k_font_px;
+                axis_ctx.v0                 = 0.0f;
+                axis_ctx.v1                 = 2.0f;
+                axis_ctx.visible_info_flags = 0;
+                renderer.prepare(axis_ctx, false, false);
+            },
+            [&](const plot::frame_context_t& ctx) { renderer.record(ctx); },
+            &layout);
+    };
+
+    const QImage normal = render_label();
+    config.axis_label_suffix_style = [](std::string_view, bool) {
+        return plot::axis_label_suffix_style_t{};
+    };
+    const QImage no_suffix = render_label();
+    config.axis_label_suffix_style = [](std::string_view, bool) {
+        return plot::axis_label_suffix_style_t{1, glm::vec4(1.0f)};
+    };
+    const QImage neutral_suffix = render_label();
+    TEST_ASSERT(!blank.isNull() && !normal.isNull(), "axis frames must be readable");
+    TEST_ASSERT(normal != blank, "the unstyled axis label must paint visible glyphs");
+    TEST_ASSERT(no_suffix == normal, "a zero-length suffix must keep ordinary label rendering");
+    TEST_ASSERT(neutral_suffix == normal,
+        "splitting a suffix without changing color must preserve every label pixel and its anchor");
+
+    config.axis_label_suffix_style = [](std::string_view, bool) {
+        return plot::axis_label_suffix_style_t{1, glm::vec4(0.2f, 0.9f, 0.4f, 1.0f)};
+    };
+    const QImage tinted = render_label();
+    config.axis_label_suffix_style = [](std::string_view, bool) {
+        return plot::axis_label_suffix_style_t{1, glm::vec4(1.0f, 1.0f, 1.0f, 0.0f)};
+    };
+    const QImage transparent_suffix = render_label();
+
+    // An equal-width blank in the monospaced label independently preserves the
+    // prefix position, without using the suffix renderer to construct the oracle.
+    config.axis_label_suffix_style = {};
+    layout.v_labels.front().text = " 1.05 ";
+    const QImage prefix = render_label();
+    TEST_ASSERT(!tinted.isNull() && !transparent_suffix.isNull() && !prefix.isNull(),
+        "styled axis frames must be readable");
+    TEST_ASSERT(transparent_suffix == prefix,
+        "zero suffix alpha must hide only the suffix and keep numeric glyph positions unchanged");
+
+    int numeric_pixels = 0;
+    int tinted_pixels = 0;
+    for (int y = 0; y < normal.height(); ++y) {
+        for (int x = 0; x < normal.width(); ++x) {
+            if (prefix.pixel(x, y) != blank.pixel(x, y)) {
+                TEST_ASSERT(tinted.pixel(x, y) == normal.pixel(x, y),
+                    "suffix styling must not recolor or move numeric prefix pixels");
+                ++numeric_pixels;
+            }
+            else
+            if (normal.pixelColor(x, y).redF() > 0.95f) {
+                const QColor color = tinted.pixelColor(x, y);
+                TEST_ASSERT(color.green() > color.red() && color.green() > color.blue(),
+                    "opaque suffix glyph pixels must use the requested tint");
+                ++tinted_pixels;
+            }
+        }
+    }
+    TEST_ASSERT(numeric_pixels > 0 && tinted_pixels > 0,
+        "both the normal numeric prefix and the colored suffix must remain visible");
+    return true;
+}
+
 using frame_test_fn_t = bool (*)(Offscreen_frames& frames);
 
 void run_frame_test(
@@ -523,6 +617,7 @@ int main(int argc, char** argv)
     RUN_FRAME_TEST(test_record_draws_cursor_only_advances);
     RUN_FRAME_TEST(test_slices_record_in_submission_order);
     RUN_FRAME_TEST(test_changing_draw_height_rescales_the_rendered_glyphs);
+    RUN_FRAME_TEST(test_axis_suffix_styling_preserves_numeric_pixels_and_anchor);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;

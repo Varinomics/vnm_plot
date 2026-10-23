@@ -9,6 +9,7 @@
 #include <vnm_plot/core/lcd.h>
 #include <vnm_plot/core/time_units.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <ctime>
 #include <functional>
@@ -32,6 +33,15 @@ struct value_format_context_t
     Value_format_role  role                   = Value_format_role::AXIS_LABEL;
     int                suggested_fixed_digits = 0;
     std::string_view   series_label;
+    // AXIS_LABEL supplies the finest tick step so formatters can preserve
+    // consistent precision after converting to their display units.
+    double             axis_step              = 1.0;
+};
+
+struct axis_label_suffix_style_t
+{
+    std::size_t byte_count = 0;
+    glm::vec4   color{1.0f};
 };
 
 // -----------------------------------------------------------------------------
@@ -133,6 +143,10 @@ struct Plot_config
     // precision. If null, vnm_plot uses its neutral numeric defaults.
     std::function<std::string(double value, const value_format_context_t& context)> format_value;
     std::uint64_t format_value_revision = 0;
+    // Optional styling of a vertical label's trailing unit. The byte count must
+    // identify a UTF-8 suffix of the supplied text; zero keeps normal text color.
+    // Numeric text retains its theme color, and the whole label retains its anchor.
+    std::function<axis_label_suffix_style_t(std::string_view text, bool dark_mode)> axis_label_suffix_style;
 
     // --- Profiling (optional) ---
     // If provided, profiling scopes will be recorded.

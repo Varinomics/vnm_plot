@@ -16,6 +16,10 @@ Item {
     property string y_value_label: "y"
     // Zero leaves the value card uncapped; markers always cover every sample.
     property int max_series_rows: 0
+    // Card-only rows can preserve domain values independently of plotted floats.
+    // Returned rows carry x, series_label, y_text and color like sampled rows.
+    // The provider receives null when no sample is active.
+    property var value_rows_provider: null
     property string stacked_marker_note: "Markers show cumulative stack positions"
 
     readonly property var time_axis: plot_widget ? plot_widget.time_axis : null
@@ -24,6 +28,13 @@ Item {
     readonly property real usable_height: height - plot_widget.reserved_height
 
     readonly property var samples: internal.indicator_samples
+
+    function refresh_value_rows() {
+        var samples = internal.indicator_samples
+        internal.value_rows = root.value_rows_provider
+            ? root.value_rows_provider(samples.length > 0 ? samples[0].x : null)
+            : samples
+    }
 
     function update_mouse_position(x, y) {
         internal.has_mouse_in_plot = true
@@ -57,6 +68,8 @@ Item {
         id: internal
         property bool has_mouse_in_plot: false
         property var indicator_samples: []
+        onIndicator_samplesChanged: root.refresh_value_rows()
+        property var value_rows: []
         property real mouse_x: -1
         property real mouse_y: -1
         property bool indicator_active: false
@@ -85,6 +98,10 @@ Item {
     onShow_vertical_lineChanged: canvas.requestPaint()
     onShow_horizontal_lineChanged: canvas.requestPaint()
     onMax_series_rowsChanged: canvas.requestPaint()
+    onValue_rows_providerChanged: {
+        refresh_value_rows()
+        canvas.requestPaint()
+    }
 
     function decimals_for_span(span, n) {
         if (!isFinite(span) || span === 0) {
@@ -288,8 +305,9 @@ Item {
 
             if (internal.indicator_active && internal.indicator_samples.length > 0) {
                 var samples = internal.indicator_samples
+                var value_rows = internal.value_rows
                 var x_line = samples[0].px
-                var x_val = samples[0].x
+                var x_val = value_rows.length > 0 ? value_rows[0].x : samples[0].x
                 var y_line = samples[0].py
 
                 ctx.strokeStyle = "#ffffff"
@@ -314,11 +332,11 @@ Item {
                 var max_value_width = ctx.measureText(x_axis_txt).width
                 var marker_note = root.cumulative_marker_note(samples)
                 var row_count = root.max_series_rows > 0
-                    ? Math.min(samples.length, root.max_series_rows)
-                    : samples.length
+                    ? Math.min(value_rows.length, root.max_series_rows)
+                    : value_rows.length
 
                 for (var i = 0; i < row_count; ++i) {
-                    var s = samples[i]
+                    var s = value_rows[i]
                     var vtxt = root.formatted_y_value(s, dry)
                     var value_label = root.labeled_series_value(s.series_label, vtxt)
                     var w = ctx.measureText(value_label).width
