@@ -14,6 +14,8 @@ Item {
     property bool link_indicator: false
     property string x_value_label: "x"
     property string y_value_label: "y"
+    // Zero leaves the value card uncapped; markers always cover every sample.
+    property int max_series_rows: 0
     property string stacked_marker_note: "Markers show cumulative stack positions"
 
     readonly property var time_axis: plot_widget ? plot_widget.time_axis : null
@@ -82,6 +84,7 @@ Item {
     onSelected_colorChanged: canvas.requestPaint()
     onShow_vertical_lineChanged: canvas.requestPaint()
     onShow_horizontal_lineChanged: canvas.requestPaint()
+    onMax_series_rowsChanged: canvas.requestPaint()
 
     function decimals_for_span(span, n) {
         if (!isFinite(span) || span === 0) {
@@ -310,8 +313,11 @@ Item {
                 var lines = []
                 var max_value_width = ctx.measureText(x_axis_txt).width
                 var marker_note = root.cumulative_marker_note(samples)
+                var row_count = root.max_series_rows > 0
+                    ? Math.min(samples.length, root.max_series_rows)
+                    : samples.length
 
-                for (var i = 0; i < samples.length; ++i) {
+                for (var i = 0; i < row_count; ++i) {
                     var s = samples[i]
                     var vtxt = root.formatted_y_value(s, dry)
                     var value_label = root.labeled_series_value(s.series_label, vtxt)
@@ -320,10 +326,7 @@ Item {
 
                     lines.push({
                         value: value_label,
-                        color: s.color,
-                        px: s.px,
-                        py: s.py,
-                        show_marker: s.show_marker !== false
+                        color: s.color
                     })
                 }
 
@@ -405,14 +408,14 @@ Item {
                 }
                 ctx.restore()
 
-                for (var di = 0; di < lines.length; ++di) {
-                    if (!lines[di].show_marker) {
+                for (var di = 0; di < samples.length; ++di) {
+                    if (samples[di].show_marker === false) {
                         continue
                     }
-                    var sx = lines[di].px
-                    var sy = lines[di].py
+                    var sx = samples[di].px
+                    var sy = samples[di].py
                     ctx.strokeStyle = "#ffffffff"
-                    ctx.fillStyle = lines[di].color
+                    ctx.fillStyle = samples[di].color
                     ctx.beginPath()
                     ctx.arc(sx, sy, 4, 0, 2 * pi, false)
                     ctx.fill()

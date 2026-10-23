@@ -12,6 +12,7 @@ Item {
     property PlotTimeAxis time_axis: null
     property string indicator_x_label: "x"
     property string indicator_y_label: "y"
+    property alias indicator_max_series_rows: indicator.max_series_rows
     property alias stacked_marker_note: indicator.stacked_marker_note
 
     signal main_plot_clicked(real timestamp_ms)
