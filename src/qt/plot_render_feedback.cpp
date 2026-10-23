@@ -8,6 +8,7 @@ void fill_stack_feedback(const Series_renderer& series, plot_render_feedback_t& 
 {
     feedback.stack_validity = series.main_stack_validity();
     feedback.stack_statuses = series.stack_view_statuses();
+    feedback.hovered_series_id = series.m_hovered_series_id;
     feedback.stack_validity_ready = true;
 }
 

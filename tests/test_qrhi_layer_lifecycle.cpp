@@ -18,6 +18,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -3528,6 +3529,180 @@ bool test_range_only_access_skips_builtin_value_styles()
     return true;
 }
 
+bool test_area_hover_tracks_stacked_geometry_and_preserves_other_draws()
+{
+    constexpr std::int64_t k_second_ns = 1'000'000'000LL;
+    const auto make_series = [](const std::vector<float>& values) {
+        std::vector<test_sample_t> samples;
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            samples.push_back({(std::int64_t)i * k_second_ns, values[i]});
+        }
+        auto source = std::make_shared<Test_source>();
+        source->set_samples(std::move(samples));
+        auto series = make_builtin_plus_layer_series(source, plot::Display_style::LINE_AREA, {});
+        series->stack_group   = 1;
+        series->interpolation = plot::Series_interpolation::STEP_AFTER;
+        return series;
+    };
+    auto lower = make_series({2.0f, 6.0f, 0.0f, 0.0f});
+    auto empty = make_series({0.0f, 0.0f, 0.0f, 0.0f});
+    auto upper = make_series({3.0f, 1.0f, 4.0f, 4.0f});
+    std::map<int, std::shared_ptr<const plot::series_data_t>> series_map{
+        {10, lower}, {20, empty}, {30, upper}};
+
+    Offscreen_rhi_fixture rhi;
+    std::string error;
+    TEST_ASSERT(rhi.initialize(error), error);
+    plot::Test_series_renderer renderer;
+    plot::Plot_config config;
+    const auto layout = make_layout();
+    auto ctx = make_context(layout, config);
+    ctx.adjusted_preview_height = 40.0;
+    ctx.preview_v0 = ctx.v0;
+    ctx.preview_v1 = ctx.v1;
+    std::vector<layer_event_t> events;
+    TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+    TEST_ASSERT(!renderer.m_hovered_series_id, "area hover must be inactive without a pointer");
+    const auto baseline_colors = renderer.m_last_recorded_draw_colors;
+    const auto baseline_widths = renderer.m_last_recorded_line_widths;
+
+    struct hover_case_t
+    {
+        double x;
+        double y;
+        std::optional<int> expected;
+    };
+    // The plot spans three seconds and values 0..10. The lower band jumps
+    // from 2 to 6 at one second, then disappears at two seconds.
+    const hover_case_t cases[] = {
+        { 20.0, 108.00, 10},
+        { 20.0,  95.88, 30},
+        { 20.0,  96.12, 10},
+        { 79.0,  84.00, 30},
+        { 80.0,  84.00, 10},
+        {100.0,  42.00, 30},
+        {200.0, 108.00, 30},
+        {200.0,  66.00, std::nullopt},
+        { -1.0, 108.00, std::nullopt},
+        {240.0, 108.00, std::nullopt},
+        { 20.0, 120.00, std::nullopt},
+        { 20.0,  -1.00, std::nullopt},
+    };
+    for (const auto& test_case : cases) {
+        ctx.area_hover_position = glm::dvec2(test_case.x, test_case.y);
+        events.clear();
+        TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+        TEST_ASSERT(renderer.m_hovered_series_id == test_case.expected,
+            "hover must identify the nonempty area containing both pointer coordinates");
+        TEST_ASSERT(renderer.m_last_recorded_draw_colors.size() == baseline_colors.size(),
+            "hover must preserve the draw set");
+        TEST_ASSERT(renderer.m_last_recorded_line_widths == baseline_widths,
+            "area hover must preserve all ordinary and stack-sum line widths");
+        for (std::size_t i = 0; i < baseline_colors.size(); ++i) {
+            const bool highlighted =
+                test_case.expected == renderer.m_last_recorded_draw_series_ids[i] &&
+                renderer.m_last_recorded_draw_view_kinds[i] == plot::Series_view_kind::MAIN &&
+                renderer.m_last_recorded_draw_styles[i] == plot::Display_style::AREA;
+            const auto color = renderer.m_last_recorded_draw_colors[i];
+            const auto baseline = baseline_colors[i];
+            TEST_ASSERT(color.r == baseline.r && color.g == baseline.g && color.b == baseline.b,
+                "area hover must retain every series color");
+            TEST_ASSERT(highlighted ? color.a > baseline.a : color.a == baseline.a,
+                "only the containing main-area fill may gain alpha");
+        }
+    }
+
+    lower->interpolation = empty->interpolation = upper->interpolation = plot::Series_interpolation::LINEAR;
+    ctx.area_hover_position = glm::dvec2(40.0, 84.0);
+    TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+    TEST_ASSERT(renderer.m_hovered_series_id == 10,
+        "linear interpolation must use the sloping band boundary instead of a held step");
+    ctx.area_hover_position.reset();
+    TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+    TEST_ASSERT(!renderer.m_hovered_series_id, "removing the pointer must clear the rendered hover");
+    return true;
+}
+
+bool test_area_hover_respects_singleton_gaps_and_hold_forward()
+{
+    constexpr std::int64_t k_second_ns = 1'000'000'000LL;
+    auto source = std::make_shared<Test_source>();
+    source->set_samples({
+        {0, 2.0f}, {k_second_ns, 2.0f},
+        {2 * k_second_ns, std::numeric_limits<float>::quiet_NaN()},
+        {3 * k_second_ns, 4.0f}, {4 * k_second_ns, 4.0f}});
+    auto series = make_builtin_plus_layer_series(source, plot::Display_style::AREA, {});
+    series->stack_group           = 1;
+    series->interpolation         = plot::Series_interpolation::STEP_AFTER;
+    series->empty_window_behavior = plot::Empty_window_behavior::HOLD_LAST_FORWARD;
+    std::map<int, std::shared_ptr<const plot::series_data_t>> series_map{{27, series}};
+
+    Offscreen_rhi_fixture rhi;
+    std::string error;
+    TEST_ASSERT(rhi.initialize(error), error);
+    plot::Test_series_renderer renderer;
+    plot::Plot_config config;
+    const auto layout = make_layout();
+    auto ctx = make_context(layout, config);
+    ctx.t1 = ctx.t_available_max = 5 * k_second_ns;
+    std::vector<layer_event_t> events;
+    const std::pair<double, std::optional<int>> cases[] = {
+        {24.0, 27}, {72.0, std::nullopt}, {120.0, std::nullopt}, {168.0, 27}, {216.0, 27}};
+    for (const auto& [x, expected] : cases) {
+        ctx.area_hover_position = glm::dvec2(x, 108.0);
+        events.clear();
+        TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+        TEST_ASSERT(renderer.m_hovered_series_id == expected,
+            "a selected singleton must follow its drawn segments and hold without bridging gaps");
+    }
+
+    series->nonfinite_policy = plot::Nonfinite_sample_policy::SKIP;
+    ctx.area_hover_position = glm::dvec2(120.0, 108.0);
+    TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+    TEST_ASSERT(renderer.m_hovered_series_id == 27,
+        "SKIP must permit hover over the same connected strip the renderer draws");
+    return true;
+}
+
+bool test_area_hover_matches_signed_stack_triangle_strip()
+{
+    constexpr std::int64_t k_second_ns = 1'000'000'000LL;
+    auto lower_source = std::make_shared<Test_source>();
+    auto upper_source = std::make_shared<Test_source>();
+    lower_source->set_samples({{0, 5.0f}, {k_second_ns, 5.0f}});
+    upper_source->set_samples({{0, 3.0f}, {k_second_ns, -3.0f}});
+    auto lower = make_builtin_plus_layer_series(lower_source, plot::Display_style::AREA, {});
+    auto upper = make_builtin_plus_layer_series(upper_source, plot::Display_style::AREA, {});
+    lower->stack_group = upper->stack_group = 1;
+    std::map<int, std::shared_ptr<const plot::series_data_t>> series_map{{10, lower}, {20, upper}};
+
+    Offscreen_rhi_fixture rhi;
+    std::string error;
+    TEST_ASSERT(rhi.initialize(error), error);
+    plot::Test_series_renderer renderer;
+    plot::Plot_config config;
+    const auto layout = make_layout();
+    auto ctx = make_context(layout, config);
+    ctx.t1 = ctx.t_available_max = k_second_ns;
+    std::vector<layer_event_t> events;
+
+    // At t=.25 the strip's top is 6.5, base is 5 and shared diagonal is 4.25.
+    // Its two triangles therefore paint y=4.5 over the lower band's fill.
+    ctx.area_hover_position = glm::dvec2(60.0, 66.0);
+    TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+    TEST_ASSERT(renderer.m_hovered_series_id == 20,
+        "crossing signed area must hit the upper triangle strip where it overlaps the lower band");
+    ctx.area_hover_position = glm::dvec2(60.0, 72.0);
+    TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+    TEST_ASSERT(renderer.m_hovered_series_id == 10,
+        "below the crossing strip's diagonal the lower band must remain hittable");
+    ctx.area_hover_position = glm::dvec2(120.0, 72.0);
+    TEST_ASSERT(rhi.render_layer_frame(renderer, ctx, series_map, events, error), error);
+    TEST_ASSERT(renderer.m_hovered_series_id == 20,
+        "a crossing strip still paints triangles where its interpolated top equals its base");
+    return true;
+}
+
 bool test_stacked_sum_overlay_uses_top_geometry_and_theme()
 {
     constexpr std::int64_t k_second_ns = 1'000'000'000LL;
@@ -3971,6 +4146,9 @@ int main()
     RUN_TEST(test_external_layer_replans_when_snapshot_advances_after_sequence_probe);
     RUN_TEST(test_layer_state_recreated_for_program_identity_changes);
     RUN_TEST(test_range_only_access_skips_builtin_value_styles);
+    RUN_TEST(test_area_hover_tracks_stacked_geometry_and_preserves_other_draws);
+    RUN_TEST(test_area_hover_respects_singleton_gaps_and_hold_forward);
+    RUN_TEST(test_area_hover_matches_signed_stack_triangle_strip);
     RUN_TEST(test_stacked_sum_overlay_uses_top_geometry_and_theme);
     RUN_TEST(test_line_geometry_reuses_and_rebuilds_after_area_only_change);
     RUN_TEST(test_custom_upload_reuse_invalidation);

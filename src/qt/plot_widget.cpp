@@ -150,6 +150,12 @@ Plot_widget::Plot_widget()
             emit preview_height_changed();
         }
     });
+    QObject::connect(this, &Plot_widget::t_limits_changed, this, &Plot_widget::invalidate_area_hover);
+    QObject::connect(this, &Plot_widget::v_limits_changed, this, &Plot_widget::invalidate_area_hover);
+    QObject::connect(this, &Plot_widget::v_auto_changed, this, &Plot_widget::invalidate_area_hover);
+    QObject::connect(this, &Plot_widget::preview_height_changed, this, &Plot_widget::invalidate_area_hover);
+    QObject::connect(this, &Plot_widget::vbar_width_changed, this, &Plot_widget::invalidate_area_hover);
+    QObject::connect(this, &Plot_widget::scaling_factor_changed, this, &Plot_widget::invalidate_area_hover);
 
     update_dpi_scaling_factor();
     m_lcd_settings_observer = vnm::msdf_text::lcd::observe_lcd_settings([this] { invalidate_display_context(); });
@@ -241,22 +247,29 @@ void Plot_widget::apply_series_updates(const std::vector<std::pair<int, std::sha
         }
         m_series_revision.fetch_add(1, std::memory_order_release);
     }
+    invalidate_area_hover();
     update();
 }
 
 void Plot_widget::remove_series(int id)
 {
-    std::unique_lock lock(m_series_mutex);
-    m_series.erase(id);
-    m_series_revision.fetch_add(1, std::memory_order_release);
+    {
+        std::unique_lock lock(m_series_mutex);
+        m_series.erase(id);
+        m_series_revision.fetch_add(1, std::memory_order_release);
+    }
+    invalidate_area_hover();
     update();
 }
 
 void Plot_widget::clear()
 {
-    std::unique_lock lock(m_series_mutex);
-    m_series.clear();
-    m_series_revision.fetch_add(1, std::memory_order_release);
+    {
+        std::unique_lock lock(m_series_mutex);
+        m_series.clear();
+        m_series_revision.fetch_add(1, std::memory_order_release);
+    }
+    invalidate_area_hover();
     update();
 }
 
@@ -268,6 +281,7 @@ std::map<int, std::shared_ptr<const series_data_t>> Plot_widget::get_series_snap
 
 void Plot_widget::set_config(const Plot_config& config)
 {
+    invalidate_area_hover();
     Plot_config effective_config;
     bool        dark_changed    = false;
     bool        grid_changed    = false;
@@ -329,8 +343,55 @@ Plot_config Plot_widget::config() const
 
 void Plot_widget::reset_view_state()
 {
+    invalidate_area_hover();
     m_rendered_v_range_valid = false;
     m_rendered_t_range_valid = false;
+    update();
+}
+
+QVariant Plot_widget::hovered_series_id() const
+{
+    return m_hovered_series_id ? QVariant(*m_hovered_series_id) : QVariant::fromValue(nullptr);
+}
+
+void Plot_widget::set_hovered_series_id(std::optional<int> id)
+{
+    if (m_hovered_series_id == id) {
+        return;
+    }
+    m_hovered_series_id = id;
+    emit hovered_series_id_changed();
+}
+
+void Plot_widget::invalidate_area_hover()
+{
+    ++m_area_hover_revision;
+    set_hovered_series_id(std::nullopt);
+}
+
+void Plot_widget::set_area_hover_position(double x, double y)
+{
+    if (!std::isfinite(x) || !std::isfinite(y) || x < 0.0 || y < 0.0 ||
+        x >= width() - vbar_width_qml() || y >= height() - reserved_height())
+    {
+        clear_area_hover();
+        return;
+    }
+    const QPointF position(x, y);
+    if (m_area_hover_position == position) {
+        return;
+    }
+    m_area_hover_position = position;
+    update();
+}
+
+void Plot_widget::clear_area_hover()
+{
+    if (!m_area_hover_position) {
+        return;
+    }
+    m_area_hover_position.reset();
+    invalidate_area_hover();
     update();
 }
 
@@ -921,6 +982,14 @@ void Plot_widget::apply_render_feedback(detail::plot_render_feedback_t feedback)
     set_rendered_v_range(feedback.v_min, feedback.v_max);
     set_rendered_t_range(feedback.t_min, feedback.t_max);
 
+    // Follow the displayed frame while the pointer moves, but never restore a
+    // hit after exit or after the series/geometry that gave it meaning changed.
+    if (feedback.area_hover_revision == m_area_hover_revision &&
+        feedback.series_revision == series_revision())
+    {
+        set_hovered_series_id(feedback.hovered_series_id);
+    }
+
     if (!feedback.stack_validity_ready) {
         return;
     }
@@ -1009,6 +1078,7 @@ void Plot_widget::observe_screen()
 
 void Plot_widget::handle_window_changed(QQuickWindow* window)
 {
+    clear_area_hover();
     QObject::disconnect(m_window_screen_connection);
     m_window_screen_connection = {};
 
@@ -2109,6 +2179,7 @@ void Plot_widget::geometryChange(const QRectF& newGeometry, const QRectF& oldGeo
     QQuickRhiItem::geometryChange(newGeometry, oldGeometry);
 
     if (newGeometry.size() != oldGeometry.size()) {
+        invalidate_area_hover();
         recalculate_preview_height();
         update();
     }
@@ -2119,6 +2190,10 @@ void Plot_widget::itemChange(ItemChange change, const ItemChangeData& data)
     QQuickRhiItem::itemChange(change, data);
     if (change == ItemDevicePixelRatioHasChanged) {
         invalidate_display_context();
+    }
+    else
+    if (change == ItemVisibleHasChanged && !data.boolValue) {
+        clear_area_hover();
     }
 }
 

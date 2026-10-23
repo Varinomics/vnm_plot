@@ -19,6 +19,7 @@ public:
     using Series_renderer::m_last_recorded_draw_z_orders;
     using Series_renderer::m_last_recorded_line_widths;
     using Series_renderer::m_last_recorded_stack_sum_overlays;
+    using Series_renderer::m_hovered_series_id;
     using Series_renderer::stack_view_statuses;
 };
 

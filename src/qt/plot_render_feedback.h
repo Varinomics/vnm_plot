@@ -24,6 +24,8 @@ struct plot_render_feedback_t
     std::int64_t           t_available_max      = 1;
     std::uint64_t          series_revision      = 0;
     std::uint64_t          generation           = 0;
+    std::uint64_t          area_hover_revision  = 0;
+    std::optional<int>     hovered_series_id;
     std::map<int, std::vector<Rendered_stack_source>>
                            stack_validity;
     std::map<std::pair<int, Series_view_kind>, Rendered_stack_status>

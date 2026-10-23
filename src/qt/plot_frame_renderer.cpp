@@ -399,6 +399,9 @@ Plot_frame_result Plot_frame_renderer::render(
     ctx.rhi                      = rhi_ptr;
     ctx.cb                       = cb;
     ctx.render_target            = rt;
+    if (snapshot.area_hover_position) {
+        ctx.area_hover_position = *snapshot.area_hover_position * glm::dvec2(win_w, win_h);
+    }
 
     auto& feedback = result.feedback;
     feedback.measured_vbar_width = vbar_width;
@@ -409,6 +412,7 @@ Plot_frame_result Plot_frame_renderer::render(
     feedback.t_available_min      = ctx.t_available_min;
     feedback.t_available_max      = ctx.t_available_max;
     feedback.series_revision      = snapshot.series_revision;
+    feedback.area_hover_revision  = snapshot.area_hover_revision;
 
     // Open the resource-update batch BEFORE the render pass. Both series and
     // primitives fill it (series via prepare(), primitives via flush_rects /

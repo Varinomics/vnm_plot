@@ -4,10 +4,12 @@
 #include "plot_render_feedback.h"
 #include "plot_renderer.h"
 
+#include <vnm_plot/core/access_policy.h>
 #include <vnm_plot/qt/plot_widget.h>
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QEvent>
 #include <QEventLoop>
 #include <QGuiApplication>
 #include <QQuickRenderControl>
@@ -20,10 +22,12 @@
 #include <rhi/qrhi.h>
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <type_traits>
+#include <vector>
 
 namespace plot = vnm::plot;
 
@@ -451,6 +455,106 @@ bool test_destroy_before_renderer_only_frame_cancels_feedback_delivery(
     return true;
 }
 
+bool test_area_hover_rejects_delayed_feedback_after_exit_and_view_changes(
+    bool& unsupported_configuration)
+{
+    const QSize size(480, 320);
+    QQuickRenderControl control;
+    QQuickWindow window(&control);
+    offscreen_render_target_t render_target;
+    window.setGeometry(0, 0, size.width(), size.height());
+    window.contentItem()->setSize(QSizeF(size));
+    if (!control.initialize() || !control.rhi()) {
+        unsupported_configuration = true;
+        return false;
+    }
+    TEST_ASSERT(render_target.create(*control.rhi(), size),
+        "hover lifecycle fixture needs an offscreen color target");
+    window.setRenderTarget(render_target.quick_render_target());
+
+    auto widget = std::make_unique<test_widget_t>();
+    configure_static_widget(*widget, window);
+    auto config = widget->config();
+    config.show_text         = false;
+    config.preview_height_px = 20.0;
+    widget->set_config(config);
+    widget->set_v_range(0.0f, 10.0f);
+    widget->set_available_t_range(0, 3'000'000'000LL);
+    widget->set_t_range(0, 3'000'000'000LL);
+
+    struct sample_t
+    {
+        std::int64_t timestamp;
+        float        value;
+    };
+    plot::Data_access_policy_typed<sample_t> access;
+    access.get_timestamp = [](const sample_t& sample) { return sample.timestamp; };
+    access.get_value     = [](const sample_t& sample) { return sample.value; };
+    auto series = std::make_shared<plot::series_data_t>();
+    series->style       = plot::Display_style::AREA;
+    series->access      = access.erase();
+    series->data_source = std::make_shared<plot::Vector_data_source<sample_t>>(
+        std::vector<sample_t>{{0, 6.0f}, {3'000'000'000LL, 6.0f}});
+    widget->add_series(7, series);
+
+    const auto render_frame = [&] {
+        widget->update();
+        control.polishItems();
+        control.beginFrame();
+        const bool synchronized = control.sync();
+        control.render();
+        control.endFrame();
+        return synchronized;
+    };
+    const auto deliver_feedback = [&] {
+        QCoreApplication::sendPostedEvents(widget.get(), QEvent::MetaCall);
+    };
+    TEST_ASSERT(render_frame(), "initial plot frame must synchronize");
+    deliver_feedback();
+    TEST_ASSERT(render_frame(), "settled plot layout must synchronize");
+    deliver_feedback();
+    TEST_ASSERT(widget->hovered_series_id().isNull(),
+        "rendering an area without opting into hover must not select a series");
+
+    widget->set_area_hover_position(60.0, 200.0);
+    TEST_ASSERT(render_frame(), "hovered plot frame must synchronize");
+    widget->clear_area_hover();
+    deliver_feedback();
+    TEST_ASSERT(widget->hovered_series_id().isNull(),
+        "a frame queued before pointer exit must not restore its old hover");
+
+    widget->set_area_hover_position(60.0, 200.0);
+    TEST_ASSERT(render_frame(), "pointer reentry must synchronize");
+    deliver_feedback();
+    TEST_ASSERT(widget->hovered_series_id() == QVariant(7),
+        "a completed frame must publish the area containing the current pointer");
+
+    TEST_ASSERT(render_frame(), "pre-replacement frame must synchronize");
+    widget->clear();
+    widget->add_series(7, series);
+    TEST_ASSERT(widget->hovered_series_id().isNull(),
+        "replacing the series set must immediately clear even a reused series ID");
+    deliver_feedback();
+    TEST_ASSERT(widget->hovered_series_id().isNull(),
+        "old completed feedback must not select a series from the replacement set");
+    TEST_ASSERT(render_frame(), "replacement series must synchronize");
+    deliver_feedback();
+    TEST_ASSERT(widget->hovered_series_id() == QVariant(7),
+        "a new frame must recompute the stationary pointer against replacement data");
+
+    TEST_ASSERT(render_frame(), "pre-view-change frame must synchronize");
+    widget->set_v_range(20.0f, 30.0f);
+    TEST_ASSERT(widget->hovered_series_id().isNull(), "changing the view must clear its hover immediately");
+    deliver_feedback();
+    TEST_ASSERT(widget->hovered_series_id().isNull(),
+        "feedback from the preceding view must not restore an invisible area");
+    TEST_ASSERT(render_frame(), "changed view must synchronize");
+    deliver_feedback();
+    TEST_ASSERT(widget->hovered_series_id().isNull(),
+        "the pointer must remain unselected when the new view contains no filled area");
+    return true;
+}
+
 using rhi_dependent_test_fn_t = bool (*)(bool& unsupported_configuration);
 
 // An RHI-dependent case reports through its out-parameter that the window it
@@ -511,6 +615,7 @@ int main(int argc, char** argv)
     RUN_TEST(test_created_renderer_has_independent_lifetime);
     RUN_RHI_DEPENDENT_TEST(test_static_first_frame_delivers_feedback);
     RUN_RHI_DEPENDENT_TEST(test_destroy_before_renderer_only_frame_cancels_feedback_delivery);
+    RUN_RHI_DEPENDENT_TEST(test_area_hover_rejects_delayed_feedback_after_exit_and_view_changes);
 
     std::cout
         << "Results: "

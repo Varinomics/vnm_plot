@@ -15,6 +15,8 @@ Item {
     property alias indicator_max_series_rows: indicator.max_series_rows
     property alias indicator_value_rows_provider: indicator.value_rows_provider
     property alias stacked_marker_note: indicator.stacked_marker_note
+    property bool area_hover_enabled: false
+    readonly property var hovered_series_id: plot.hovered_series_id
 
     signal main_plot_clicked(real timestamp_ms)
     signal main_plot_sample_hovered(real timestamp_ms)
@@ -96,10 +98,14 @@ Item {
         onMouse_position_changed: (x, y) => {
             indicator.update_mouse_position(x, y)
             root.update_hover_sample(x, y)
+            if (root.area_hover_enabled) {
+                plot.set_area_hover_position(x, y)
+            }
         }
         onMouse_exited: {
             indicator.set_mouse_in_plot(false)
             root.clear_hover_sample()
+            plot.clear_area_hover()
         }
         onMouse_clicked: (x, y) => {
             const timestampMs = root.nearest_sample_timestamp_at(x, y)
@@ -137,6 +143,7 @@ Item {
             if (active) {
                 indicator.set_mouse_in_plot(false)
                 root.clear_hover_sample()
+                plot.clear_area_hover()
             }
         }
     }
@@ -150,6 +157,12 @@ Item {
     onDark_modeChanged: {
         if (root.dark_mode !== null) {
             plot.dark_mode = root.dark_mode
+        }
+    }
+
+    onArea_hover_enabledChanged: {
+        if (!area_hover_enabled) {
+            plot.clear_area_hover()
         }
     }
 }

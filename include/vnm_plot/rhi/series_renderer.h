@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -106,6 +107,12 @@ private:
         float y_min;
         float y_max;
     };
+
+    static bool area_contains_position(
+        const sample_window_t& window,
+        const std::vector<gpu_sample_t>& samples,
+        const std::vector<detail::builtin_segment_span_t>& spans,
+        const glm::dvec2& position);
 
     struct vbo_view_state_t
     {
@@ -224,6 +231,7 @@ private:
                                                                       m_main_stack_validity;
     std::map<std::pair<int, Series_view_kind>, detail::Rendered_stack_status>
                                                                       m_stack_view_statuses;
+    std::optional<int>                                                 m_hovered_series_id;
     // Private test instrumentation for the QRhi prepare/render split.
 #if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
     std::vector<int>                                                   m_last_recorded_draw_z_orders;

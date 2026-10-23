@@ -12,9 +12,11 @@
 #include <QElapsedTimer>
 #include <QMetaObject>
 #include <QPointer>
+#include <QPointF>
 #include <QQuickRhiItem>
 
 #include <QString>
+#include <QVariant>
 #include <QVariantAnimation>
 #include <QVariantList>
 #include <QVariantMap>
@@ -109,6 +111,7 @@ class Plot_widget : public QQuickRhiItem
     Q_PROPERTY(double vbar_width_px READ vbar_width_pixels NOTIFY vbar_width_changed)
     Q_PROPERTY(double vbar_width_qml READ vbar_width_qml NOTIFY vbar_width_changed)
     Q_PROPERTY(Plot_time_axis* time_axis READ time_axis WRITE set_time_axis NOTIFY time_axis_changed)
+    Q_PROPERTY(QVariant hovered_series_id READ hovered_series_id NOTIFY hovered_series_id_changed)
 
 public:
     Plot_widget();
@@ -208,6 +211,12 @@ public:
 
     // --- Interaction ---
 
+    // Null when no main-plot AREA contains the pointer. Rendering and hit testing
+    // share the uploaded geometry; callers opt in by providing a hover position.
+    QVariant hovered_series_id() const;
+    Q_INVOKABLE void set_area_hover_position(double x, double y);
+    Q_INVOKABLE void clear_area_hover();
+
     Q_INVOKABLE virtual void adjust_t_from_mouse_diff(double ref_width, double diff);
     Q_INVOKABLE virtual void adjust_t_from_mouse_diff_on_preview(double ref_width, double diff);
     Q_INVOKABLE virtual void adjust_t_from_mouse_pos_on_preview(double ref_width, double x_pos);
@@ -284,6 +293,7 @@ signals:
     void line_width_px_changed();
     void vbar_width_changed();
     void time_axis_changed();
+    void hovered_series_id_changed();
 
 protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
@@ -317,6 +327,9 @@ private:
         Interpolated,
         Nearest,
     };
+
+    void invalidate_area_hover();
+    void set_hovered_series_id(std::optional<int> id);
 
     QVariantList get_samples_for_time(
         double x_ms,
@@ -359,6 +372,9 @@ private:
     // UI state
     std::atomic<bool>              m_v_auto{true};
     std::atomic<int>               m_visible_info_flags{k_visible_info_all};
+    std::optional<QPointF>         m_area_hover_position;
+    std::optional<int>             m_hovered_series_id;
+    std::uint64_t                  m_area_hover_revision = 0;
     // GUI-thread mirror. The feedback channel owns cross-thread transfer.
     float                         m_rendered_v_min = 0.0f;
     float                         m_rendered_v_max = 1.0f;

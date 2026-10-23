@@ -101,6 +101,13 @@ void Plot_renderer::synchronize(QQuickRhiItem* item)
     m_impl->snapshot.base_label_height_px    = widget->m_base_label_height;
     m_impl->snapshot.adjusted_preview_height = widget->preview_height() * widget->m_scaling_factor;
     m_impl->snapshot.vbar_width_pixels       = widget->vbar_width_pixels();
+    m_impl->snapshot.area_hover_revision = widget->m_area_hover_revision;
+    m_impl->snapshot.area_hover_position.reset();
+    if (widget->m_area_hover_position && widget->width() > 0.0 && widget->height() > 0.0) {
+        m_impl->snapshot.area_hover_position = glm::dvec2(
+            widget->m_area_hover_position->x() / widget->width(),
+            widget->m_area_hover_position->y() / widget->height());
+    }
     if (QQuickWindow* window = widget->window()) {
         m_impl->snapshot.window_background = qcolor_to_vec4(window->color());
     }

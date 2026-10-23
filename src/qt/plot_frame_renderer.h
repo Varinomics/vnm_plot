@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 
 class QRhi;
 class QRhiCommandBuffer;
@@ -33,6 +34,10 @@ struct Plot_render_snapshot
     lcd_subpixel_order_t   auto_lcd_subpixel_order = lcd_subpixel_order_t::NONE;
     std::uint64_t          config_revision         = 0;
     std::uint64_t          series_revision         = 0;
+
+    // Normalized to the full item, so the frame's layout owns axis/preview exclusion.
+    std::optional<glm::dvec2> area_hover_position;
+    std::uint64_t            area_hover_revision = 0;
 };
 
 struct Plot_frame_result

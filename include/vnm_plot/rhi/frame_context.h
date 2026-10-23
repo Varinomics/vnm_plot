@@ -8,6 +8,8 @@
 
 #include <glm/mat4x4.hpp>
 
+#include <optional>
+
 class QRhi;
 class QRhiCommandBuffer;
 class QRhiRenderTarget;
@@ -49,6 +51,9 @@ struct frame_context_t
     lcd_subpixel_order_t lcd_subpixel_order = lcd_subpixel_order_t::NONE;
 
     const Plot_config*         config = nullptr;
+
+    // Optional main-plot area hover in render-target pixels, from the top left.
+    std::optional<glm::dvec2>   area_hover_position;
 
     // RHI handles for the active frame. The renderer routes uploads through
     // the RHI resource-update batch and records draws through `cb`.

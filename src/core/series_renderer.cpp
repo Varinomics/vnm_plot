@@ -682,6 +682,65 @@ void Series_renderer::clear_frame_snapshot_caches()
     }
 }
 
+bool Series_renderer::area_contains_position(
+    const sample_window_t& window,
+    const std::vector<gpu_sample_t>& samples,
+    const std::vector<detail::builtin_segment_span_t>& spans,
+    const glm::dvec2& position)
+{
+    if (position.x < 0.0 || position.x >= window.width_px ||
+        position.y < window.y_offset_px || position.y >= window.y_offset_px + window.height_px)
+    {
+        return false;
+    }
+
+    // These are the same rebased float coordinates and drawable strips used
+    // by plot_area.vert, including LOD, gaps and synthetic hold-forward samples.
+    const float t_min = detail::to_view_seconds(window.t_min_ns, window.t_origin_ns);
+    const float t_max = detail::to_view_seconds(window.t_max_ns, window.t_origin_ns);
+    const double t = t_min + position.x / window.width_px * (t_max - t_min);
+    const double y = window.v_max - (position.y - window.y_offset_px) / window.height_px *
+        (window.v_max - window.v_min);
+
+    for (const auto& span : spans) {
+        const auto first = samples.begin() + span.gpu_first;
+        const auto end   = first + span.gpu_count;
+        if (t < first->t_rel || t >= (end - 1)->t_rel) {
+            continue;
+        }
+        const auto right = std::upper_bound(first, end, t,
+            [](double time, const gpu_sample_t& sample) { return time < sample.t_rel; });
+        const auto& left_sample  = *(right - 1);
+        const auto& right_sample = *right;
+        const double fraction = window.interpolation == Series_interpolation::STEP_AFTER
+            ? 0.0
+            : (t - left_sample.t_rel) / (right_sample.t_rel - left_sample.t_rel);
+        const auto base_for = [](const gpu_sample_t& sample) {
+            return std::abs(sample.y - sample.y_min) > std::abs(sample.y - sample.y_max)
+                ? sample.y_min : sample.y_max;
+        };
+        const double top = left_sample.y + fraction * (right_sample.y - left_sample.y);
+        const double base = window.stacked
+            ? base_for(left_sample) + fraction * (base_for(right_sample) - base_for(left_sample))
+            : 0.0;
+        double lower = std::min(base, top);
+        double upper = std::max(base, top);
+        if (window.stacked) {
+            // The strip's triangles share the left-base/right-top diagonal.
+            // Signed layers can cross their base, extending the painted union
+            // beyond the interval between the interpolated base and top.
+            const double diagonal = base_for(left_sample) + fraction *
+                (right_sample.y - base_for(left_sample));
+            lower = std::min(lower, diagonal);
+            upper = std::max(upper, diagonal);
+        }
+        if (lower != upper && y >= lower && y <= upper) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void Series_renderer::prepare(
     const frame_context_t& ctx,
     const std::map<int, std::shared_ptr<const series_data_t>>&
@@ -689,6 +748,7 @@ void Series_renderer::prepare(
 {
     m_main_stack_validity.clear();
     m_stack_view_statuses.clear();
+    m_hovered_series_id.reset();
     m_rhi_state->prepared_draws.clear();
     m_rhi_state->frame_plan_ready = false;
 #if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
@@ -1798,6 +1858,43 @@ void Series_renderer::prepare(
             if (a.series_order != b.series_order) { return a.series_order < b.series_order; }
             return a.insertion_order < b.insertion_order;
         });
+
+    if (ctx.area_hover_position) {
+        // Reverse draw order selects the visible area when separate groups overlap.
+        for (auto it = m_rhi_state->prepared_draws.rbegin();
+            it != m_rhi_state->prepared_draws.rend(); ++it)
+        {
+            auto& draw = *it;
+            if (draw.kind != rhi_state_t::prepared_draw_command_t::kind_t::BUILTIN ||
+                draw.view_kind != Series_view_kind::MAIN || draw.primitive_style != Display_style::AREA)
+            {
+                continue;
+            }
+            if (!area_contains_position(
+                    draw.window, draw.view_state->staging, draw.builtin_segment_spans, *ctx.area_hover_position))
+            {
+                continue;
+            }
+            m_hovered_series_id = draw.series_id;
+            const float area_fill_alpha = ctx.config
+                ? static_cast<float>(ctx.config->area_fill_alpha) : 0.3f;
+            draw.draw_color = builtin_draw_color(
+                ctx, draw.series->color, Display_style::AREA, draw.window,
+                std::min(1.0f, area_fill_alpha + 0.08f));
+            // Only the AREA uniform changes; retained samples and line widths stay intact.
+            constexpr auto k_color_offset = offsetof(Area_block_std140, view) +
+                offsetof(series_view_uniform_std140_t, color);
+            constexpr auto k_color_bytes = sizeof(float) * 4;
+            rhi_updates->updateDynamicBuffer(
+                draw.view_state->rhi->area_fill_srb.ubo.get(), k_color_offset, k_color_bytes,
+                glm::value_ptr(draw.draw_color));
+            draw.view_state->last_uniform_upload_bytes += k_color_bytes;
+            ++draw.view_state->last_uniform_upload_count;
+            frame_uniform_upload_bytes += k_color_bytes;
+            ++frame_uniform_upload_count;
+            break;
+        }
+    }
 
     if (profiler) {
         profiler->record_observation(
