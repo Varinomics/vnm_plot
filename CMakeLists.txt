@@ -166,7 +166,6 @@ if(_vnm_plot_missing_msdf_text_targets)
             "${CMAKE_CURRENT_SOURCE_DIR}/../vnm_msdf_text"
             ABSOLUTE)
         set(VNM_MSDF_TEXT_BUILD_RHI "${VNM_PLOT_ENABLE_TEXT}" CACHE BOOL "" FORCE)
-        unset(VNM_MSDF_TEXT_USE_SYSTEM_LIBS CACHE)
         set(VNM_MSDF_TEXT_FETCH_DEPS
             "${_vnm_plot_msdf_text_fetch_deps}"
             CACHE BOOL "" FORCE)
