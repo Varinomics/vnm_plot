@@ -22,11 +22,13 @@
 #include <QSize>
 #include <rhi/qrhi.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <functional>
 #include <initializer_list>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <string_view>
@@ -514,6 +516,42 @@ bool test_axis_suffix_styling_preserves_numeric_pixels_and_anchor(Offscreen_fram
     TEST_ASSERT(!blank.isNull() && !normal.isNull(), "axis frames must be readable");
     TEST_ASSERT(normal != blank, "the unstyled axis label must paint visible glyphs");
     TEST_ASSERT(no_suffix == normal, "a zero-length suffix must keep ordinary label rendering");
+    if (neutral_suffix != normal) {
+        QRect changed;
+        int pixel_count = 0;
+        int max_channel_delta = 0;
+        for (int y = 0; y < std::min(normal.height(), neutral_suffix.height()); ++y) {
+            for (int x = 0; x < std::min(normal.width(), neutral_suffix.width()); ++x) {
+                const QColor expected = normal.pixelColor(x, y);
+                const QColor actual   = neutral_suffix.pixelColor(x, y);
+                if (expected == actual) {
+                    continue;
+                }
+                changed = changed.united(QRect(x, y, 1, 1));
+                max_channel_delta = std::max({
+                    max_channel_delta,
+                    std::abs(expected.red()   - actual.red()),
+                    std::abs(expected.green() - actual.green()),
+                    std::abs(expected.blue()  - actual.blue()),
+                    std::abs(expected.alpha() - actual.alpha())});
+                if (pixel_count < 8) {
+                    std::cerr << "suffix pixel (" << x << "," << y << "): normal="
+                        << expected.name(QColor::HexArgb).toStdString()
+                        << ", split=" << actual.name(QColor::HexArgb).toStdString() << '\n';
+                }
+                ++pixel_count;
+            }
+        }
+        std::cerr << "suffix difference: pixels=" << pixel_count
+            << ", bounds=" << changed.x() << ',' << changed.y() << ' '
+            << changed.width() << 'x' << changed.height()
+            << ", max channel delta=" << max_channel_delta
+            << ", frame=" << neutral_suffix.width() << 'x' << neutral_suffix.height()
+            << std::setprecision(12)
+            << ", full advance=" << fonts.measure_text_px(" 1.05M")
+            << ", prefix advance=" << fonts.measure_text_px(" 1.05")
+            << ", suffix advance=" << fonts.measure_text_px("M") << '\n';
+    }
     TEST_ASSERT(neutral_suffix == normal,
         "splitting a suffix without changing color must preserve every label pixel and its anchor");
 
