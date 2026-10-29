@@ -32,6 +32,7 @@
 #include <iomanip>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <type_traits>
 #include <vector>
@@ -699,6 +700,8 @@ struct Font_renderer::impl_t
     std::function<void(const std::string&)>    m_log_error;
     std::function<void(const std::string&)>    m_log_debug_info;
     bool                                       m_rhi_batch_active    = false;
+    bool                                       m_rhi_preparation_failed = false;
+    std::optional<text_rhi::text_result_t>       m_last_preparation_failure;
     std::shared_ptr<const text_rhi::Font_snapshot> m_snapshot;
     text_rhi::Text_batch                        m_batch;
     text_rhi::Text_renderer                     m_renderer;
@@ -1008,6 +1011,7 @@ void Font_renderer::batch_text(float x, float y, const char* text)
 void Font_renderer::rhi_begin_frame()
 {
     m_impl->m_rhi_batch_active = true;
+    m_impl->m_rhi_preparation_failed = false;
     m_impl->m_renderer.begin_frame();
     m_impl->clear_batch();
 }
@@ -1047,9 +1051,25 @@ void Font_renderer::rhi_queue_draw(
     m_impl->clear_batch();
 }
 
-void Font_renderer::rhi_finalize_frame(const frame_context_t& ctx)
+bool Font_renderer::rhi_finalize_frame(const frame_context_t& ctx)
 {
-    m_impl->check(m_impl->m_renderer.prepare(text_frame(ctx)));
+    const text_rhi::text_result_t result = m_impl->m_renderer.prepare(text_frame(ctx));
+    m_impl->m_rhi_preparation_failed = result.status != text_rhi::Text_status::OK;
+    if (!m_impl->m_rhi_preparation_failed) {
+        m_impl->m_last_preparation_failure.reset();
+        return true;
+    }
+
+    // Retry preparation on every frame, but report a continuing cause once.
+    // Successful preparation, or a different failure, rearms the diagnostic.
+    const auto& previous = m_impl->m_last_preparation_failure;
+    if (!previous || previous->status != result.status ||
+        previous->diagnostic != result.diagnostic)
+    {
+        m_impl->check(result);
+        m_impl->m_last_preparation_failure = result;
+    }
+    return false;
 }
 
 std::size_t Font_renderer::queued_draw_count() const
@@ -1059,6 +1079,9 @@ std::size_t Font_renderer::queued_draw_count() const
 
 void Font_renderer::rhi_record_draws(const frame_context_t& ctx, std::size_t end)
 {
+    if (m_impl->m_rhi_preparation_failed) {
+        return;
+    }
     m_impl->check(m_impl->m_renderer.record_draws(
         text_frame(ctx), end, text_rhi::grouped_shadows_t{}));
 }
@@ -1072,6 +1095,7 @@ void Font_renderer::rhi_record_frame(const frame_context_t& ctx)
 void Font_renderer::rhi_reset_frame()
 {
     m_impl->m_rhi_batch_active = false;
+    m_impl->m_rhi_preparation_failed = false;
     m_impl->m_batch.clear();
     m_impl->m_renderer.reset_frame();
 }

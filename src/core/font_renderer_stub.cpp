@@ -59,7 +59,7 @@ void Font_renderer::rhi_queue_draw(
     const text_shadow_t&,
     const text_lcd_t&) {}
 
-void Font_renderer::rhi_finalize_frame(const frame_context_t&) {}
+bool Font_renderer::rhi_finalize_frame(const frame_context_t&) { return true; }
 
 std::size_t Font_renderer::queued_draw_count() const { return 0; }
 

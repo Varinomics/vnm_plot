@@ -194,8 +194,11 @@ public:
         const text_shadow_t&   shadow,
         const text_lcd_t&      lcd);
 
-    // Uploads accumulated text geometry before the render pass opens.
-    void rhi_finalize_frame(const frame_context_t& ctx);
+    // Uploads accumulated text geometry before the render pass opens. Returns
+    // false if preparation failed; text recording is then a no-op for this
+    // frame. Later frames retry, reporting a continuing cause only once until
+    // preparation succeeds or the cause changes.
+    bool rhi_finalize_frame(const frame_context_t& ctx);
 
     // Number of draw ops queued so far this frame. A shadowed rhi_queue_draw()
     // queues two, so the value counts neither draws nor strings: its only use

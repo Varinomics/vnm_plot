@@ -29,7 +29,9 @@
 #include <initializer_list>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace plot = vnm::plot;
 
@@ -578,6 +580,93 @@ bool test_axis_suffix_styling_preserves_numeric_pixels_and_anchor(Offscreen_fram
     return true;
 }
 
+bool test_preparation_failure_skips_text_and_recovers(Offscreen_frames& frames)
+{
+    plot::Asset_loader loader;
+    plot::init_embedded_assets(loader);
+    plot::Font_renderer fonts(loader);
+    fonts.initialize_metrics(k_font_px);
+    std::vector<std::string> diagnostics;
+    fonts.set_log_callbacks([&](const std::string& message) {
+        diagnostics.push_back(message);
+    }, {});
+    plot::Primitive_renderer primitives;
+    const auto prepare_primitive = [&](const plot::frame_context_t& ctx) {
+        primitives.batch_rect(glm::vec4(0.8f, 0.2f, 0.1f, 1.0f), glm::vec4(0, 0, 20, 20));
+        primitives.flush_rects(ctx, ctx.pmv);
+    };
+    const auto record_primitive = [&](const plot::frame_context_t& ctx) {
+        primitives.record_draws(ctx, primitives.queued_op_count());
+        primitives.reset_frame();
+    };
+    const QImage without_text = frames.render(prepare_primitive, record_primitive);
+    TEST_ASSERT(!without_text.isNull(), "unrelated primitive fixture must render");
+
+    bool prepared = true;
+    std::size_t first_end = 0;
+    enum class Refusal { NONE, MISSING_UPDATES, WRONG_TRANSFORM };
+    const auto prepare_text = [&](const plot::frame_context_t& ctx, Refusal refusal) {
+        prepare_primitive(ctx);
+        fonts.rhi_begin_frame();
+        plot::frame_context_t queue_ctx = ctx;
+        if (refusal == Refusal::WRONG_TRANSFORM) {
+            queue_ctx.render_target = nullptr;
+        }
+        queue_text(fonts, queue_ctx, {80, 40, "First", glm::vec4(1.0f), {}, {}});
+        first_end = fonts.queued_draw_count();
+        queue_text(fonts, queue_ctx, {200, 40, "Second", glm::vec4(1.0f), {}, {}});
+        plot::frame_context_t prepare_ctx = ctx;
+        if (refusal == Refusal::MISSING_UPDATES) {
+            // Use a real provider refusal, leaving the actual pass's batch
+            // intact so unrelated geometry still uploads and records.
+            prepare_ctx.rhi_updates = nullptr;
+        }
+        prepared = fonts.rhi_finalize_frame(prepare_ctx);
+    };
+    const auto record_text = [&](const plot::frame_context_t& ctx) {
+        record_primitive(ctx);
+        // Direct callers may record every slice; failed preparation must make
+        // those draws harmless without producing derivative diagnostics.
+        fonts.rhi_record_draws(ctx, first_end);
+        fonts.rhi_record_draws(ctx, fonts.queued_draw_count());
+        fonts.rhi_reset_frame();
+    };
+    for (int i = 0; i < 3; ++i) {
+        const QImage failed = frames.render([&](const plot::frame_context_t& ctx) {
+            prepare_text(ctx, Refusal::MISSING_UPDATES);
+        }, record_text);
+        TEST_ASSERT(!prepared, "preparation refusal must reach the caller");
+        TEST_ASSERT(failed == without_text, "failed text must leave unrelated drawing intact");
+    }
+    TEST_ASSERT(diagnostics.size() == 1 && diagnostics.front() ==
+        "text preparation needs a QRhi, a render target, and a resource-update batch",
+        "a continuing preparation failure must emit one causal diagnostic only");
+
+    for (int i = 0; i < 2; ++i) {
+        const QImage changed_failure = frames.render([&](const plot::frame_context_t& ctx) {
+            prepare_text(ctx, Refusal::WRONG_TRANSFORM);
+        }, record_text);
+        TEST_ASSERT(!prepared && changed_failure == without_text,
+            "a changed preparation failure must skip only text");
+    }
+    TEST_ASSERT(diagnostics.size() == 2 && diagnostics.back() ==
+        "styled text must use pixel_ortho_transform() for this frame",
+        "a changed cause must be reported once within the failure episode");
+
+    const QImage recovered = frames.render([&](const plot::frame_context_t& ctx) {
+        prepare_text(ctx, Refusal::NONE);
+    }, record_text);
+    TEST_ASSERT(prepared && !recovered.isNull() && recovered != without_text,
+        "the next valid preparation must restore text on the same renderer");
+    TEST_ASSERT(diagnostics.size() == 2, "successful recovery must add no diagnostic");
+    const QImage failed_again = frames.render([&](const plot::frame_context_t& ctx) {
+        prepare_text(ctx, Refusal::MISSING_UPDATES);
+    }, record_text);
+    TEST_ASSERT(!prepared && failed_again == without_text && diagnostics.size() == 3,
+        "successful preparation must rearm reporting for a later failure");
+    return true;
+}
+
 using frame_test_fn_t = bool (*)(Offscreen_frames& frames);
 
 void run_frame_test(
@@ -637,6 +726,7 @@ int main(int argc, char** argv)
     RUN_FRAME_TEST(test_slices_record_in_submission_order);
     RUN_FRAME_TEST(test_changing_draw_height_rescales_the_rendered_glyphs);
     RUN_FRAME_TEST(test_axis_suffix_styling_preserves_numeric_pixels_and_anchor);
+    RUN_FRAME_TEST(test_preparation_failure_skips_text_and_recovers);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;
