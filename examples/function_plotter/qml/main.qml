@@ -365,7 +365,7 @@ ApplicationWindow {
                         }
 
                         StyleToggleButton {
-                            glyph: "\u2014"  // Em dash for line
+                            glyph: "-"  // Hyphen for line
                             tooltip: "Show as line"
                             active: functionDelegate.showLine
                             glyphSize: fontSize

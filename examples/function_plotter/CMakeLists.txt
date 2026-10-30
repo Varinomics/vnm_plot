@@ -45,7 +45,7 @@ else()
     # downloads the sources but skips add_subdirectory. Without this, mexce's
     # own CMakeLists forces /O2 on its benchmark / unit_tests targets, which
     # collides with the parent build's /RTC1 in MSVC Debug. We only need the
-    # header — the parent project does not consume mexce's executables.
+    # header - the parent project does not consume mexce's executables.
     FetchContent_Declare(mexce
         GIT_REPOSITORY https://github.com/imakris/mexce.git
         GIT_TAG        master
