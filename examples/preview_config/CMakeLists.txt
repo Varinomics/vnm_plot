@@ -25,7 +25,6 @@ add_executable(vnm_plot_preview_config
     src/main.cpp
     src/preview_controller.cpp
     src/preview_controller.h
-    src/top_controller.cpp
     src/top_controller.h
     resources.qrc
 )
@@ -41,6 +40,30 @@ target_link_libraries(vnm_plot_preview_config PRIVATE
     Qt6::Quick
     vnm_plot::qtquick
 )
+
+if(VNM_PLOT_BUILD_TESTS)
+    enable_testing()
+    add_executable(test_preview_controllers
+        test_preview_controllers.cpp
+        src/preview_controller.cpp
+        src/preview_controller.h
+        src/top_controller.h
+    )
+    target_include_directories(test_preview_controllers PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(test_preview_controllers PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Quick
+        vnm_plot::qtquick
+    )
+    add_test(NAME PreviewControllers COMMAND test_preview_controllers)
+    set_tests_properties(PreviewControllers PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+endif()
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../common/deploy_qt.cmake)
 vnm_plot_deploy_example(vnm_plot_preview_config)

@@ -11,7 +11,7 @@
 // Usage:
 //   1. Create a data source (Vector_data_source, or implement Data_source)
 //   2. Create a Data_access_policy for your sample type
-//   3. Create a VNM_plot widget (Qt Quick) and add data sources
+//   3. Create a Plot_widget (Qt Quick) and add data sources
 //
 // Use core.h or qt.h directly when you only need one side.
 #include <vnm_plot/core.h>

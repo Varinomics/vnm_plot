@@ -408,11 +408,11 @@ private:
     QVariantAnimation              m_preview_height_animation;
     bool                           m_preview_height_initialized                  = false;
     bool                           m_collapse_hidden_preview                     = false;
-    float                          m_relative_preview_height                     = 0.0f;
-    double                         m_preview_height_min                          = 0.0;
-    double                         m_preview_height_max                          = 0.0;
-    bool                           m_show_if_calculated_preview_height_below_min = true;
-    int                            m_preview_height_steps                        = 0;
+    float                          m_relative_preview_height                     = 0.3f;
+    double                         m_preview_height_min                          = 30.0;
+    double                         m_preview_height_max                          = 150.0;
+    bool                           m_show_if_calculated_preview_height_below_min = false;
+    int                            m_preview_height_steps                        = 2;
 
     double                         m_adjusted_font_size                          = 12.0;
     double                         m_base_label_height                           = 14.0;

@@ -477,6 +477,84 @@ bool test_indicator_samples_step_after_holds_previous_sample()
     return true;
 }
 
+bool test_indicator_boundaries_preserve_raw_and_cumulative_values()
+{
+    constexpr std::int64_t k_second_ns = 1'000'000'000;
+    struct expectation_t
+    {
+        double timestamp_ms;
+        double raw_linear;
+        double cumulative_linear;
+        double step_after;
+    };
+    // Raw indicators bracket the source samples. Rendered stacks collapse a
+    // repeated timestamp to its final value before interpolating their geometry.
+    const expectation_t expectations[] = {
+        {   0.0, 1.0, 1.0, 1.0},
+        { 500.0, 2.0, 3.0, 1.0},
+        {1000.0, 5.0, 5.0, 5.0},
+        {1500.0, 7.0, 7.0, 5.0},
+        {2000.0, 9.0, 9.0, 9.0},
+    };
+    for (const auto interpolation : {
+        plot::Series_interpolation::LINEAR,
+        plot::Series_interpolation::STEP_AFTER})
+    {
+        indicator_test_widget_t widget;
+        configure_view(widget, 0, 2 * k_second_ns, 0.0f, 20.0f);
+        auto lower = make_sample_series({
+            {0, 1.0f}, {k_second_ns, 3.0f}, {k_second_ns, 5.0f}, {2 * k_second_ns, 9.0f}
+        }, interpolation);
+        auto upper = make_sample_series({
+            {0, 2.0f}, {2 * k_second_ns, 2.0f}
+        }, interpolation);
+        lower->stack_group = upper->stack_group = 1;
+        widget.add_series(1, lower);
+        widget.add_series(2, upper);
+        publish_rendered_stack_validity(widget, {{1, lower}, {2, upper}}, 0, 2 * k_second_ns);
+
+        for (const auto& expected : expectations) {
+            const auto samples = widget.get_indicator_samples(expected.timestamp_ms, 100.0, 100.0);
+            TEST_ASSERT(samples.size() == 3,
+                "exact endpoints, duplicate timestamps, and handoffs should retain components and sigma");
+            const bool linear = interpolation == plot::Series_interpolation::LINEAR;
+            const double raw = linear ? expected.raw_linear : expected.step_after;
+            const double cumulative = linear ? expected.cumulative_linear : expected.step_after;
+            TEST_ASSERT(nearly_equal(samples[0].toMap().value("y").toDouble(), raw),
+                "raw indicator values should retain source bracket and STEP_AFTER boundary behavior");
+            TEST_ASSERT(samples[0].toMap().value("stacked_marker").toBool() &&
+                nearly_equal(samples[0].toMap().value("marker_y").toDouble(), cumulative) &&
+                nearly_equal(samples[1].toMap().value("marker_y").toDouble(), cumulative + 2.0) &&
+                nearly_equal(samples[2].toMap().value("y").toDouble(), cumulative + 2.0),
+                "cumulative markers and sigma should retain rendered-stack bracket behavior");
+        }
+    }
+    return true;
+}
+
+bool test_indicator_preserves_raw_and_cumulative_interpolation_precision()
+{
+    constexpr std::int64_t k_second_ns = 1'000'000'000;
+    indicator_test_widget_t widget;
+    configure_view(widget, 0, 2 * k_second_ns, -2.0f, 16777216.0f);
+    auto lower = make_sample_series(
+        {{0, 16777216.0f}, {2 * k_second_ns, -1.0f}}, plot::Series_interpolation::LINEAR);
+    auto upper = make_sample_series(
+        {{0, 0.0f}, {2 * k_second_ns, 0.0f}}, plot::Series_interpolation::LINEAR);
+    lower->stack_group = upper->stack_group = 1;
+    widget.add_series(1, lower);
+    widget.add_series(2, upper);
+    publish_rendered_stack_validity(widget, {{1, lower}, {2, upper}}, 0, 2 * k_second_ns);
+
+    const auto samples = widget.get_indicator_samples(1000.0, 100.0, 100.0);
+    TEST_ASSERT(samples.size() == 3, "the finite stack should publish components and sigma");
+    TEST_ASSERT(samples[0].toMap().value("y").toDouble() == 8388607.5 &&
+        samples[0].toMap().value("marker_y").toDouble() == 8388608.0 &&
+        samples[2].toMap().value("y").toDouble() == 8388608.0,
+        "raw double subtraction and cumulative float subtraction should retain their precision");
+    return true;
+}
+
 bool test_indicator_reports_stack_sum_only_inside_common_domain()
 {
     constexpr std::int64_t k_second_ns = 1'000'000'000LL;
@@ -1287,6 +1365,8 @@ int main(int argc, char** argv)
     RUN_TEST(test_wheel_zoom_handles_near_zero_value_range);
     RUN_TEST(test_indicator_samples_linearly_interpolate_between_samples);
     RUN_TEST(test_indicator_samples_step_after_holds_previous_sample);
+    RUN_TEST(test_indicator_boundaries_preserve_raw_and_cumulative_values);
+    RUN_TEST(test_indicator_preserves_raw_and_cumulative_interpolation_precision);
     RUN_TEST(test_indicator_reports_stack_sum_only_inside_common_domain);
     RUN_TEST(test_stacked_indicator_matches_sub_256ns_epoch_composition);
     RUN_TEST(test_stack_status_reports_views_freshness_rejection_and_recovery);

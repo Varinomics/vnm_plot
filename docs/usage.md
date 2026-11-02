@@ -106,8 +106,7 @@ series->access = policy.erase();
 - `DOTS` - points
 - `LINE` - connected line
 - `AREA` - filled area
-- `COLORMAP_AREA` - area colored by auxiliary metric
-- Combinations: `DOTS_LINE`, `LINE_AREA`, `DOTS_LINE_AREA`
+- Combinations: `DOTS_LINE`, `DOTS_AREA`, `LINE_AREA`, `DOTS_LINE_AREA`
 
 ## Configuration
 
