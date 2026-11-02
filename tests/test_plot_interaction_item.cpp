@@ -23,6 +23,7 @@
 #include <QQuickRenderTarget>
 #include <QQuickWindow>
 #include <QThread>
+#include <QTimer>
 #include <QMouseEvent>
 #include <QVariantMap>
 #include <QWheelEvent>
@@ -440,6 +441,71 @@ bool test_wheel_zoom_handles_near_zero_value_range()
             "Ctrl+wheel zoom should shrink the time range");
     }
 
+    return true;
+}
+
+bool test_vertical_interaction_minimum_preserves_ranges()
+{
+    plot::Plot_widget widget;
+    configure_view(widget, 0, 2'000'000'000, 0.0f, 100.0f);
+    widget.adjust_v_from_pivot_and_scale(0.5f, 2.0f);
+    TEST_ASSERT(widget.v_min() == -50.0f && widget.v_max() == 150.0f,
+        "plots without an interaction minimum retain signed zoom ranges");
+    widget.set_v_range(0.0f, 100.0f);
+    widget.adjust_v_from_mouse_diff(100.0f, -100.0f);
+    TEST_ASSERT(widget.v_min() == -100.0f && widget.v_max() == 0.0f,
+        "plots without an interaction minimum retain signed pan ranges");
+
+    auto config = widget.config();
+    config.interaction_v_minimum = 0.0f;
+    widget.set_config(config);
+    widget.set_v_range(0.0f, 100.0f);
+    widget.adjust_v_from_mouse_diff(100.0f, -200.0f);
+    TEST_ASSERT(widget.v_min() == 0.0f && widget.v_max() == 100.0f,
+        "panning against the minimum preserves the vertical span");
+    widget.adjust_v_from_pivot_and_scale(0.5f, 2.0f);
+    TEST_ASSERT(widget.v_min() == 0.0f && widget.v_max() == 200.0f,
+        "zooming out against the minimum preserves the requested scale");
+    widget.set_v_range(50.0f, 150.0f);
+    widget.adjust_v_from_pivot_and_scale(0.5f, 0.5f);
+    TEST_ASSERT(widget.v_min() == 75.0f && widget.v_max() == 125.0f,
+        "zooming inside the permitted range preserves the pivot");
+
+    widget.adjust_v_to_target(0.0f, 0.0f);
+    TEST_ASSERT(widget.v_min() == 0.0f && widget.v_max() > widget.v_min(),
+        "the zero minimum retains a usable span at the precision limit");
+    config.interaction_v_minimum = 100.0f;
+    widget.set_config(config);
+    widget.adjust_v_to_target(0.0f, 0.0f);
+    TEST_ASSERT(widget.v_min() == 100.0f &&
+        widget.v_max() - widget.v_min() >= plot::detail::min_v_span_for(100.0f, 100.0f),
+        "translation to a nonzero minimum must not erase the float span");
+    return true;
+}
+
+bool test_restoring_autoscale_cancels_vertical_zoom_inertia()
+{
+    plot::Plot_widget widget;
+    configure_view(widget, 0, 2'000'000'000, 0.0f, 100.0f);
+    test_interaction_item_t item;
+    item.setSize(QSizeF(1000.0, 500.0));
+    item.set_plot_widget(&widget);
+    TEST_ASSERT(item.handle_wheel(
+            500.0, 250.0, 0.0, -120.0, 0.0, 0.0, static_cast<int>(Qt::AltModifier)),
+        "vertical wheel zoom starts inertia");
+    TEST_ASSERT(!widget.v_auto(), "vertical wheel zoom enters manual scaling");
+
+    widget.set_v_auto(true);
+    QEventLoop loop;
+    QTimer::singleShot(80, &loop, &QEventLoop::quit);
+    loop.exec();
+    TEST_ASSERT(widget.v_auto(), "queued vertical zoom must not undo restored autoscaling");
+    TEST_ASSERT(widget.t_min() == 0 && widget.t_max() == 2'000'000'000,
+        "restoring value autoscaling preserves the time window");
+    TEST_ASSERT(item.handle_wheel(
+            500.0, 250.0, 0.0, 120.0, 0.0, 0.0, static_cast<int>(Qt::AltModifier)),
+        "another vertical wheel gesture remains available");
+    TEST_ASSERT(!widget.v_auto(), "a new vertical gesture can leave autoscaling again");
     return true;
 }
 
@@ -1285,6 +1351,8 @@ int main(int argc, char** argv)
     RUN_TEST(test_zoom_math_handles_zero_velocity);
     RUN_TEST(test_wheel_event_uses_platform_pixel_policy);
     RUN_TEST(test_wheel_zoom_handles_near_zero_value_range);
+    RUN_TEST(test_vertical_interaction_minimum_preserves_ranges);
+    RUN_TEST(test_restoring_autoscale_cancels_vertical_zoom_inertia);
     RUN_TEST(test_indicator_samples_linearly_interpolate_between_samples);
     RUN_TEST(test_indicator_samples_step_after_holds_previous_sample);
     RUN_TEST(test_indicator_reports_stack_sum_only_inside_common_domain);

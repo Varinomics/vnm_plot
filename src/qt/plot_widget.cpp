@@ -1213,6 +1213,16 @@ void Plot_widget::adjust_v_to_target(float target_vmin, float target_vmax)
     }
 
     {
+        std::shared_lock lock(m_config_mutex);
+        if (m_config.interaction_v_minimum && target_vmin < *m_config.interaction_v_minimum) {
+            target_vmax += *m_config.interaction_v_minimum - target_vmin;
+            target_vmin  = *m_config.interaction_v_minimum;
+            const float bounded_min_span = min_v_span_for(target_vmin, target_vmax);
+            target_vmax = std::max(target_vmax, target_vmin + bounded_min_span);
+        }
+    }
+
+    {
         std::unique_lock lock(m_data_cfg_mutex);
         m_data_cfg.v_manual_min = target_vmin;
         m_data_cfg.v_manual_max = target_vmax;

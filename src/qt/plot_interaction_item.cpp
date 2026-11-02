@@ -38,7 +38,16 @@ void Plot_interaction_item::set_plot_widget(Plot_widget* widget)
     if (m_plot_widget == widget) {
         return;
     }
+    QObject::disconnect(m_v_auto_connection);
     m_plot_widget = widget;
+    if (m_plot_widget) {
+        m_v_auto_connection = QObject::connect(
+            m_plot_widget, &Plot_widget::v_auto_changed, this, [this] {
+                if (m_plot_widget->v_auto()) {
+                    m_zoom_vel_v = 0.0;
+                }
+            });
+    }
     emit plot_widget_changed();
 }
 

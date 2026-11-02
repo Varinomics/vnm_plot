@@ -16,6 +16,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -197,6 +198,9 @@ struct Plot_config
     double                                     auto_v_range_extra_scale = 0.0;
     // When true, padding cannot pull a nonnegative auto-computed range below zero.
     bool                                       floor_nonnegative_auto_v_range_at_zero = false;
+
+    // Lower bound for value-axis pan/zoom; crossing ranges shift up without changing span.
+    std::optional<float>                        interaction_v_minimum;
 
     // --- LCD Rendering ---
     lcd_request_t                              lcd_request = lcd_auto_request();

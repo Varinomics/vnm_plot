@@ -3,6 +3,7 @@
 #include <vnm_plot/qt/plot_widget.h>
 
 #include <QBasicTimer>
+#include <QMetaObject>
 #include <QQuickItem>
 
 #include <chrono>
@@ -89,6 +90,7 @@ private:
     Plot_widget* time_target_widget() const;
 
     Plot_widget*           m_plot_widget = nullptr;
+    QMetaObject::Connection m_v_auto_connection;
     Plot_widget*           m_time_plot_widget = nullptr;
     bool                   m_interaction_enabled = true;
     bool                   m_pin_time_pivot_to_right = false;
