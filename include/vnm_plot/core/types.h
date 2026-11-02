@@ -938,13 +938,8 @@ struct data_config_t
     float          v_manual_min = 0.f;
     float          v_manual_max = 5.f;
 
-    // Timestamps are int64_t nanoseconds (API convention). The defaults
-    // describe a 10-second view starting at 0 ns; every Plot_widget user
-    // is expected to call set_view (or attach a configured Plot_time_axis)
-    // before the first paint, but if neither happens the widget renders a
-    // sane 10-second window instead of a 5-microsecond one. The previous
-    // 5000 / 10000 / 0 / 10000 literals were carried over from a pre-int64
-    // era when the unit was seconds and described a 10000-second view.
+    // Timestamps are int64_t nanoseconds. The default view and available
+    // range both span 10 seconds starting at 0 ns.
     std::int64_t   t_min           = 0;
     std::int64_t   t_max           = std::int64_t{10} * 1'000'000'000;
     std::int64_t   t_available_min = 0;

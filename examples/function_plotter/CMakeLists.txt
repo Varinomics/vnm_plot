@@ -102,7 +102,6 @@ qt_add_resources(function_plotter "function_plotter_icon_font"
     BASE   "${_function_plotter_icon_font_dir}"
     FILES  "${VNM_PLOT_ICON_FONT_FILE}"
 )
-unset(_function_plotter_icon_font_dir)
 
 if(VNM_PLOT_BUILD_TESTS)
     enable_testing()
@@ -125,6 +124,35 @@ if(VNM_PLOT_BUILD_TESTS)
     )
     add_test(NAME FunctionPlotterStacking COMMAND test_function_plotter_stacking)
 
+    add_executable(test_function_plotter_qml
+        test_function_plotter_qml.cpp
+        function_plotter.cpp
+        function_plotter.h
+        resources.qrc
+    )
+    target_link_libraries(test_function_plotter_qml PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Quick
+        Qt6::QuickControls2
+        Qt6::Multimedia
+        vnm_plot::qtquick
+        mexce_lib
+    )
+    target_include_directories(test_function_plotter_qml PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    qt_add_resources(test_function_plotter_qml "function_plotter_qml_icon_font"
+        PREFIX "/rc"
+        BASE   "${_function_plotter_icon_font_dir}"
+        FILES  "${VNM_PLOT_ICON_FONT_FILE}"
+    )
+    add_test(NAME FunctionPlotterQml COMMAND test_function_plotter_qml)
+    set_tests_properties(FunctionPlotterQml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
     get_target_property(_qt_qmake_executable Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(_qt_bin_dir "${_qt_qmake_executable}" DIRECTORY)
     find_program(QMLTESTRUNNER_EXECUTABLE qmltestrunner HINTS "${_qt_bin_dir}")
@@ -138,6 +166,7 @@ if(VNM_PLOT_BUILD_TESTS)
         )
     endif()
 endif()
+unset(_function_plotter_icon_font_dir)
 
 # windows.h ships min/max as macros; std::min / std::max in this TU expand
 # wrong without NOMINMAX, breaking the format_timestamp lambda's digit clamp.
@@ -145,6 +174,9 @@ if(WIN32)
     target_compile_definitions(function_plotter PRIVATE NOMINMAX)
     if(TARGET test_function_plotter_stacking)
         target_compile_definitions(test_function_plotter_stacking PRIVATE NOMINMAX)
+    endif()
+    if(TARGET test_function_plotter_qml)
+        target_compile_definitions(test_function_plotter_qml PRIVATE NOMINMAX)
     endif()
 endif()
 
