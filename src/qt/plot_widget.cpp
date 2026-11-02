@@ -104,6 +104,28 @@ std::optional<std::int64_t> indicator_ms_to_ns(double value_ms)
         fractional_ns);
 }
 
+// Preserve each path's subtraction precision: cumulative samples store floats,
+// while ordinary indicator values have already been promoted to double.
+template<typename Value>
+double interpolate_indicator_bracket(
+    std::int64_t         x,
+    std::int64_t         x0,
+    Value                y0,
+    std::int64_t         x1,
+    Value                y1,
+    Series_interpolation interpolation,
+    bool                 same_index)
+{
+    if (interpolation == Series_interpolation::STEP_AFTER) {
+        return !same_index && x >= x1 ? y1 : y0;
+    }
+    if (!same_index && x0 != x1) {
+        const double position = detail::normalized_time_position_ns(x0, x, x1);
+        return y0 + position * (y1 - y0);
+    }
+    return y0;
+}
+
 const char* stack_state_name(Stack_view_state state)
 {
     switch (state) {
@@ -135,12 +157,6 @@ Plot_widget::Plot_widget()
     : QQuickRhiItem()
 {
     detail::initialize_qml_resources();
-
-    m_relative_preview_height                     = 0.3f;
-    m_preview_height_min                          = 30.0;
-    m_preview_height_max                          = 150.0;
-    m_show_if_calculated_preview_height_below_min = false;
-    m_preview_height_steps                        = 2;
 
     m_preview_height_animation.setDuration(250);
     QObject::connect(&m_preview_height_animation, &QVariantAnimation::valueChanged,
@@ -1677,17 +1693,8 @@ QVariantList Plot_widget::get_samples_for_time(
             y = use_sample1 ? y1 : y0;
         }
         else {
-            if (series->interpolation == Series_interpolation::STEP_AFTER) {
-                if (bracket.i0 != bracket.i1 && x >= x1) {
-                    y = y1;
-                }
-            }
-            else {
-                if (bracket.i0 != bracket.i1 && x0 != x1) {
-                    const double t = detail::normalized_time_position_ns(x0, x, x1);
-                    y = y0 + t * (y1 - y0);
-                }
-            }
+            y = interpolate_indicator_bracket(
+                x, x0, y0, x1, y1, series->interpolation, bracket.i0 == bracket.i1);
         }
 
         double px = detail::normalized_time_position_ns(
@@ -2017,24 +2024,11 @@ std::optional<std::vector<std::pair<int, double>>> Plot_widget::rendered_stack_v
             return std::nullopt;
         }
 
-        double value = sample0->value;
-        if (revision.interpolation == Series_interpolation::STEP_AFTER) {
-            if (bracket.i0 != bracket.i1 && x_ns >= sample1->timestamp_ns) {
-                value = sample1->value;
-            }
-        }
-        else {
-            if (bracket.i0            != bracket.i1 &&
-                sample0->timestamp_ns != sample1->timestamp_ns)
-            {
-                const double position = detail::normalized_time_position_ns(
-                    sample0->timestamp_ns,
-                    x_ns,
-                    sample1->timestamp_ns);
-                value = sample0->value + position *
-                    (sample1->value - sample0->value);
-            }
-        }
+        const double value = interpolate_indicator_bracket(
+            x_ns,
+            sample0->timestamp_ns, sample0->value,
+            sample1->timestamp_ns, sample1->value,
+            revision.interpolation, bracket.i0 == bracket.i1);
         if (!std::isfinite(value)) {
             return std::nullopt;
         }
@@ -2203,9 +2197,7 @@ void Plot_widget::timerEvent(QTimerEvent* ev)
         constexpr double k_vbar_anim_duration_ms = 200.0;
 
         const double elapsed_ms = static_cast<double>(m_vbar_width_anim_elapsed.elapsed());
-        double t = (k_vbar_anim_duration_ms > 0.0)
-            ? (elapsed_ms / k_vbar_anim_duration_ms)
-            : 1.0;
+        double t = elapsed_ms / k_vbar_anim_duration_ms;
         if (t >= 1.0) {
             t = 1.0;
         }

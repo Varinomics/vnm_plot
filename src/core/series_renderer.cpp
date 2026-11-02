@@ -120,6 +120,41 @@ glm::vec4 builtin_draw_color(
     return color;
 }
 
+series_view_uniform_std140_t make_series_view_uniform(
+    const frame_context_t& frame,
+    const sample_window_t& window,
+    const glm::vec4&       draw_color)
+{
+    series_view_uniform_std140_t uniform{};
+    std::memcpy(uniform.pmv, glm::value_ptr(frame.pmv), sizeof(float) * 16);
+
+    uniform.color[0] = draw_color.r;
+    uniform.color[1] = draw_color.g;
+    uniform.color[2] = draw_color.b;
+    uniform.color[3] = draw_color.a;
+
+    uniform.t_min    = detail::to_view_seconds(window.t_min_ns, window.t_origin_ns);
+    uniform.t_max    = detail::to_view_seconds(window.t_max_ns, window.t_origin_ns);
+    uniform.v_min    = window.v_min;
+    uniform.v_max    = window.v_max;
+    uniform.width    = window.width_px;
+    uniform.height   = window.height_px;
+    uniform.y_offset = window.y_offset_px;
+    uniform.win_h    = static_cast<float>(frame.win_h);
+    uniform.framebuffer_y_up =
+        (frame.rhi && frame.rhi->isYUpInFramebuffer()) ? 1 : 0;
+    return uniform;
+}
+
+void record_gpu_buffer_allocation(Profiler* profiler, std::size_t bytes)
+{
+    if (profiler) {
+        profiler->record_observation(
+            "renderer.frame.gpu_buffer_allocation_bytes", static_cast<double>(bytes));
+        profiler->record_counter("renderer.frame.gpu_buffer_allocation_count");
+    }
+}
+
 bool line_window_sample_count(
     std::size_t            source_count,
     Series_interpolation   interpolation,
@@ -259,27 +294,9 @@ series_view_uniform_std140_t make_series_view_uniform(
     const series_data_t&   series,
     const sample_window_t& window)
 {
-    series_view_uniform_std140_t uniform{};
-    std::memcpy(uniform.pmv, glm::value_ptr(frame.pmv), sizeof(float) * 16);
-
     glm::vec4 draw_color = series.color;
-    draw_color.w     *= window.window_alpha;
-    uniform.color[0]  = draw_color.r;
-    uniform.color[1]  = draw_color.g;
-    uniform.color[2]  = draw_color.b;
-    uniform.color[3]  = draw_color.a;
-
-    uniform.t_min    = detail::to_view_seconds(window.t_min_ns, window.t_origin_ns);
-    uniform.t_max    = detail::to_view_seconds(window.t_max_ns, window.t_origin_ns);
-    uniform.v_min    = window.v_min;
-    uniform.v_max    = window.v_max;
-    uniform.width    = window.width_px;
-    uniform.height   = window.height_px;
-    uniform.y_offset = window.y_offset_px;
-    uniform.win_h    = static_cast<float>(frame.win_h);
-    uniform.framebuffer_y_up =
-        (frame.rhi && frame.rhi->isYUpInFramebuffer()) ? 1 : 0;
-    return uniform;
+    draw_color.w *= window.window_alpha;
+    return make_series_view_uniform(frame, window, draw_color);
 }
 
 // Per-view RHI resources held off-line so the public header forward-declares
@@ -1462,12 +1479,7 @@ void Series_renderer::prepare(
                 state.buffer.reset();
                 return nullptr;
             }
-            if (profiler) {
-                profiler->record_observation(
-                    "renderer.frame.gpu_buffer_allocation_bytes",
-                    static_cast<double>(sizeof(series_view_uniform_std140_t)));
-                profiler->record_counter("renderer.frame.gpu_buffer_allocation_count");
-            }
+            record_gpu_buffer_allocation(profiler, sizeof(series_view_uniform_std140_t));
         }
 
         rhi_updates->updateDynamicBuffer(
@@ -2303,13 +2315,8 @@ bool Series_renderer::rhi_prepare_series_view_samples(
 #if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
                     ++view_state.last_vbo_generation;
 #endif
-                    if (ctx.config && ctx.config->profiler) {
-                        ctx.config->profiler->record_observation(
-                            "renderer.frame.gpu_buffer_allocation_bytes",
-                            static_cast<double>(alloc_bytes));
-                        ctx.config->profiler->record_counter(
-                            "renderer.frame.gpu_buffer_allocation_count");
-                    }
+                    record_gpu_buffer_allocation(
+                        ctx.config ? ctx.config->profiler.get() : nullptr, alloc_bytes);
                 }
                 else {
                     view_state.rhi->vbo.reset();
@@ -2421,13 +2428,8 @@ bool Series_renderer::rhi_prepare_series_primitive(
             // captures the new pointer.
             entry.srb.reset();
             entry.last_ubo = nullptr;
-            if (ctx.config && ctx.config->profiler) {
-                ctx.config->profiler->record_observation(
-                    "renderer.frame.gpu_buffer_allocation_bytes",
-                    static_cast<double>(k_series_ubo_bytes));
-                ctx.config->profiler->record_counter(
-                    "renderer.frame.gpu_buffer_allocation_count");
-            }
+            record_gpu_buffer_allocation(
+                ctx.config ? ctx.config->profiler.get() : nullptr, k_series_ubo_bytes);
         }
         return true;
     };
@@ -2505,13 +2507,8 @@ bool Series_renderer::rhi_prepare_series_primitive(
             if (view_state.rhi->line_window_vbo && view_state.rhi->line_window_vbo->create())
             {
                 view_state.rhi_line_window_vbo_capacity_bytes = alloc_bytes;
-                if (ctx.config && ctx.config->profiler) {
-                    ctx.config->profiler->record_observation(
-                        "renderer.frame.gpu_buffer_allocation_bytes",
-                        static_cast<double>(alloc_bytes));
-                    ctx.config->profiler->record_counter(
-                        "renderer.frame.gpu_buffer_allocation_count");
-                }
+                record_gpu_buffer_allocation(
+                    ctx.config ? ctx.config->profiler.get() : nullptr, alloc_bytes);
             }
             else {
                 view_state.rhi->line_window_vbo.reset();
@@ -2746,37 +2743,26 @@ bool Series_renderer::rhi_prepare_series_primitive(
         return false;
     }
 
-    series_view_uniform_std140_t view_block{};
-    std::memcpy(view_block.pmv, glm::value_ptr(ctx.pmv), sizeof(float) * 16);
-
-    view_block.color[0] = draw_color.r;
-    view_block.color[1] = draw_color.g;
-    view_block.color[2] = draw_color.b;
-    view_block.color[3] = draw_color.a;
-
-    view_block.t_min    = detail::to_view_seconds(
-        window.t_min_ns, window.t_origin_ns);
-    view_block.t_max    = detail::to_view_seconds(
-        window.t_max_ns, window.t_origin_ns);
-    view_block.v_min    = window.v_min;
-    view_block.v_max    = window.v_max;
-    view_block.y_offset = window.y_offset_px;
-    view_block.width    = window.width_px;
-    view_block.height   = window.height_px;
-    view_block.win_h    = static_cast<float>(ctx.win_h);
-    view_block.framebuffer_y_up =
-        (ctx.rhi && ctx.rhi->isYUpInFramebuffer()) ? 1 : 0;
+    const auto view_block = make_series_view_uniform(ctx, window, draw_color);
+    const auto upload_uniform = [
+            updates,
+            &view_state
+        ](
+            QRhiBuffer* buffer,
+            const auto& block)
+        {
+            if (updates) {
+                updates->updateDynamicBuffer(buffer, 0, sizeof(block), &block);
+                view_state.last_uniform_upload_bytes += sizeof(block);
+                ++view_state.last_uniform_upload_count;
+            }
+        };
 
     if (is_dots) {
         Dot_block_std140 block{};
         block.view              = view_block;
         block.point_diameter_px = point_diameter_px;
-        if (updates) {
-            updates->updateDynamicBuffer(
-                primary_srb_entry.ubo.get(), 0, sizeof(block), &block);
-            view_state.last_uniform_upload_bytes += sizeof(block);
-            ++view_state.last_uniform_upload_count;
-        }
+        upload_uniform(primary_srb_entry.ubo.get(), block);
     }
     else
     if (is_area) {
@@ -2786,13 +2772,7 @@ bool Series_renderer::rhi_prepare_series_primitive(
             window.interpolation == Series_interpolation::STEP_AFTER ? 1 : 0;
         block.stacked = window.stacked ? 1 : 0;
 
-        if (updates) {
-            updates->updateDynamicBuffer(
-                view_state.rhi->area_fill_srb.ubo.get(), 0,
-                sizeof(block), &block);
-            view_state.last_uniform_upload_bytes += sizeof(block);
-            ++view_state.last_uniform_upload_count;
-        }
+        upload_uniform(view_state.rhi->area_fill_srb.ubo.get(), block);
     }
     else {
         Line_block_std140 block{};
@@ -2800,12 +2780,7 @@ bool Series_renderer::rhi_prepare_series_primitive(
         block.line_px        = line_width_px;
         block.snap_to_pixels = (ctx.config && ctx.config->snap_lines_to_pixels)
             ? 1 : 0;
-        if (updates) {
-            updates->updateDynamicBuffer(
-                primary_srb_entry.ubo.get(), 0, sizeof(block), &block);
-            view_state.last_uniform_upload_bytes += sizeof(block);
-            ++view_state.last_uniform_upload_count;
-        }
+        upload_uniform(primary_srb_entry.ubo.get(), block);
     }
 #if defined(VNM_PLOT_ENABLE_TEST_HOOKS)
     ++view_state.last_primitive_prepare_count;

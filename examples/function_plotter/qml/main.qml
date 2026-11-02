@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import FunctionPlotter 1.0
+import VnmPlot 1.0 as VnmPlotLib
 import "." as Local
 
 ApplicationWindow {
@@ -570,10 +571,11 @@ ApplicationWindow {
             border.width: 1
             radius: 4
 
-            Local.PlotView {
+            VnmPlotLib.PlotView {
                 id: plotView
                 anchors.fill: parent
                 anchors.margins: 8
+                dark_mode: true
 
                 Component.onCompleted: {
                     functionPlotter.plot_widget = plotView.plot_widget

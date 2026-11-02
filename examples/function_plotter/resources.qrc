@@ -2,7 +2,6 @@
 <RCC version="1.0">
     <qresource prefix="/">
         <file>qml/main.qml</file>
-        <file>qml/PlotView.qml</file>
         <file>qml/StyleToggleButton.qml</file>
         <file>qml/ValidatingSpinBox.qml</file>
         <file alias="rc/varinomics.ico">varinomics.ico</file>
