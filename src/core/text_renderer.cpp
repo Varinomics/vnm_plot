@@ -355,6 +355,9 @@ bool Text_renderer::render_info_overlay(
         }
     };
 
+    if (pl.horizontal_tick_mode == Horizontal_tick_mode::INVALID) {
+        m_horizontal_fade = {};
+    }
     const bool any_active = detail::update_and_draw_faded_labels(
         pl.h_labels,
         m_horizontal_fade,
@@ -363,7 +366,7 @@ bool Text_renderer::render_info_overlay(
         std::chrono::steady_clock::now(),
         [](const h_label_t& label) { return label.value; },
         draw_label,
-        true,
+        pl.horizontal_tick_mode == Horizontal_tick_mode::REGULAR,
         !ctx.config || ctx.config->horizontal_axis_left_to_right);
 
     const bool show_value_range =

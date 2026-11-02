@@ -1,5 +1,6 @@
 #include <vnm_plot/rhi/chrome_renderer.h>
 #include "grid_helpers.h"
+#include "horizontal_grid.h"
 #include <vnm_plot/rhi/primitive_renderer.h>
 #include <vnm_plot/rhi/text_renderer.h>
 #include <vnm_plot/core/color_palette.h>
@@ -15,6 +16,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
+#include <vector>
 
 namespace vnm::plot {
 using detail::get_shift;
@@ -42,6 +45,32 @@ glm::vec2 to_gl_origin(
 {
     const float win_h = static_cast<float>(ctx.win_h);
     return {top_left.x, win_h - (top_left.y + size.y)};
+}
+
+void draw_horizontal_grid(
+    const frame_context_t&                            ctx,
+    Primitive_renderer&                               prims,
+    const glm::vec2&                                  origin,
+    const glm::vec2&                                  size,
+    const glm::vec4&                                  color,
+    const grid_layer_params_t&                        value_levels,
+    const std::vector<detail::horizontal_grid_line_t>& lines,
+    lcd_subpixel_order_t                              order,
+    const glm::vec4&                                  background)
+{
+    const auto strips = detail::build_horizontal_grid_strips(
+        lines, size.x, order != lcd_subpixel_order_t::NONE);
+    for (const auto& strip : strips) {
+        prims.draw_grid_shader(
+            ctx,
+            origin + glm::vec2((float)strip.left_px, 0.0f),
+            glm::vec2((float)strip.width_px, size.y),
+            color,
+            value_levels,
+            strip.levels,
+            order,
+            background);
+    }
 }
 
 } // anonymous namespace
@@ -150,12 +179,17 @@ void Chrome_renderer::render_grid_and_backgrounds(
     const double     t0_seconds                = static_cast<double>(ctx.t0) * k_seconds_per_ns;
     const double     t1_seconds                = static_cast<double>(ctx.t1) * k_seconds_per_ns;
     bool             dropped_non_multiple_step = false;
-    const grid_layer_params_t horizontal_levels = build_time_grid_layers(
-        t0_seconds,
-        t1_seconds,
-        pl.usable_width,
-        ctx.adjusted_font_px,
-        &dropped_non_multiple_step);
+    const bool explicit_horizontal_ticks =
+        pl.horizontal_tick_mode != Horizontal_tick_mode::REGULAR;
+    grid_layer_params_t horizontal_levels;
+    if (!explicit_horizontal_ticks) {
+        horizontal_levels = build_time_grid_layers(
+            t0_seconds,
+            t1_seconds,
+            pl.usable_width,
+            ctx.adjusted_font_px,
+            &dropped_non_multiple_step);
+    }
     if (dropped_non_multiple_step && ctx.config && ctx.config->log_debug_info) {
         ctx.config->log_debug_info(
             "vnm_plot: dropping non-multiple time grid step; adjust "
@@ -164,7 +198,7 @@ void Chrome_renderer::render_grid_and_backgrounds(
 
     const grid_layer_params_t vertical_levels_gl = flip_grid_levels_y(vertical_levels, main_size.y);
 
-    if (grid_visibility > 0.0) {
+    if (grid_visibility > 0.0 && !explicit_horizontal_ticks) {
         prims.draw_grid_shader(
             ctx,
             main_origin,
@@ -229,7 +263,21 @@ void Chrome_renderer::render_grid_and_backgrounds(
 
     grid_layer_params_t empty_levels;
     grid_layer_params_t vertical_tick_levels;
-    grid_layer_params_t horizontal_tick_levels;
+    std::vector<detail::horizontal_grid_line_t> horizontal_tick_lines;
+    const auto append_horizontal_tick = [&](float position, float alpha) {
+        const float visible_alpha = std::clamp(alpha, 0.0f, 1.0f);
+        if (!(visible_alpha > 0.0f)) {
+            return;
+        }
+        const auto properties = explicit_horizontal_ticks
+            ? std::pair<float, float>{k_grid_line_alpha_base, 1.2f}
+            : match_level_properties(position, horizontal_levels);
+        horizontal_tick_lines.push_back({
+            position,
+            properties.first * visible_alpha,
+            properties.second
+        });
+    };
     if (prepared_text) {
         const double v_span = double(ctx.v1) - double(ctx.v0);
         if (v_span > 0.0) {
@@ -248,14 +296,11 @@ void Chrome_renderer::render_grid_and_backgrounds(
         if (t_span) {
             const long double px_per_unit =
                 static_cast<long double>(pl.usable_width) / *t_span;
-            horizontal_tick_levels = build_tick_levels(
-                [&](const auto& entry) {
-                    return static_cast<float>(
-                        span_ns_as_long_double(ctx.t0, entry.first) * px_per_unit);
-                },
-                [](const auto& entry) { return entry.second; },
-                prepared_text->m_horizontal_fade.visible_alphas,
-                horizontal_levels);
+            for (const auto& entry : prepared_text->m_horizontal_fade.visible_alphas) {
+                append_horizontal_tick(
+                    (float)(span_ns_as_long_double(ctx.t0, entry.first) * px_per_unit),
+                    entry.second);
+            }
         }
     }
     else {
@@ -264,13 +309,24 @@ void Chrome_renderer::render_grid_and_backgrounds(
             [](const v_label_t&) { return 1.0f; },
             pl.v_labels,
             vertical_levels);
-        horizontal_tick_levels = build_tick_levels(
-            [](const h_label_t& label) { return label.position.x; },
-            [](const h_label_t&) { return 1.0f; },
-            pl.h_labels,
-            horizontal_levels);
+        for (const auto& label : pl.h_labels) {
+            append_horizontal_tick(label.position.x, 1.0f);
+        }
     }
     const grid_layer_params_t vertical_tick_levels_gl = flip_grid_levels_y(vertical_tick_levels, main_size.y);
+
+    if (grid_visibility > 0.0 && explicit_horizontal_ticks) {
+        draw_horizontal_grid(
+            ctx,
+            prims,
+            main_origin,
+            main_size,
+            grid_rgb,
+            vertical_levels_gl,
+            horizontal_tick_lines,
+            grid_order,
+            ctx.plot_body_background);
+    }
 
     if (grid_visibility > 0.0 && pl.v_bar_width > 0.5 && vertical_tick_levels_gl.count > 0) {
         const glm::vec2 top_left{float(pl.usable_width), 0.0f};
@@ -287,21 +343,23 @@ void Chrome_renderer::render_grid_and_backgrounds(
             v_label_color);
     }
 
-    if (grid_visibility > 0.0 && ctx.base_label_height_px > 0.5 && horizontal_tick_levels.count > 0) {
+    if (grid_visibility > 0.0 && ctx.base_label_height_px > 0.5 && !horizontal_tick_lines.empty()) {
         const glm::vec2 top_left{0.0f, float(pl.usable_height)};
-        const glm::vec2 size{float(pl.usable_width), float(ctx.base_label_height_px)};
+        const float width = explicit_horizontal_ticks ? (float)ctx.win_w : (float)pl.usable_width;
+        const glm::vec2 size{width, (float)ctx.base_label_height_px};
         const glm::vec2 origin = to_gl_origin(ctx, top_left, size);
         const lcd_subpixel_order_t gutter_order = detail::grid_lcd_subpixel_order(
             frame_order,
             h_label_color.a,
             has_h_label_pane && grid_order != lcd_subpixel_order_t::NONE);
-        prims.draw_grid_shader(
+        draw_horizontal_grid(
             ctx,
+            prims,
             origin,
             size,
             tick_rgb,
             empty_levels,
-            horizontal_tick_levels,
+            horizontal_tick_lines,
             gutter_order,
             h_label_color);
     }

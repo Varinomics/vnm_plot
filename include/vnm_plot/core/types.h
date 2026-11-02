@@ -1074,6 +1074,37 @@ struct series_data_t
 // -----------------------------------------------------------------------------
 // Grid and Layout Types
 // -----------------------------------------------------------------------------
+struct Horizontal_tick
+{
+    std::int64_t timestamp_ns = 0;
+    std::string  text;
+};
+
+struct Horizontal_tick_context
+{
+    std::int64_t t_min_ns             = 0;
+    std::int64_t t_max_ns             = 0;
+    double       usable_width_px      = 0.0;
+    double       label_right_limit_px = 0.0;
+    float        min_label_gap_px     = 0.0f;
+    float        text_margin_px       = 0.0f;
+
+    // Borrows the current layout's font metrics; do not retain this callable.
+    // Zero for nonempty text means no usable metrics are available.
+    std::function<float(const std::string&)> measure_label_width;
+};
+
+// nullopt selects regular ticks; a present empty vector suppresses time ticks.
+using horizontal_tick_provider_t = std::function<
+    std::optional<std::vector<Horizontal_tick>>(const Horizontal_tick_context&)>;
+
+enum class Horizontal_tick_mode
+{
+    REGULAR,
+    EXPLICIT,
+    INVALID,
+};
+
 struct grid_layer_params_t
 {
     static constexpr int   k_max_levels               = 32;
@@ -1113,7 +1144,8 @@ struct frame_layout_result_t
     std::vector<v_label_t> v_labels;
 
     int                    v_label_fixed_digits = 0;
-    bool                   h_labels_subsecond = false;
+    bool                   h_labels_subsecond   = false;
+    Horizontal_tick_mode   horizontal_tick_mode = Horizontal_tick_mode::REGULAR;
 
 };
 

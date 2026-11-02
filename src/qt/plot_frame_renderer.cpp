@@ -117,6 +117,7 @@ Layout_calculator::parameters_t build_layout_params(
         return default_format_timestamp(ts_ns, step_ns);
     };
     params.format_timestamp_revision     = config.format_timestamp_revision;
+    params.horizontal_ticks              = config.horizontal_ticks;
     params.horizontal_axis_left_to_right = config.horizontal_axis_left_to_right;
     params.format_value_func             = [config_ptr](
         double                         value,
@@ -144,6 +145,7 @@ struct Plot_frame_renderer::impl_t
     Layout_cache                   layout_cache;
     detail::Frame_range_planner    frame_range_planner;
     double                         last_vbar_width_pixels = detail::k_vbar_min_width_px_d;
+    std::optional<std::uint64_t>    invalid_horizontal_ticks_reported_revision;
 #if defined(VNM_PLOT_ENABLE_TEXT)
     std::unique_ptr<Font_renderer> fonts;
     std::unique_ptr<Text_renderer> text;
@@ -356,13 +358,22 @@ Plot_frame_result Plot_frame_renderer::render(
             cached_layout.v_labels = std::move(layout_result.v_labels);
             cached_layout.h_labels = std::move(layout_result.h_labels);
             cached_layout.v_label_fixed_digits = layout_result.v_label_fixed_digits;
-            cached_layout.h_labels_subsecond = layout_result.h_labels_subsecond;
+            cached_layout.h_labels_subsecond   = layout_result.h_labels_subsecond;
+            cached_layout.horizontal_tick_mode = layout_result.horizontal_tick_mode;
             layout_ptr = &m_impl->layout_cache.store(make_cache_key(vbar_width), std::move(cached_layout));
         }
     }
 
     vbar_width = layout_ptr->v_bar_width;
     m_impl->last_vbar_width_pixels = vbar_width;
+    if (layout_ptr->horizontal_tick_mode == Horizontal_tick_mode::INVALID &&
+        m_impl->invalid_horizontal_ticks_reported_revision != snapshot.config_revision &&
+        config.log_debug_info)
+    {
+        config.log_debug_info(
+            "vnm_plot: horizontal tick provider returned unordered or duplicate timestamps.");
+        m_impl->invalid_horizontal_ticks_reported_revision = snapshot.config_revision;
+    }
 
     frame_context_t ctx{*layout_ptr};
     ctx.v0         = v_min;

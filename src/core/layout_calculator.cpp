@@ -28,6 +28,118 @@ using detail::trim_trailing_zero_decimals;
 
 namespace {
 
+float horizontal_label_width(
+    const Layout_calculator::parameters_t& params,
+    const std::string&                     text)
+{
+    const float advance = std::isfinite(params.monospace_char_advance_px)
+        ? std::max(params.monospace_char_advance_px, 0.0f)
+        : 0.0f;
+    const float fallback = advance * (float)text.size();
+    if (params.monospace_advance_is_reliable && advance > 0.0f) {
+        return std::isfinite(fallback) ? fallback : 0.0f;
+    }
+    if (params.measure_text_func) {
+        const float measured = params.measure_text_func(text.c_str());
+        if (std::isfinite(measured) && measured > 0.0f) {
+            return measured;
+        }
+    }
+    return std::isfinite(fallback) ? fallback : 0.0f;
+}
+
+bool calculate_explicit_horizontal_labels(
+    const Layout_calculator::parameters_t& params,
+    Layout_calculator::result_t&           result)
+{
+    const auto span = positive_span_ns_as_long_double(params.t_min, params.t_max);
+    if (!params.horizontal_ticks || !span || !(params.usable_width > 0.0)) {
+        return false;
+    }
+
+    constexpr float k_min_gap = 10.0f;
+    Horizontal_tick_context context;
+    context.t_min_ns             = params.t_min;
+    context.t_max_ns             = params.t_max;
+    context.usable_width_px      = params.usable_width;
+    context.label_right_limit_px = params.usable_width + params.vbar_width;
+    context.min_label_gap_px     = k_min_gap;
+    context.text_margin_px       = k_text_margin_px;
+    context.measure_label_width = [&params](const std::string& text) {
+        return horizontal_label_width(params, text);
+    };
+
+    auto ticks = params.horizontal_ticks(context);
+    if (!ticks) {
+        return false;
+    }
+    result.horizontal_tick_mode = Horizontal_tick_mode::EXPLICIT;
+    for (std::size_t i = 1; i < ticks->size(); ++i) {
+        if ((*ticks)[i - 1].timestamp_ns >= (*ticks)[i].timestamp_ns) {
+            result.horizontal_tick_mode = Horizontal_tick_mode::INVALID;
+            return true;
+        }
+    }
+
+    const long double pixels_per_ns = (long double)params.usable_width / *span;
+    long double previous_right = std::numeric_limits<long double>::lowest();
+    long double next_left      = std::numeric_limits<long double>::max();
+    const auto accept_tick = [
+            &params,
+            &context,
+            &result,
+            &previous_right,
+            &next_left,
+            pixels_per_ns
+        ](Horizontal_tick& tick)
+        {
+            if (tick.text.empty()) {
+                return;
+            }
+            const long double x =
+                span_ns_as_long_double(params.t_min, tick.timestamp_ns) * pixels_per_ns;
+            const float width = context.measure_label_width(tick.text);
+            if (x >= context.label_right_limit_px ||
+                x + context.text_margin_px + width <= 0.0L)
+            {
+                return;
+            }
+            if (params.horizontal_axis_left_to_right) {
+                if (x < previous_right + context.min_label_gap_px) {
+                    return;
+                }
+                previous_right = x + width;
+            }
+            else {
+                if (x + width + context.min_label_gap_px > next_left) {
+                    return;
+                }
+                next_left = x;
+            }
+            result.h_labels.push_back({
+                tick.timestamp_ns,
+                glm::vec2(
+                    (float)x,
+                    (float)(params.usable_height + params.h_label_vertical_nudge_factor *
+                        params.adjusted_font_size_in_pixels)),
+                std::move(tick.text)
+            });
+        };
+
+    if (params.horizontal_axis_left_to_right) {
+        for (auto& tick : *ticks) {
+            accept_tick(tick);
+        }
+    }
+    else {
+        for (auto it = ticks->rbegin(); it != ticks->rend(); ++it) {
+            accept_tick(*it);
+        }
+        std::reverse(result.h_labels.begin(), result.h_labels.end());
+    }
+    return true;
+}
+
 int fixed_digits_for_step(double step)
 {
     if (!(step > 0.0) || !std::isfinite(step)) {
@@ -593,6 +705,10 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
         }
     }
 
+    if (calculate_explicit_horizontal_labels(params, res)) {
+        return res;
+    }
+
     // --- Horizontal (T) Axis Label Selection ---
     // Keep absolute ticks in integer nanoseconds. Floating point is used only
     // for the step ladder and differences mapped to screen coordinates.
@@ -861,22 +977,12 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                             label = label_text(t, step);
                         }
 
-                        if (use_monospace) {
-                            w = advance * float(label.size());
-                        }
-                        else
-                        if (params.measure_text_func) {
+                        {
                             VNM_PLOT_PROFILE_SCOPE(
                                 profiler,
                                 "renderer.frame.calculate_layout.impl.cache_miss.pass1.horizontal_axis."
                                 "format_labels.measure_text");
-                            w = params.measure_text_func(label.c_str());
-                            if (w <= 0.f && advance > 0.f) {
-                                w = advance * float(label.size());
-                            }
-                        }
-                        else {
-                            w = advance * float(label.size());
+                            w = horizontal_label_width(params, label);
                         }
 
                         timestamp_label_cache().store(t, std::move(label), w);
@@ -1087,10 +1193,7 @@ Layout_calculator::result_t Layout_calculator::calculate(const parameters_t& par
                     continue;
                 }
 
-                float w = 0.f;
-                if (use_monospace && advance > 0.f) { w = advance * float(it->text.size());           } else
-                if (params.measure_text_func)       { w = params.measure_text_func(it->text.c_str()); } else
-                if (advance > 0.f)                  { w = advance * float(it->text.size()); }
+                const float w = horizontal_label_width(params, it->text);
 
                 if (it->position.x >= prev_right + min_gap) {
                     prev_right = it->position.x + w;

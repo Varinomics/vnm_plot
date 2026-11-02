@@ -26,6 +26,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -455,6 +456,69 @@ bool test_destroy_before_renderer_only_frame_cancels_feedback_delivery(
     return true;
 }
 
+bool test_horizontal_tick_provider_replacement_invalidates_frame_layout(
+    bool& unsupported_configuration)
+{
+    const QSize size(480, 320);
+    QQuickRenderControl control;
+    QQuickWindow window(&control);
+    offscreen_render_target_t render_target;
+    window.setGeometry(0, 0, size.width(), size.height());
+    window.contentItem()->setSize(QSizeF(size));
+    if (!control.initialize() || !control.rhi()) {
+        unsupported_configuration = true;
+        return false;
+    }
+    TEST_ASSERT(render_target.create(*control.rhi(), size),
+        "tick cache fixture needs the production offscreen frame path");
+    window.setRenderTarget(render_target.quick_render_target());
+
+    auto widget = std::make_unique<test_widget_t>();
+    configure_static_widget(*widget, window);
+    int provider_calls  = 0;
+    int formatter_calls = 0;
+    auto config = widget->config();
+    config.show_text = false;
+    config.format_timestamp = [&formatter_calls](std::int64_t, std::int64_t) {
+        ++formatter_calls;
+        return std::string("ordinary");
+    };
+    config.horizontal_ticks = [&provider_calls](const plot::Horizontal_tick_context&) {
+        ++provider_calls;
+        return std::vector<plot::Horizontal_tick>{{2000, "explicit"}};
+    };
+    widget->set_config(config);
+    const auto render_frame = [&] {
+        widget->update();
+        control.polishItems();
+        control.beginFrame();
+        const bool synchronized = control.sync();
+        control.render();
+        control.endFrame();
+        QCoreApplication::sendPostedEvents(widget.get(), QEvent::MetaCall);
+        return synchronized;
+    };
+    TEST_ASSERT(render_frame() && render_frame(), "initial explicit layout must render and settle");
+    const int settled_calls = provider_calls;
+    TEST_ASSERT(settled_calls > 0 && formatter_calls == 0,
+        "the actual frame adapter must pass the provider and bypass ordinary time formatting");
+    TEST_ASSERT(render_frame() && provider_calls == settled_calls,
+        "an unchanged frame must reuse its cached explicit layout");
+
+    config.horizontal_ticks = [&provider_calls](const plot::Horizontal_tick_context&) {
+        ++provider_calls;
+        return std::vector<plot::Horizontal_tick>{};
+    };
+    widget->set_config(config);
+    TEST_ASSERT(render_frame() && provider_calls > settled_calls && formatter_calls == 0,
+        "set_config must invalidate the frame cache even when the replacement returns empty ticks");
+    config.horizontal_ticks = {};
+    widget->set_config(config);
+    TEST_ASSERT(render_frame() && formatter_calls > 0,
+        "removing the provider through set_config must restore ordinary layout calculation");
+    return true;
+}
+
 bool test_area_hover_rejects_delayed_feedback_after_exit_and_view_changes(
     bool& unsupported_configuration)
 {
@@ -616,6 +680,7 @@ int main(int argc, char** argv)
     RUN_RHI_DEPENDENT_TEST(test_static_first_frame_delivers_feedback);
     RUN_RHI_DEPENDENT_TEST(test_destroy_before_renderer_only_frame_cancels_feedback_delivery);
     RUN_RHI_DEPENDENT_TEST(test_area_hover_rejects_delayed_feedback_after_exit_and_view_changes);
+    RUN_RHI_DEPENDENT_TEST(test_horizontal_tick_provider_replacement_invalidates_frame_layout);
 
     std::cout
         << "Results: "

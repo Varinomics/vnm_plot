@@ -11,8 +11,11 @@
 #include <vnm_plot/core/types.h>
 #include <vnm_plot/rhi/text_renderer.h>
 #include "../src/core/label_fade_tracker.h"
+#include "../src/core/horizontal_grid.h"
 #include "../src/core/lcd_policy.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -1392,6 +1395,136 @@ bool test_grid_lcd_order_selection()
     return true;
 }
 
+// Oracle: grid_quad.frag's line_mask and filtered_lcd_coverage equations,
+// evaluated over the complete input list rather than the bounded draw arrays.
+float reference_grid_sample(
+    float coordinate,
+    float center,
+    float start,
+    float spacing,
+    float thickness,
+    float alpha,
+    bool  lcd)
+{
+    const auto distance = [start, spacing](float position) {
+        const float delta = position - start;
+        const float wrapped = delta - spacing * std::floor(delta / spacing);
+        return std::min(wrapped, spacing - wrapped);
+    };
+    const float half = thickness * 0.1f;
+    if (lcd && distance(center) >= half + 2.0f) {
+        return 0.0f;
+    }
+    const float t = std::clamp(distance(coordinate) - half, 0.0f, 1.0f);
+    return (1.0f - t * t * (3.0f - 2.0f * t)) * alpha;
+}
+
+bool check_horizontal_grid_samples(
+    const std::vector<plot::detail::horizontal_grid_line_t>& lines,
+    int                                                    width,
+    bool                                                   lcd,
+    bool                                                   expect_overflow)
+{
+    const auto strips = plot::detail::build_horizontal_grid_strips(lines, (float)width, lcd);
+    constexpr std::array<float, 7> k_sample_offsets = {
+        0.0f, -1.0f, -2.0f / 3.0f, -1.0f / 3.0f,
+        1.0f / 3.0f, 2.0f / 3.0f, 1.0f,
+    };
+    int next_column = 0;
+    bool saw_overflow_column = false;
+    for (const auto& strip : strips) {
+        TEST_ASSERT(strip.left_px == next_column && strip.width_px > 0 &&
+            strip.levels.count <= plot::grid_layer_params_t::k_max_levels,
+            "strips must cover each pixel once within the shader array capacity");
+        saw_overflow_column |= strip.width_px == 1;
+        for (int column = 0; column < strip.width_px; ++column) {
+            const float center = (float)column + 0.5f;
+            for (std::size_t sample = 0; sample < (lcd ? k_sample_offsets.size() : 1); ++sample) {
+                const float coordinate = center + k_sample_offsets[sample];
+                float expected = 0.0f;
+                for (const auto& line : lines) {
+                    expected = std::max(expected, reference_grid_sample(
+                        coordinate, center, line.position_px - (float)strip.left_px,
+                        1.0e6f, line.thickness_px, line.alpha, lcd));
+                }
+                float actual = 0.0f;
+                for (int i = 0; i < strip.levels.count; ++i) {
+                    actual = std::max(actual, reference_grid_sample(
+                        coordinate, center, strip.levels.start_px[i], strip.levels.spacing_px[i],
+                        strip.levels.thickness_px[i], strip.levels.alpha[i], lcd));
+                }
+                TEST_ASSERT(std::abs(actual - expected) <= 1.0e-6f,
+                    "bounded strips must preserve every full-list shader sample maximum");
+            }
+        }
+        next_column += strip.width_px;
+    }
+    TEST_ASSERT(next_column == width && (!expect_overflow || saw_overflow_column),
+        "conformance must cover the complete region and exercise dense-column overflow");
+    return true;
+}
+
+bool test_horizontal_grid_preserves_more_than_32_ticks_and_dense_lcd_samples()
+{
+    std::vector<plot::detail::horizontal_grid_line_t> ordinary;
+    for (int i = 0; i < 96; ++i) {
+        ordinary.push_back({(float)i * 20.25f, 0.75f, 1.2f});
+    }
+    std::vector<plot::detail::horizontal_grid_line_t> compressed;
+    for (int i = 0; i < 185; ++i) {
+        compressed.push_back({
+            100.0f + (float)i * 0.005f,
+            (float)(1 + i % 19) * 0.04f,
+            i % 2 == 0 ? 0.8f : 1.2f,
+        });
+    }
+    for (const bool lcd : {false, true}) {
+        TEST_ASSERT(check_horizontal_grid_samples(ordinary, 2000, lcd, false),
+            "all ordinary ticks beyond the first shader array must remain present");
+        TEST_ASSERT(check_horizontal_grid_samples(compressed, 256, lcd, true),
+            "overflowing pixel columns must preserve monochrome and all seven LCD inputs");
+    }
+    return true;
+}
+
+bool test_explicit_fade_records_preserve_compressed_outgoing_grid_strokes()
+{
+    using clock_t = std::chrono::steady_clock;
+    plot::Text_renderer::horizontal_axis_fade_tracker_t tracker;
+    std::vector<plot::h_label_t> labels;
+    for (std::int64_t i = 0; i < 40; ++i) {
+        labels.push_back({i, {}, "same"});
+    }
+    auto now = clock_t::time_point{} + std::chrono::seconds(1);
+    std::map<std::int64_t, float> drawn;
+    const auto update = [&] {
+        drawn.clear();
+        return plot::detail::update_and_draw_faded_labels(
+            labels, tracker, 180.0f, true, now,
+            [](const auto& label) { return label.value; },
+            [&](std::int64_t timestamp, const std::string&, float alpha) { drawn[timestamp] += alpha; },
+            false);
+    };
+    update();
+    labels = {{40, {}, "same"}};
+    update();
+    now += std::chrono::milliseconds(90);
+    TEST_ASSERT(update() && drawn.size() == 41 && drawn == tracker.visible_alphas,
+        "explicit text and grid must share every emitted incoming and outgoing fade record");
+    std::vector<plot::detail::horizontal_grid_line_t> lines;
+    for (const auto& [timestamp, alpha] : tracker.visible_alphas) {
+        TEST_ASSERT(std::abs(alpha - 0.5f) < 1.0e-6f,
+            "the midpoint must retain each old and new stroke at half opacity");
+        lines.push_back({100.0f + (float)timestamp * 0.01f, alpha * 0.75f, 1.2f});
+    }
+    TEST_ASSERT(check_horizontal_grid_samples(lines, 256, true, true),
+        "compressed outgoing fades must reach the same bounded grid sample producer");
+    now += std::chrono::milliseconds(90);
+    TEST_ASSERT(!update() && tracker.visible_alphas.size() == 1 && drawn.count(40) == 1,
+        "completed fades must leave only the current explicit timestamp");
+    return true;
+}
+
 bool test_plot_config_default_lcd_request_is_auto_but_fails_closed()
 {
     const plot::Plot_config config;
@@ -1450,6 +1583,8 @@ int main()
     RUN_TEST(test_built_in_label_backgrounds_are_opaque_for_lcd);
     RUN_TEST(test_grid_lcd_order_selection);
     RUN_TEST(test_plot_config_default_lcd_request_is_auto_but_fails_closed);
+    RUN_TEST(test_horizontal_grid_preserves_more_than_32_ticks_and_dense_lcd_samples);
+    RUN_TEST(test_explicit_fade_records_preserve_compressed_outgoing_grid_strokes);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;

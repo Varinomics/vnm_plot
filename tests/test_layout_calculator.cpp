@@ -17,6 +17,7 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -593,6 +594,167 @@ bool test_vertical_axis_suppresses_only_consecutive_equal_text()
     return true;
 }
 
+bool test_explicit_ticks_distinguish_delegate_empty_and_invalid()
+{
+    std::vector<Recorded_call> calls;
+    auto params = make_minimal_params(0, 60 * k_ns_per_second, calls);
+    plot::Layout_calculator calculator;
+    const auto regular = calculator.calculate(params);
+    params.horizontal_ticks = [](const plot::Horizontal_tick_context&)
+        -> std::optional<std::vector<plot::Horizontal_tick>> { return std::nullopt; };
+    const auto delegated = calculator.calculate(params);
+    TEST_ASSERT(delegated.horizontal_tick_mode == plot::Horizontal_tick_mode::REGULAR &&
+        delegated.h_labels.size() == regular.h_labels.size(),
+        "declining a provider must preserve regular tick placement");
+    for (std::size_t i = 0; i < regular.h_labels.size(); ++i) {
+        TEST_ASSERT(delegated.h_labels[i].value == regular.h_labels[i].value &&
+            delegated.h_labels[i].position == regular.h_labels[i].position &&
+            delegated.h_labels[i].text == regular.h_labels[i].text,
+            "delegated labels must match the ordinary layout");
+    }
+
+    calls.clear();
+    params.horizontal_ticks = [](const plot::Horizontal_tick_context&) {
+        return std::vector<plot::Horizontal_tick>{};
+    };
+    const auto empty = calculator.calculate(params);
+    TEST_ASSERT(empty.horizontal_tick_mode == plot::Horizontal_tick_mode::EXPLICIT &&
+        empty.h_labels.empty() && calls.empty(),
+        "valid empty explicit ticks must bypass the regular formatter and grid");
+
+    for (const auto& ticks : {
+        std::vector<plot::Horizontal_tick>{{0, "first"}, {0, "duplicate"}},
+        std::vector<plot::Horizontal_tick>{{10, "first"}, {0, "unordered"}}})
+    {
+        params.horizontal_ticks = [ticks](const plot::Horizontal_tick_context&) { return ticks; };
+        const auto invalid = calculator.calculate(params);
+        TEST_ASSERT(invalid.horizontal_tick_mode == plot::Horizontal_tick_mode::INVALID &&
+            invalid.h_labels.empty() && calls.empty(),
+            "invalid explicit order must be distinct from empty or regular success");
+    }
+    return true;
+}
+
+bool test_explicit_ticks_use_measured_gap_and_full_label_strip()
+{
+    std::vector<Recorded_call> calls;
+    auto params = make_minimal_params(0, 100, calls);
+    params.usable_width = 100.0;
+    params.vbar_width   = 200.0;
+    bool context_matches = false;
+    params.horizontal_ticks = [&context_matches](const plot::Horizontal_tick_context& context) {
+        context_matches =
+            context.t_min_ns             == 0     &&
+            context.t_max_ns             == 100   &&
+            context.usable_width_px      == 100.0 &&
+            context.label_right_limit_px == 300.0 &&
+            context.min_label_gap_px     == 10.0f &&
+            context.text_margin_px       == 3.0f  &&
+            context.measure_label_width("AAAAAA") == 48.0f;
+        return std::vector<plot::Horizontal_tick>{
+            {-30, "AAAAAA"}, {60, "same"}, {120, "same"},
+            {180, "same"}, {240, "same"}, {300, "outside"},
+        };
+    };
+    plot::Layout_calculator calculator;
+    const auto result = calculator.calculate(params);
+    TEST_ASSERT(context_matches && calls.empty(),
+        "the provider must receive exact units, font width, gap and label-strip limits");
+    TEST_ASSERT(result.h_labels.size() == 5 && result.h_labels.front().value == -30 &&
+        result.h_labels.back().value == 240,
+        "partial left text and every tick beneath the value bar must survive culling");
+    TEST_ASSERT(result.h_labels[1].text == result.h_labels[2].text,
+        "explicit labels own their text even when adjacent strings are equal");
+
+    params.usable_width = 100.0;
+    params.vbar_width   = 56.0;
+    params.monospace_advance_is_reliable = false;
+    for (const float measured : {37.0f, -1.0f, std::numeric_limits<float>::infinity()}) {
+        params.measure_text_func = [measured](const char*) { return measured; };
+        const float expected = measured == 37.0f ? 37.0f : 48.0f;
+        float observed = -1.0f;
+        params.horizontal_ticks = [&observed](const plot::Horizontal_tick_context& context) {
+            observed = context.measure_label_width("AAAAAA");
+            const std::int64_t second = (std::int64_t)(observed + context.min_label_gap_px);
+            return std::vector<plot::Horizontal_tick>{{0, "AAAAAA"}, {second, "AAAAAA"}};
+        };
+        const auto measured_layout = calculator.calculate(params);
+        TEST_ASSERT(observed == expected && measured_layout.h_labels.size() == 2 &&
+            measured_layout.h_labels[1].position.x == expected + 10.0f,
+            "provider measurement must share positive measured width and advance fallback");
+    }
+    params.measure_text_func         = {};
+    params.monospace_char_advance_px = 0.0f;
+    float unavailable = -1.0f;
+    params.horizontal_ticks = [&unavailable](const plot::Horizontal_tick_context& context) {
+        unavailable = context.measure_label_width("AAAAAA");
+        return std::vector<plot::Horizontal_tick>{};
+    };
+    calculator.calculate(params);
+    TEST_ASSERT(unavailable == 0.0f, "missing font metrics must be observable to the provider");
+    return true;
+}
+
+bool test_explicit_ticks_preserve_extreme_timestamp_positions_and_direction()
+{
+    constexpr auto k_min = std::numeric_limits<std::int64_t>::min();
+    constexpr auto k_max = std::numeric_limits<std::int64_t>::max();
+    plot::Layout_calculator calculator;
+    for (const auto first : {k_min, std::int64_t{-4}, k_max - 4}) {
+        for (const bool left_to_right : {true, false}) {
+            std::vector<Recorded_call> calls;
+            auto params = make_minimal_params(first, first + 4, calls);
+            params.horizontal_axis_left_to_right = left_to_right;
+            params.horizontal_ticks = [first](const plot::Horizontal_tick_context&) {
+                return std::vector<plot::Horizontal_tick>{
+                    {first, "T"}, {first + 1, "T"}, {first + 2, "T"},
+                    {first + 3, "T"}, {first + 4, "T"},
+                };
+            };
+            const auto result = calculator.calculate(params);
+            TEST_ASSERT(result.h_labels.size() == 5 && calls.empty(),
+                "integer explicit ticks must retain adjacent nanoseconds at either epoch extreme");
+            for (std::size_t i = 0; i < result.h_labels.size(); ++i) {
+                TEST_ASSERT(result.h_labels[i].value == first + (std::int64_t)i &&
+                    result.h_labels[i].position.x == (float)i * 200.0f,
+                    "timestamp differences must map exactly without reversing the time axis");
+            }
+        }
+    }
+
+    for (const bool left_to_right : {true, false}) {
+        std::vector<Recorded_call> calls;
+        auto params = make_minimal_params(0, 100, calls);
+        params.usable_width = 100.0;
+        params.horizontal_axis_left_to_right = left_to_right;
+        params.horizontal_ticks = [](const plot::Horizontal_tick_context&) {
+            return std::vector<plot::Horizontal_tick>{{0, "AA"}, {20, "BB"}, {40, "CC"}};
+        };
+        const auto result = calculator.calculate(params);
+        TEST_ASSERT(result.h_labels.size() == 2 && result.h_labels[0].value == 0 &&
+            result.h_labels[1].value == 40,
+            "overlap safety must respect the same measured ten-pixel gap in either direction");
+        params.horizontal_ticks = [](const plot::Horizontal_tick_context&) {
+            return std::vector<plot::Horizontal_tick>{{0, "AA"}, {20, "BB"}};
+        };
+        const auto retained = calculator.calculate(params);
+        TEST_ASSERT(retained.h_labels.size() == 1 &&
+            retained.h_labels.front().value == (left_to_right ? 0 : 20),
+            "direction must choose the retained overlapping explicit anchor");
+    }
+
+    std::vector<Recorded_call> calls;
+    auto params = make_minimal_params(k_min, k_max, calls);
+    params.horizontal_ticks = [k_min, k_max](const plot::Horizontal_tick_context&) {
+        return std::vector<plot::Horizontal_tick>{{k_min, "minimum"}, {0, "zero"}, {k_max, "maximum"}};
+    };
+    const auto full = calculator.calculate(params);
+    TEST_ASSERT(full.h_labels.size() == 3 && full.h_labels[0].position.x == 0.0f &&
+        full.h_labels[1].position.x == 400.0f && full.h_labels[2].position.x == 800.0f,
+        "explicit placement must span the entire signed nanosecond domain without overflow");
+    return true;
+}
+
 bool test_default_vertical_labels_beyond_int64_are_not_collapsed()
 {
     std::vector<Recorded_call> recorded;
@@ -645,6 +807,9 @@ int main()
     RUN_TEST(test_value_formatter_receives_finest_axis_step_in_original_units);
     RUN_TEST(test_vertical_axis_suppresses_only_consecutive_equal_text);
     RUN_TEST(test_default_vertical_labels_beyond_int64_are_not_collapsed);
+    RUN_TEST(test_explicit_ticks_distinguish_delegate_empty_and_invalid);
+    RUN_TEST(test_explicit_ticks_use_measured_gap_and_full_label_strip);
+    RUN_TEST(test_explicit_ticks_preserve_extreme_timestamp_positions_and_direction);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
     return failed > 0 ? 1 : 0;

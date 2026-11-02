@@ -52,6 +52,7 @@ public:
         // Both arguments are int64 nanoseconds (API convention).
         std::function<std::string(std::int64_t, std::int64_t)>    format_timestamp_func;
         std::uint64_t                                             format_timestamp_revision = 0;
+        horizontal_tick_provider_t                                horizontal_ticks;
         bool                                                      horizontal_axis_left_to_right = true;
         std::function<std::string(double, const value_format_context_t&)>
                                                                   format_value_func;
@@ -69,8 +70,9 @@ public:
         std::vector<v_label_t> v_labels;
         std::vector<h_label_t> h_labels;
 
-        int                    v_label_fixed_digits   = 1;
-        bool                   h_labels_subsecond     = false;
+        int                    v_label_fixed_digits    = 1;
+        bool                   h_labels_subsecond      = false;
+        Horizontal_tick_mode   horizontal_tick_mode    = Horizontal_tick_mode::REGULAR;
         float                  max_v_label_text_width = 0.f;
 
     };

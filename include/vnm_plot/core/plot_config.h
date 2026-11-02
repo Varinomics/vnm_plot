@@ -8,6 +8,7 @@
 #include <vnm_plot/core/color_palette.h>
 #include <vnm_plot/core/lcd.h>
 #include <vnm_plot/core/time_units.h>
+#include <vnm_plot/core/types.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -135,6 +136,12 @@ struct Plot_config
     // Revision for formatter behavior. Increment when mutable state used by
     // format_timestamp changes its output (e.g. captured/stateful data updates).
     std::uint64_t                              format_timestamp_revision = 0;
+    // Explicit time ticks bypass regular interval placement and formatting.
+    // Supply strictly ascending unique timestamps and every candidate whose
+    // label can intersect the full strip, plus representable neighbors.
+    // Callback captures follow the formatter's render-thread lifetime rules;
+    // replace mutable provider state with set_config() to invalidate layout.
+    horizontal_tick_provider_t                 horizontal_ticks;
     // Direction used to traverse duplicate horizontal-label runs. This
     // retention policy does not reverse the time-to-X mapping.
     bool                                       horizontal_axis_left_to_right = true;
