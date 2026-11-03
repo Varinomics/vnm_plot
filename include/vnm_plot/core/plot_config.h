@@ -201,6 +201,8 @@ struct Plot_config
 
     // Lower bound for value-axis pan/zoom; crossing ranges shift up without changing span.
     std::optional<float>                        interaction_v_minimum;
+    // Time zoom may leave auto scaling while retaining the displayed value range.
+    bool                                       disable_v_auto_on_time_zoom = false;
 
     // --- LCD Rendering ---
     lcd_request_t                              lcd_request = lcd_auto_request();

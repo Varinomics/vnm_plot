@@ -509,6 +509,128 @@ bool test_restoring_autoscale_cancels_vertical_zoom_inertia()
     return true;
 }
 
+bool test_time_wheel_autoscale_policy_freezes_the_displayed_range()
+{
+    for (const bool freeze_values : {false, true}) {
+        indicator_test_widget_t widget;
+        configure_view(widget, 0, 2'000'000'000, 0.0f, 5.0f);
+        auto config = widget.config();
+        config.disable_v_auto_on_time_zoom = freeze_values;
+        widget.set_config(config);
+        widget.set_v_auto(true);
+
+        plot::detail::plot_render_feedback_t feedback;
+        feedback.v_min = 40.0f;
+        feedback.v_max = 140.0f;
+        feedback.t_min = 0;
+        feedback.t_max = 2'000'000'000;
+        widget.publish_render_feedback(feedback);
+
+        test_interaction_item_t item;
+        item.setSize(QSizeF(1000.0, 500.0));
+        item.set_plot_widget(&widget);
+
+        bool saw_time_change = false;
+        bool auto_at_time_change = false;
+        int auto_changes = 0;
+        QObject::connect(&widget, &plot::Plot_widget::t_limits_changed, [&] {
+            saw_time_change = true;
+            auto_at_time_change = widget.v_auto();
+        });
+        QObject::connect(&widget, &plot::Plot_widget::v_auto_changed, [&] {
+            ++auto_changes;
+        });
+
+        TEST_ASSERT(item.handle_wheel(500.0, 250.0, 0.0, 120.0, 0.0, 0.0, 0),
+            "ordinary wheel zoom should be handled");
+        TEST_ASSERT(saw_time_change && auto_at_time_change == !freeze_values,
+            "the selected autoscale policy must apply before time-change observers run");
+        TEST_ASSERT(widget.v_auto() == !freeze_values && auto_changes == (freeze_values ? 1 : 0),
+            "only opt-in time zoom should synchronously leave automatic value scaling");
+        TEST_ASSERT(widget.t_max() - widget.t_min() < 2'000'000'000,
+            "ordinary wheel zoom should still shrink the time window");
+        TEST_ASSERT(widget.v_min() == 40.0f && widget.v_max() == 140.0f,
+            "time zoom must retain the displayed range instead of stale manual limits");
+
+        feedback.v_min = 80.0f;
+        feedback.v_max = 180.0f;
+        widget.publish_render_feedback(feedback);
+        TEST_ASSERT(widget.v_min() == (freeze_values ? 40.0f : 80.0f) &&
+            widget.v_max() == (freeze_values ? 140.0f : 180.0f),
+            "later render feedback must not move frozen values, while default auto scaling continues");
+    }
+    return true;
+}
+
+bool test_time_zoom_endpoint_preserves_pan_and_range_autoscaling()
+{
+    indicator_test_widget_t widget;
+    configure_view(widget, 0, 2'000'000'000, 0.0f, 5.0f);
+    auto config = widget.config();
+    config.disable_v_auto_on_time_zoom = true;
+    widget.set_config(config);
+    widget.set_v_auto(true);
+
+    plot::detail::plot_render_feedback_t feedback;
+    feedback.v_min = 40.0f;
+    feedback.v_max = 140.0f;
+    feedback.t_min = 0;
+    feedback.t_max = 2'000'000'000;
+    widget.publish_render_feedback(feedback);
+
+    // PlotView's pinch handler uses this same time-scale endpoint.
+    widget.adjust_t_from_pivot_and_scale(0.5, 0.5);
+    TEST_ASSERT(!widget.v_auto() && widget.v_min() == 40.0f && widget.v_max() == 140.0f,
+        "direct time scaling must freeze the rendered value range too");
+    TEST_ASSERT(widget.t_max() - widget.t_min() == 1'000'000'000,
+        "the shared time-scale endpoint must retain its requested zoom");
+
+    widget.set_v_auto(true);
+    const qint64 previous_min = widget.t_min();
+    widget.adjust_t_from_mouse_diff(1000.0, 50.0);
+    TEST_ASSERT(widget.t_min() != previous_min && widget.v_auto(),
+        "time panning must continue automatic value scaling");
+    widget.set_t_range(250'000'000, 1'750'000'000);
+    TEST_ASSERT(widget.v_auto(), "explicit time-range selection must retain automatic value scaling");
+    return true;
+}
+
+bool test_restoring_autoscale_cancels_opt_in_time_zoom_inertia()
+{
+    for (const bool freeze_values : {false, true}) {
+        plot::Plot_widget widget;
+        configure_view(widget, 0, 2'000'000'000, 0.0f, 100.0f);
+        auto config = widget.config();
+        config.disable_v_auto_on_time_zoom = freeze_values;
+        widget.set_config(config);
+        test_interaction_item_t item;
+        item.setSize(QSizeF(1000.0, 500.0));
+        item.set_plot_widget(&widget);
+        TEST_ASSERT(item.handle_wheel(500.0, 250.0, 0.0, 120.0, 0.0, 0.0, 0),
+            "time wheel zoom should start inertia");
+
+        widget.set_v_auto(true);
+        const qint64 time_min = widget.t_min();
+        const qint64 time_max = widget.t_max();
+        QEventLoop loop;
+        QTimer::singleShot(80, &loop, &QEventLoop::quit);
+        loop.exec();
+        TEST_ASSERT(widget.v_auto(), "queued time zoom must not undo restored autoscaling");
+        if (freeze_values) {
+            TEST_ASSERT(widget.t_min() == time_min && widget.t_max() == time_max,
+                "opt-in restoration must cancel the queued time zoom");
+            TEST_ASSERT(item.handle_wheel(500.0, 250.0, 0.0, 120.0, 0.0, 0.0, 0),
+                "a fresh time wheel gesture must remain available");
+            TEST_ASSERT(!widget.v_auto(), "a fresh zoom must leave restored autoscaling again");
+        }
+        else {
+            TEST_ASSERT(widget.t_max() - widget.t_min() < time_max - time_min,
+                "restoring value autoscaling must preserve default time-zoom inertia");
+        }
+    }
+    return true;
+}
+
 bool test_indicator_samples_linearly_interpolate_between_samples()
 {
     plot::Plot_widget widget;
@@ -1431,6 +1553,9 @@ int main(int argc, char** argv)
     RUN_TEST(test_wheel_zoom_handles_near_zero_value_range);
     RUN_TEST(test_vertical_interaction_minimum_preserves_ranges);
     RUN_TEST(test_restoring_autoscale_cancels_vertical_zoom_inertia);
+    RUN_TEST(test_time_wheel_autoscale_policy_freezes_the_displayed_range);
+    RUN_TEST(test_time_zoom_endpoint_preserves_pan_and_range_autoscaling);
+    RUN_TEST(test_restoring_autoscale_cancels_opt_in_time_zoom_inertia);
     RUN_TEST(test_indicator_samples_linearly_interpolate_between_samples);
     RUN_TEST(test_indicator_samples_step_after_holds_previous_sample);
     RUN_TEST(test_indicator_boundaries_preserve_raw_and_cumulative_values);
