@@ -373,7 +373,9 @@ bool Text_renderer::render_info_overlay(
         (ctx.visible_info_flags & k_visible_info_value_range) != 0;
     const bool show_time_range =
         (ctx.visible_info_flags & k_visible_info_time_range) != 0;
-    const int overlay_line_count = (show_value_range ? 2 : 0) + (show_time_range ? 2 : 0);
+    const bool show_info_text = !ctx.info_text.empty();
+    const int overlay_line_count =
+        (show_info_text ? 1 : 0) + (show_value_range ? 2 : 0) + (show_time_range ? 2 : 0);
 
     if (overlay_line_count > 0) {
         const float overlay_baseline = m_fonts->compute_numeric_bottom();
@@ -398,6 +400,11 @@ bool Text_renderer::render_info_overlay(
             std::snprintf(buf, sizeof(buf), "%.*f", info_value_digits, value);
             return std::string(buf);
         };
+
+        if (show_info_text) {
+            m_fonts->batch_text(k_overlay_left_px, llt, ctx.info_text.c_str());
+            llt += static_cast<float>(ctx.adjusted_font_px * k_line_spacing);
+        }
 
         if (show_value_range) {
             const std::string high_text = "High: " + format_info_value(ctx.v1);

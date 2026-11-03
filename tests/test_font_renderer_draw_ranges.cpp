@@ -580,6 +580,73 @@ bool test_axis_suffix_styling_preserves_numeric_pixels_and_anchor(Offscreen_fram
     return true;
 }
 
+bool test_info_text_sits_above_range_rows_and_clears(Offscreen_frames& frames)
+{
+    plot::Asset_loader loader;
+    plot::init_embedded_assets(loader);
+    plot::Font_renderer fonts(loader);
+    fonts.initialize_metrics(k_font_px);
+    plot::Text_renderer renderer(&fonts);
+    plot::frame_layout_result_t layout;
+    layout.usable_width  = k_frame_width;
+    layout.usable_height = k_frame_height;
+    plot::Plot_config config;
+    config.format_timestamp = [](std::int64_t timestamp, std::int64_t) {
+        return std::to_string(timestamp);
+    };
+
+    const QImage blank = frames.render([](const auto&) {}, [](const auto&) {});
+    TEST_ASSERT(!blank.isNull(), "the blank information frame must be readable");
+    for (bool dark_mode : {false, true}) {
+        const auto render_info = [&](const std::string& text) {
+            return frames.render(
+                [&](const plot::frame_context_t& ctx) {
+                    auto info_ctx = ctx;
+                    info_ctx.config             = &config;
+                    info_ctx.dark_mode          = dark_mode;
+                    info_ctx.adjusted_font_px   = k_font_px;
+                    info_ctx.t0                 = 0;
+                    info_ctx.t1                 = 1'000'000'000;
+                    info_ctx.visible_info_flags = plot::k_visible_info_time_range;
+                    info_ctx.info_text          = text;
+                    renderer.prepare(info_ctx, false, false);
+                },
+                [&](const plot::frame_context_t& ctx) { renderer.record(ctx); },
+                &layout);
+        };
+
+        const QImage ranges    = render_info("");
+        const QImage with_info = render_info("Commit 3f2a9c0d81b7");
+        const QImage cleared   = render_info("");
+        TEST_ASSERT(!ranges.isNull() && !with_info.isNull() && !cleared.isNull(),
+            "the information states must render readable frames");
+        TEST_ASSERT(cleared == ranges,
+            "clearing information text must restore the exact range-only frame");
+
+        QRect range_bounds;
+        QRect added_bounds;
+        for (int y = 0; y < ranges.height(); ++y) {
+            for (int x = 0; x < ranges.width(); ++x) {
+                if (ranges.pixel(x, y) != blank.pixel(x, y)) {
+                    range_bounds = range_bounds.united(QRect(x, y, 1, 1));
+                }
+                if (with_info.pixel(x, y) != ranges.pixel(x, y)) {
+                    added_bounds = added_bounds.united(QRect(x, y, 1, 1));
+                }
+            }
+        }
+        TEST_ASSERT(!range_bounds.isEmpty() && !added_bounds.isEmpty(),
+            "both the range rows and the added information must paint visible text");
+        TEST_ASSERT(added_bounds.bottom() < range_bounds.top(),
+            "information text must sit above From without changing either range row");
+        TEST_ASSERT(std::abs(added_bounds.left() - range_bounds.left()) <= 2,
+            "information text must share the range rows' left alignment within glyph bearings");
+        TEST_ASSERT(added_bounds.height() < 2 * k_font_px,
+            "the supplied single line must occupy one text row");
+    }
+    return true;
+}
+
 bool test_preparation_failure_skips_text_and_recovers(Offscreen_frames& frames)
 {
     plot::Asset_loader loader;
@@ -726,6 +793,7 @@ int main(int argc, char** argv)
     RUN_FRAME_TEST(test_slices_record_in_submission_order);
     RUN_FRAME_TEST(test_changing_draw_height_rescales_the_rendered_glyphs);
     RUN_FRAME_TEST(test_axis_suffix_styling_preserves_numeric_pixels_and_anchor);
+    RUN_FRAME_TEST(test_info_text_sits_above_range_rows_and_clears);
     RUN_FRAME_TEST(test_preparation_failure_skips_text_and_recovers);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;

@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <string>
 
 class QRhi;
 class QRhiCommandBuffer;
@@ -26,6 +27,7 @@ struct Plot_render_snapshot
                            series;
     bool                   v_auto                  = true;
     int                    visible_info_flags      = k_visible_info_none;
+    std::string            info_text;
     double                 adjusted_font_px        = 10.0;
     double                 base_label_height_px    = 14.0;
     double                 adjusted_preview_height = 0.0;

@@ -97,6 +97,7 @@ void Plot_renderer::synchronize(QQuickRhiItem* item)
     m_impl->snapshot.v_auto = widget->m_v_auto.load(std::memory_order_acquire);
     m_impl->snapshot.visible_info_flags =
         widget->m_visible_info_flags.load(std::memory_order_acquire);
+    m_impl->snapshot.info_text               = widget->m_info_text.toStdString();
     m_impl->snapshot.adjusted_font_px        = widget->m_adjusted_font_size;
     m_impl->snapshot.base_label_height_px    = widget->m_base_label_height;
     m_impl->snapshot.adjusted_preview_height = widget->preview_height() * widget->m_scaling_factor;

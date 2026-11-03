@@ -403,6 +403,7 @@ Plot_frame_result Plot_frame_renderer::render(
     ctx.adjusted_reserved_height = reserved_h;
     ctx.adjusted_preview_height  = snapshot.adjusted_preview_height;
     ctx.visible_info_flags       = snapshot.visible_info_flags;
+    ctx.info_text                = snapshot.info_text;
     ctx.dark_mode                = config.dark_mode;
     ctx.plot_body_background     = plot_body_background;
     ctx.lcd_subpixel_order       = snapshot.auto_lcd_subpixel_order;

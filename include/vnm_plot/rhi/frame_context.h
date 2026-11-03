@@ -9,6 +9,7 @@
 #include <glm/mat4x4.hpp>
 
 #include <optional>
+#include <string>
 
 class QRhi;
 class QRhiCommandBuffer;
@@ -44,6 +45,7 @@ struct frame_context_t
     double                     adjusted_preview_height  = 0.0;
 
     int                        visible_info_flags   = k_visible_info_none;
+    std::string                info_text;
     bool                       dark_mode            = false;
     glm::vec4                  plot_body_background = glm::vec4(0.f, 0.f, 0.f, 1.f);
     // With config, this is the host-resolved AUTO order; explicit requests in

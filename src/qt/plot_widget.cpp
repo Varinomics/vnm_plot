@@ -1122,6 +1122,21 @@ void Plot_widget::set_visible_info(int flags)
     }
 }
 
+QString Plot_widget::info_text() const
+{
+    return m_info_text;
+}
+
+void Plot_widget::set_info_text(const QString& text)
+{
+    if (m_info_text == text) {
+        return;
+    }
+    m_info_text = text;
+    emit info_text_changed();
+    update();
+}
+
 void Plot_widget::set_relative_preview_height(float relative)
 {
     set_if_changed(
@@ -1191,15 +1206,6 @@ void Plot_widget::adjust_t_from_mouse_pos_on_preview(double ref_width, double x_
 
 void Plot_widget::adjust_t_from_pivot_and_scale(double pivot, double scale)
 {
-    bool freeze_value_range = false;
-    {
-        std::shared_lock lock(m_config_mutex);
-        freeze_value_range = m_config.disable_v_auto_on_time_zoom;
-    }
-    if (freeze_value_range && v_auto()) {
-        const auto [vmin, vmax] = current_v_range();
-        adjust_v_to_target(vmin, vmax);
-    }
     apply_time_update([&](auto& axis) { return axis.adjust_t_from_pivot_and_scale(pivot, scale); });
 }
 

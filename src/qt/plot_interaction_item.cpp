@@ -45,9 +45,6 @@ void Plot_interaction_item::set_plot_widget(Plot_widget* widget)
             m_plot_widget, &Plot_widget::v_auto_changed, this, [this] {
                 if (m_plot_widget->v_auto()) {
                     m_zoom_vel_v = 0.0;
-                    if (m_plot_widget->config().disable_v_auto_on_time_zoom) {
-                        m_zoom_vel_t = 0.0;
-                    }
                 }
             });
     }

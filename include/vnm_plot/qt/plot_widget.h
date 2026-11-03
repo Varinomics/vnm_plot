@@ -112,6 +112,7 @@ class Plot_widget : public QQuickRhiItem
     Q_PROPERTY(double vbar_width_qml READ vbar_width_qml NOTIFY vbar_width_changed)
     Q_PROPERTY(Plot_time_axis* time_axis READ time_axis WRITE set_time_axis NOTIFY time_axis_changed)
     Q_PROPERTY(QVariant hovered_series_id READ hovered_series_id NOTIFY hovered_series_id_changed)
+    Q_PROPERTY(QString info_text READ info_text WRITE set_info_text NOTIFY info_text_changed)
 
 public:
     Plot_widget();
@@ -231,6 +232,10 @@ public:
     Q_INVOKABLE virtual bool can_zoom_in() const;
     Q_INVOKABLE double      update_dpi_scaling_factor();
     Q_INVOKABLE void        set_visible_info(int flags);
+    // Optional single line above the range information; empty hides it.
+    // Set on the item's GUI thread, like other interaction state.
+    QString info_text() const;
+    void set_info_text(const QString& text);
     Q_INVOKABLE void        set_relative_preview_height(float relative);
     Q_INVOKABLE void        set_preview_height_min(double v);
     Q_INVOKABLE void        set_preview_height_max(double v);
@@ -294,6 +299,7 @@ signals:
     void vbar_width_changed();
     void time_axis_changed();
     void hovered_series_id_changed();
+    void info_text_changed();
 
 protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
@@ -372,6 +378,7 @@ private:
     // UI state
     std::atomic<bool>              m_v_auto{true};
     std::atomic<int>               m_visible_info_flags{k_visible_info_all};
+    QString                       m_info_text;
     std::optional<QPointF>         m_area_hover_position;
     std::optional<int>             m_hovered_series_id;
     std::uint64_t                  m_area_hover_revision = 0;
