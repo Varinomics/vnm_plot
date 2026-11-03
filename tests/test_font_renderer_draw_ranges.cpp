@@ -129,11 +129,13 @@ public:
         if (readback.data.size() != k_frame_width * k_frame_height * 4) {
             return {};
         }
-        return QImage(
+        const QImage result(
             reinterpret_cast<const uchar*>(readback.data.constData()),
             k_frame_width,
             k_frame_height,
-            QImage::Format_RGBA8888).copy();
+            QImage::Format_RGBA8888);
+        // Pixel assertions use top-left coordinates; OpenGL readback rows run upward.
+        return rhi->isYUpInFramebuffer() ? result.mirrored(false, true) : result.copy();
     }
 
 private:
