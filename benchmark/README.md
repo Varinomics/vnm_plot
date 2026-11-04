@@ -1,5 +1,9 @@
 # vnm_plot benchmark
 
+For an initial measured baseline and a small allocation experiment, see the
+[2026-11-04 results](results/2026-11-04-null/README.md), including the unresolved
+conservative-access timing regression and the limits of the Null backend.
+
 `vnm_plot_benchmark` measures the complete vnm_plot render path with synthetic
 Bars or Trades data. It supports multiple independent series, static data, and
 live publication through ring buffers.
@@ -80,6 +84,7 @@ The suite runs these named cases, selectable with `--cases NAME ...`:
 | `wrap-line-8` | The same publication schedule into a full ring, including split spans |
 | `warm-line-8-no-text` | Control for text/layout changes |
 | `warm-line-8-conservative` | Callbacks without a declared stable semantic identity |
+| `warm-line-8-conservative-no-text` | Range-scan control without the text path |
 
 Ordinary cases contain 10,000 samples per series. The seed, dimensions, series
 count, rates, data/style, warmup and measured frames are explicit in every
@@ -88,7 +93,7 @@ history within the ten-second view instead of only increasing invisible data.
 Preview rendering is enabled in the suite; individual runs can use
 `--no-preview` to isolate the main pane.
 
-The suite passes `--stable-access` except in the conservative control. The
+The suite passes `--stable-access` except in the conservative controls. The
 benchmark's stateless callbacks then declare their actual immutable semantics
 through the public policy API, allowing production range-cache reuse. A
 byte-layout key alone does not establish callback semantics. This is a

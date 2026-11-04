@@ -70,6 +70,7 @@ CASES = (
     Case("wrap-line-8", append=16, wrap=True),
     Case("warm-line-8-no-text", text=False),
     Case("warm-line-8-conservative", stable_access=False),
+    Case("warm-line-8-conservative-no-text", stable_access=False, text=False),
 )
 
 METRICS = (
@@ -183,6 +184,9 @@ def expected_metadata(case: Case, args: argparse.Namespace) -> dict[str, str]:
         "scenario": case.name,
         "framebuffer": "1200x720",
         "sample_count": "4",
+        "volatility": "0.020000",
+        "line_width_px": "1.500000",
+        "point_diameter_px": "1.000000",
     }
 
 
@@ -301,6 +305,8 @@ def command_for(executable: Path, case: Case, args: argparse.Namespace, director
         "--static", "--seed", "42", "--data-type", case.data_type, "--render-style", case.style,
         "--series-count", str(case.series), "--static-samples", str(case.samples),
         "--ring-size", str(case.capacity(args.frames)), "--rate", str(case.rate),
+        "--volatility", "0.02", "--line-px", "1.5", "--point-px", "1.0",
+        "--width", "1200", "--height", "720",
         "--view-motion", case.motion, "--append-per-frame", str(case.append),
         "--warmup-frames", str(args.warmup_frames), "--frames", str(args.frames),
         "--finish", "--quiet", "--scenario", case.name, "--output-dir", str(directory),
