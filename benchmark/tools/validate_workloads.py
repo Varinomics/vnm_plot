@@ -87,6 +87,7 @@ def main() -> None:
         assert "renderer.frame.upload.primary_count" not in outer["observations"]
         assert not any(name.startswith("renderer.") for name in outer["observations"])
         assert "benchmark.planning.time_ms" not in outer["observations"]
+        assert "benchmark.cold.series_shader_pipeline_prepare_ms" not in outer["observations"]
         assert total(outer, "benchmark.ring.published_samples") == 0
 
         for invalid in (["--view-motion", "unknown"],

@@ -1310,9 +1310,11 @@ bool Benchmark_rhi_offscreen_runner::run(std::string& error_message)
         m_profiler.record_observation(
             "benchmark.cold.first_submission_ms",
             m_cold_first_submission_ms);
-        m_profiler.record_observation(
-            "benchmark.cold.series_shader_pipeline_prepare_ms",
-            m_cold_shader_pipeline_prepare_ms);
+        if (m_config.internal_profiling) {
+            m_profiler.record_observation(
+                "benchmark.cold.series_shader_pipeline_prepare_ms",
+                m_cold_shader_pipeline_prepare_ms);
+        }
     }
     m_profiler.record_observation("benchmark.cold.total_ms", m_cold_total_ms);
     m_profiler.record_observation(

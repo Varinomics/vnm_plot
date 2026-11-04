@@ -206,7 +206,9 @@ def check_frame_timing_only(payload: dict[str, Any]) -> None:
         if not isinstance(entries, dict):
             raise BenchmarkError(f"{section} must be an object")
         for name in entries:
-            if name.startswith("renderer.") or name == PLANNING_METRIC:
+            if name.startswith("renderer.") or name in (
+                PLANNING_METRIC, "benchmark.cold.series_shader_pipeline_prepare_ms",
+            ):
                 raise BenchmarkError(
                     f"frame-timing-only report contains internal {section}: {name}")
 

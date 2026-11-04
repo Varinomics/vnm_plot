@@ -73,6 +73,7 @@ class EvidenceValidation(unittest.TestCase):
             ("scopes", "renderer.frame"),
             ("observations", "renderer.frame.upload.primary_count"),
             ("observations", suite.PLANNING_METRIC),
+            ("observations", "benchmark.cold.series_shader_pipeline_prepare_ms"),
         ):
             with self.subTest(section=section, name=name):
                 payload = copy.deepcopy(self.payload)
