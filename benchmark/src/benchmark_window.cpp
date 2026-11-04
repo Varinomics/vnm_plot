@@ -1082,9 +1082,8 @@ bool Benchmark_rhi_offscreen_runner::render_frame(
     // Plot_widget consumes this feedback too. Keeping the initial width here
     // makes every otherwise static frame miss the settled layout cache.
     m_snapshot->vbar_width_pixels = result.feedback.measured_vbar_width;
-    m_last_prepare_ms = m_profiler.last_series_prepare_ms();
-    if (measured && m_config.internal_profiling) {
-        m_profiler.record_observation("benchmark.planning.time_ms", m_last_prepare_ms);
+    if (m_config.internal_profiling) {
+        m_last_prepare_ms = m_profiler.last_series_prepare_ms();
     }
 
     QRhiReadbackResult readback;
@@ -1101,13 +1100,16 @@ bool Benchmark_rhi_offscreen_runner::render_frame(
         error_message = "measure.end_offscreen_frame: " + frame_op_result_name(end_result);
         return false;
     }
+    double submission_ms = 0.0;
     if (measured) {
-        const double submission_ms = std::chrono::duration<double, std::milli>(
+        submission_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - submission_started).count();
-        m_profiler.record_observation("benchmark.frame.submission_ms", submission_ms);
     }
-    if (m_config.finish || (measured && m_config.capture_pixel_checksum)) {
-        VNM_PLOT_PROFILE_SCOPE(&m_profiler, "renderer.frame.finish");
+    double finish_ms = 0.0;
+    const bool finish_frame = m_config.finish || (measured && m_config.capture_pixel_checksum);
+    if (finish_frame) {
+        VNM_PLOT_PROFILE_SCOPE(
+            m_snapshot->config.profiler.get(), "renderer.frame.finish");
         const auto finish_started = std::chrono::steady_clock::now();
         const QRhi::FrameOpResult finish_result = m_rhi->finish();
         if (finish_result != QRhi::FrameOpSuccess) {
@@ -1115,9 +1117,8 @@ bool Benchmark_rhi_offscreen_runner::render_frame(
             return false;
         }
         if (measured) {
-            const double finish_ms = std::chrono::duration<double, std::milli>(
+            finish_ms = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - finish_started).count();
-            m_profiler.record_observation("benchmark.frame.gpu_finish_ms", finish_ms);
         }
     }
     if (measured && m_config.capture_pixel_checksum) {
@@ -1155,23 +1156,34 @@ bool Benchmark_rhi_offscreen_runner::render_frame(
                 }
             }
         }
-        m_profiler.record_observation(
-            "benchmark.frame.pixel_readback_bytes",
-            static_cast<double>(readback.data.size()));
-        m_profiler.record_observation(
-            "benchmark.frame.pixel_checksum_low32",
-            static_cast<double>(checksum & 0xffff'ffffull));
-        m_profiler.record_observation(
-            "benchmark.frame.pixel_nonuniform_count",
-            static_cast<double>(m_pixel_nonuniform_count));
-        m_profiler.record_observation(
-            "benchmark.frame.stack_sum_pixel_count",
-            static_cast<double>(m_stack_sum_pixel_count));
     }
     if (measured) {
+        // Finish frame measurement before storing the harness observations.
+        // Optional readback and pixel validation above remain measured work.
         const Thread_allocation_measurement allocations = allocation_scope.finish();
         const double frame_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - frame_started).count();
+        if (m_config.internal_profiling) {
+            m_profiler.record_observation("benchmark.planning.time_ms", m_last_prepare_ms);
+        }
+        m_profiler.record_observation("benchmark.frame.submission_ms", submission_ms);
+        if (finish_frame) {
+            m_profiler.record_observation("benchmark.frame.gpu_finish_ms", finish_ms);
+        }
+        if (m_config.capture_pixel_checksum) {
+            m_profiler.record_observation(
+                "benchmark.frame.pixel_readback_bytes",
+                static_cast<double>(readback.data.size()));
+            m_profiler.record_observation(
+                "benchmark.frame.pixel_checksum_low32",
+                static_cast<double>(m_pixel_checksum & 0xffff'ffffull));
+            m_profiler.record_observation(
+                "benchmark.frame.pixel_nonuniform_count",
+                static_cast<double>(m_pixel_nonuniform_count));
+            m_profiler.record_observation(
+                "benchmark.frame.stack_sum_pixel_count",
+                static_cast<double>(m_stack_sum_pixel_count));
+        }
         m_profiler.record_observation(
             "benchmark.frame.cpu_allocation_count",
             static_cast<double>(allocations.count));

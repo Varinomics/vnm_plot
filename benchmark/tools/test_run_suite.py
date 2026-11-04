@@ -67,11 +67,25 @@ class EvidenceValidation(unittest.TestCase):
         with self.assertRaisesRegex(suite.BenchmarkError, "required observation is missing"):
             self.validate()
 
+    def test_timing_only_rejects_internal_scopes_and_observations(self) -> None:
+        for section, name in (
+            ("scopes", "renderer.frame.finish"),
+            ("scopes", "renderer.frame"),
+            ("observations", "renderer.frame.upload.primary_count"),
+            ("observations", suite.PLANNING_METRIC),
+        ):
+            with self.subTest(section=section, name=name):
+                payload = copy.deepcopy(self.payload)
+                payload.setdefault(section, {})[name] = constant_observation(0)
+                with self.assertRaisesRegex(suite.BenchmarkError, "frame-timing-only report contains internal"):
+                    self.validate(payload)
+
     def test_old_contract_wrong_backend_and_readback_are_rejected(self) -> None:
         for key, value in (("workload_contract_version", "1"),
+                           ("workload_contract_version", "2"),
                            ("actual_graphics_backend", "Null"), ("pixel_readback", "true"),
                            ("access_semantics", "conservative")):
-            with self.subTest(key=key):
+            with self.subTest(key=key, value=value):
                 payload = copy.deepcopy(self.payload)
                 payload["metadata"][key] = value
                 with self.assertRaises(suite.BenchmarkError):
