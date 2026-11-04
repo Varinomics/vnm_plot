@@ -46,6 +46,7 @@ public:
         std::string    text;
         std::string    previous_text;
         float          text_mix     = 1.0f; // 0 = previous text, 1 = current text
+        bool           present_in_layout = false;
     };
 
     template<typename Key>

@@ -5,7 +5,6 @@
 #include <chrono>
 #include <string>
 #include <type_traits>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -35,6 +34,7 @@ bool update_and_draw_faded_labels(
             state.alpha     = 1.0f;
             state.direction = 0;
             state.text      = label.text;
+            state.present_in_layout = true;
             tracker.states.emplace(key_fn(label), std::move(state));
         }
         tracker.last_update = now;
@@ -57,6 +57,9 @@ bool update_and_draw_faded_labels(
     constexpr float k_alpha_eps = 1e-6f;
     for (auto it = tracker.states.begin(); it != tracker.states.end(); ) {
         auto& state = it->second;
+        // Reuse the retained states to mark current layout membership instead
+        // of allocating a temporary hash-set node for every label each frame.
+        state.present_in_layout = false;
         if (state.direction != 0 && step > 0.0f) {
             state.alpha += step * static_cast<float>(state.direction);
         }
@@ -80,11 +83,8 @@ bool update_and_draw_faded_labels(
         ++it;
     }
 
-    std::unordered_set<key_t> current_values;
-    current_values.reserve(labels.size());
     for (const auto& label : labels) {
         const key_t key = key_fn(label);
-        current_values.insert(key);
 
         auto it = tracker.states.find(key);
         if (it == tracker.states.end()) {
@@ -92,11 +92,13 @@ bool update_and_draw_faded_labels(
             state.alpha     = animate_changes ? 0.0f : 1.0f;
             state.direction = animate_changes ? 1 : 0;
             state.text      = label.text;
+            state.present_in_layout = true;
             tracker.states.emplace(key, std::move(state));
             continue;
         }
 
         auto& state = it->second;
+        state.present_in_layout = true;
         if (state.text != label.text) {
             if (animate_changes) {
                 if (state.text_mix < 1.0f && state.previous_text == label.text) {
@@ -128,7 +130,7 @@ bool update_and_draw_faded_labels(
 
     for (auto it = tracker.states.begin(); it != tracker.states.end(); ) {
         auto& state = it->second;
-        if (current_values.find(it->first) == current_values.end() && state.direction >= 0) {
+        if (!state.present_in_layout && state.direction >= 0) {
             if (animate_changes) {
                 state.direction = -1;
             }
