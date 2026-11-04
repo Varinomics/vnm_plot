@@ -113,7 +113,7 @@ private:
 /// Create a Data_access_policy for Bar_sample. The renderer owns the GPU-side
 /// sample layout (gpu_sample_t) and rebases timestamps on upload, so the
 /// policy only exposes value extractors plus a stable layout_key for caching.
-inline vnm::plot::Data_access_policy make_bar_access_policy() {
+inline vnm::plot::Data_access_policy make_bar_access_policy(bool stable_semantics = false) {
     vnm::plot::Data_access_policy policy;
 
     policy.get_timestamp = [](const void* sample) -> std::int64_t {
@@ -130,6 +130,9 @@ inline vnm::plot::Data_access_policy make_bar_access_policy() {
     };
 
     policy.layout_key = k_bar_sample_layout_key;
+    if (stable_semantics) {
+        policy.set_semantics_key(k_bar_sample_layout_key, 1);
+    }
 
     return policy;
 }
@@ -137,7 +140,7 @@ inline vnm::plot::Data_access_policy make_bar_access_policy() {
 /// Create a Data_access_policy for Trade_sample. The renderer owns the GPU-side
 /// sample layout (gpu_sample_t) and rebases timestamps on upload, so the
 /// policy only exposes value extractors plus a stable layout_key for caching.
-inline vnm::plot::Data_access_policy make_trade_access_policy() {
+inline vnm::plot::Data_access_policy make_trade_access_policy(bool stable_semantics = false) {
     vnm::plot::Data_access_policy policy;
 
     policy.get_timestamp = [](const void* sample) -> std::int64_t {
@@ -154,6 +157,9 @@ inline vnm::plot::Data_access_policy make_trade_access_policy() {
     };
 
     policy.layout_key = k_trade_sample_layout_key;
+    if (stable_semantics) {
+        policy.set_semantics_key(k_trade_sample_layout_key, 1);
+    }
 
     return policy;
 }

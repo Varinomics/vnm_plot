@@ -13,6 +13,9 @@ from pathlib import Path
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", type=Path, required=True)
+    # This checks durable phase output and termination, not rasterization.
+    # Native rendering remains covered by validate_smoke.py.
+    parser.add_argument("--graphics-backend", default="null")
     return parser.parse_args()
 
 
@@ -26,7 +29,7 @@ def main() -> int:
                 "--backend",
                 "qrhi-offscreen",
                 "--graphics-backend",
-                "native",
+                args.graphics_backend,
                 "--static",
                 "--data-type",
                 "bars",

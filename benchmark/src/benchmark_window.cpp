@@ -135,13 +135,17 @@ double steady_clock_resolution_ns()
     return std::isfinite(resolution) ? resolution : 0.0;
 }
 
-void ensure_interval_observations(Benchmark_profiler& profiler)
+void ensure_interval_observations(Benchmark_profiler& profiler, bool internal_profiling)
 {
     profiler.ensure_observation("benchmark.producer.lock_wait_ns");
-    profiler.ensure_observation("renderer.series_window.monotonicity_scan_count");
-    profiler.ensure_observation("renderer.series_window.monotonicity_scan_samples");
-    profiler.ensure_observation("renderer.frame.gpu_buffer_allocation_bytes");
-    profiler.ensure_observation("renderer.frame.gpu_buffer_allocation_count");
+    if (internal_profiling) {
+        profiler.ensure_observation("renderer.series_window.monotonicity_scan_count");
+        profiler.ensure_observation("renderer.series_window.monotonicity_scan_samples");
+        profiler.ensure_observation("renderer.auto_range.query_count");
+        profiler.ensure_observation("renderer.auto_range.range_scan_count");
+        profiler.ensure_observation("renderer.frame.gpu_buffer_allocation_bytes");
+        profiler.ensure_observation("renderer.frame.gpu_buffer_allocation_count");
+    }
     profiler.ensure_observation("benchmark.frame.cpu_allocation_bytes");
     profiler.ensure_observation("benchmark.frame.cpu_allocation_count");
 }
@@ -465,11 +469,11 @@ void Benchmark_rhi_window::setup_series()
 
         if (m_config.data_type == "Trades") {
             series->set_data_source_ref(*m_trade_sources[index]);
-            series->access = make_trade_access_policy();
+            series->access = make_trade_access_policy(m_config.stable_access);
         }
         else {
             series->set_data_source_ref(*m_bar_sources[index]);
-            series->access = make_bar_access_policy();
+            series->access = make_bar_access_policy(m_config.stable_access);
         }
 
         if (style == "Dots") {
@@ -589,7 +593,7 @@ void Benchmark_rhi_window::record_final_statistics()
     m_profiler.record_observation(
         "benchmark.memory.process_high_water_bytes",
         static_cast<double>(process_memory_high_water_bytes()));
-    ensure_interval_observations(m_profiler);
+    ensure_interval_observations(m_profiler, m_config.internal_profiling);
 }
 
 Benchmark_rhi_offscreen_runner::Benchmark_rhi_offscreen_runner(const Benchmark_config& config)
@@ -615,14 +619,15 @@ Benchmark_rhi_offscreen_runner::~Benchmark_rhi_offscreen_runner()
 
 void Benchmark_rhi_offscreen_runner::setup_data_source()
 {
+    auto* profiler = m_config.internal_profiling ? &m_profiler : nullptr;
     if (m_config.data_type == "Trades") {
         m_trade_buffers.reserve(m_config.series_count);
         m_trade_sources.reserve(m_config.series_count);
         for (std::size_t index = 0; index < m_config.series_count; ++index) {
             auto buffer = std::make_unique<Ring_buffer<Trade_sample>>(m_config.ring_capacity);
-            buffer->set_profiler(&m_profiler);
+            buffer->set_profiler(profiler);
             auto source = std::make_unique<Benchmark_data_source<Trade_sample>>(*buffer);
-            source->set_profiler(&m_profiler);
+            source->set_profiler(profiler);
             m_trade_buffers.push_back(std::move(buffer));
             m_trade_sources.push_back(std::move(source));
         }
@@ -632,9 +637,9 @@ void Benchmark_rhi_offscreen_runner::setup_data_source()
         m_bar_sources.reserve(m_config.series_count);
         for (std::size_t index = 0; index < m_config.series_count; ++index) {
             auto buffer = std::make_unique<Ring_buffer<Bar_sample>>(m_config.ring_capacity);
-            buffer->set_profiler(&m_profiler);
+            buffer->set_profiler(profiler);
             auto source = std::make_unique<Benchmark_data_source<Bar_sample>>(*buffer);
-            source->set_profiler(&m_profiler);
+            source->set_profiler(profiler);
             m_bar_buffers.push_back(std::move(buffer));
             m_bar_sources.push_back(std::move(source));
         }
@@ -646,7 +651,8 @@ void Benchmark_rhi_offscreen_runner::setup_rendering()
     m_frame_renderer->initialize();
     m_snapshot->adjusted_font_px        = k_adjusted_font_px;
     m_snapshot->base_label_height_px    = k_base_label_height_px;
-    m_snapshot->adjusted_preview_height = k_adjusted_preview_height;
+    m_snapshot->adjusted_preview_height = m_config.preview_enabled
+        ? k_adjusted_preview_height : 0.0;
     m_snapshot->vbar_width_pixels       = k_vbar_width_pixels;
 
     m_snapshot->config.dark_mode = true;
@@ -661,10 +667,13 @@ void Benchmark_rhi_offscreen_runner::setup_rendering()
     m_snapshot->config.point_diameter_px = m_config.point_diameter_px;
     m_snapshot->config.font_size_px = k_adjusted_font_px;
     m_snapshot->config.base_label_height_px = k_base_label_height_px;
-    m_snapshot->config.preview_height_px = k_adjusted_preview_height;
+    m_snapshot->config.preview_height_px = m_snapshot->adjusted_preview_height;
+    m_snapshot->config.preview_visibility = m_config.preview_enabled ? 1.0 : 0.0;
     m_snapshot->config.format_timestamp = format_benchmark_timestamp;
-    m_snapshot->config.profiler =
-        std::shared_ptr<vnm::plot::Profiler>(&m_profiler, [](vnm::plot::Profiler*) {});
+    if (m_config.internal_profiling) {
+        m_snapshot->config.profiler =
+            std::shared_ptr<vnm::plot::Profiler>(&m_profiler, [](vnm::plot::Profiler*) {});
+    }
 }
 
 void Benchmark_rhi_offscreen_runner::setup_series()
@@ -681,11 +690,11 @@ void Benchmark_rhi_offscreen_runner::setup_series()
 
         if (m_config.data_type == "Trades") {
             series->set_data_source_ref(*m_trade_sources[index]);
-            series->access = make_trade_access_policy();
+            series->access = make_trade_access_policy(m_config.stable_access);
         }
         else {
             series->set_data_source_ref(*m_bar_sources[index]);
-            series->access = make_bar_access_policy();
+            series->access = make_bar_access_policy(m_config.stable_access);
         }
 
         if (style == "Dots") {
@@ -1039,7 +1048,8 @@ bool Benchmark_rhi_offscreen_runner::render_frame(
         ? static_cast<vnm::plot::Data_source*>(m_trade_sources.front().get())
         : static_cast<vnm::plot::Data_source*>(m_bar_sources.front().get());
     {
-        VNM_PLOT_PROFILE_SCOPE(&m_profiler, "benchmark.update_time_range");
+        VNM_PLOT_PROFILE_SCOPE(
+            m_snapshot->config.profiler.get(), "benchmark.update_time_range");
         update_time_range_from_source(
             source,
             m_config.data_type,
@@ -1047,11 +1057,33 @@ bool Benchmark_rhi_offscreen_runner::render_frame(
             m_snapshot->data_cfg.t_max,
             m_snapshot->data_cfg.t_available_min);
         m_snapshot->data_cfg.t_available_max = m_snapshot->data_cfg.t_max;
+        if (m_config.view_motion != "fixed") {
+            // Warmup settles at the initial view. Measured inputs depend only
+            // on the frame index, never machine speed or the warmup count.
+            const std::size_t step = measured ? (m_measured_frame_count + 1) % 120 : 0;
+            const long double phase = static_cast<long double>(
+                step <= 60 ? step : 120 - step) / 60.0L;
+            const auto first = m_snapshot->data_cfg.t_available_min;
+            const auto last = m_snapshot->data_cfg.t_available_max;
+            const long double span = static_cast<long double>(last) - first;
+            const long double fraction = m_config.view_motion == "pan"
+                ? 0.25L : 0.10L + 0.90L * phase;
+            const long double offset = m_config.view_motion == "pan"
+                ? (1.0L - fraction) * phase : (1.0L - fraction) * 0.5L;
+            m_snapshot->data_cfg.t_min = first + static_cast<std::int64_t>(span * offset);
+            m_snapshot->data_cfg.t_max = std::max(
+                m_snapshot->data_cfg.t_min + 1,
+                first + static_cast<std::int64_t>(span * (offset + fraction)));
+        }
     }
 
-    m_frame_renderer->render(*m_snapshot, m_rhi.get(), m_render_target.get(), cb);
+    const auto result = m_frame_renderer->render(
+        *m_snapshot, m_rhi.get(), m_render_target.get(), cb);
+    // Plot_widget consumes this feedback too. Keeping the initial width here
+    // makes every otherwise static frame miss the settled layout cache.
+    m_snapshot->vbar_width_pixels = result.feedback.measured_vbar_width;
     m_last_prepare_ms = m_profiler.last_series_prepare_ms();
-    if (measured) {
+    if (measured && m_config.internal_profiling) {
         m_profiler.record_observation("benchmark.planning.time_ms", m_last_prepare_ms);
     }
 
@@ -1147,10 +1179,42 @@ bool Benchmark_rhi_offscreen_runner::render_frame(
             "benchmark.frame.cpu_allocation_bytes",
             static_cast<double>(allocations.bytes));
         m_profiler.record_observation("benchmark.frame.total_ms", frame_ms);
+        m_profiler.record_observation(
+            "benchmark.view.t_min_ns", static_cast<double>(m_snapshot->data_cfg.t_min));
+        m_profiler.record_observation(
+            "benchmark.view.t_max_ns", static_cast<double>(m_snapshot->data_cfg.t_max));
+        m_profiler.record_observation(
+            "benchmark.view.vbar_width_px", m_snapshot->vbar_width_pixels);
         m_profiler.record_counter("benchmark.frame.output_count");
         ++m_measured_frame_count;
     }
     return true;
+}
+
+void Benchmark_rhi_offscreen_runner::append_frame_samples()
+{
+    if (m_config.append_per_frame == 0) {
+        return;
+    }
+    const auto started = std::chrono::steady_clock::now();
+    for (std::size_t i = 0; i < m_config.append_per_frame; ++i) {
+        if (m_config.data_type == "Trades") {
+            const auto sample = m_generator.next_trade();
+            for (auto& buffer : m_trade_buffers) {
+                buffer->push(sample);
+            }
+        }
+        else {
+            const auto sample = m_generator.next_bar();
+            for (auto& buffer : m_bar_buffers) {
+                buffer->push(sample);
+            }
+        }
+    }
+    m_samples_generated.fetch_add(m_config.append_per_frame);
+    m_profiler.record_observation("benchmark.workload.publish_ms",
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started).count());
 }
 
 bool Benchmark_rhi_offscreen_runner::run(std::string& error_message)
@@ -1253,6 +1317,9 @@ bool Benchmark_rhi_offscreen_runner::run(std::string& error_message)
     const auto duration = std::chrono::duration<double>(m_config.duration_seconds);
 
     const auto render_measured_frame = [&](std::size_t frame) {
+        // Synthetic generation/publication is deliberately outside the render
+        // timer and allocation scope, and has its own reported cost.
+        append_frame_samples();
         if (render_frame(error_message, true)) {
             return true;
         }
@@ -1317,7 +1384,7 @@ void Benchmark_rhi_offscreen_runner::record_final_statistics(double measured_sec
     m_profiler.record_observation(
         "benchmark.memory.process_high_water_bytes",
         static_cast<double>(process_memory_high_water_bytes()));
-    ensure_interval_observations(m_profiler);
+    ensure_interval_observations(m_profiler, m_config.internal_profiling);
 }
 
 }  // namespace vnm::benchmark
