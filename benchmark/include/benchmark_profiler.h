@@ -357,6 +357,32 @@ public:
             }
             ofs << "\n";
         }
+        ofs << "  },\n  \"scopes\": {\n";
+        // Named scope totals are inclusive. Aggregate the same full scope name
+        // across parents; never add parent and child durations into frame time.
+        std::map<std::string, Scope_stats> scopes;
+        const auto collect_scopes = [&](const auto& self, const Scope_stats& parent) -> void {
+            for (const auto& [name, child] : parent.children) {
+                auto& total = scopes[name];
+                total.call_count += child->call_count;
+                total.total_ms += child->total_ms;
+                total.min_ms = std::min(total.min_ms, child->min_ms);
+                total.max_ms = std::max(total.max_ms, child->max_ms);
+                self(self, *child);
+            }
+        };
+        collect_scopes(collect_scopes, m_root);
+        std::size_t scope_index = 0;
+        for (const auto& [name, stats] : scopes) {
+            ofs << "    \"" << json_escape(name) << "\": {\n";
+            ofs << "      \"count\": " << stats.call_count << ",\n";
+            ofs << "      \"total_ms\": " << json_number(stats.total_ms) << ",\n";
+            ofs << "      \"mean_ms\": " << json_number(stats.call_count
+                ? stats.total_ms / static_cast<double>(stats.call_count) : 0.0) << ",\n";
+            ofs << "      \"min_ms\": " << json_number(stats.min_ms) << ",\n";
+            ofs << "      \"max_ms\": " << json_number(stats.max_ms) << "\n    }";
+            ofs << (++scope_index < scopes.size() ? ",\n" : "\n");
+        }
         ofs << "  }\n}\n";
         if (!ofs) {
             throw std::runtime_error("cannot write raw benchmark report: " + output_path.string());

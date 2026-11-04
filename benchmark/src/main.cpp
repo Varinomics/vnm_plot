@@ -18,6 +18,7 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -94,6 +95,12 @@ void print_usage(const char* program_name)
               << "  --render-style <style>  dots|line|area (default: dots for trades, area for bars)\n"
               << "  --static                Skip the generator and render a deterministic static window\n"
               << "  --static-samples <n>    Samples per static series (default: 10000)\n"
+              << "  --append-per-frame <n> Publish n samples/series before each measured frame\n"
+              << "  --view-motion <mode>   fixed|pan|zoom (deterministic 120-frame cycle)\n"
+              << "                         Append/motion require --static and --frames\n"
+              << "  --no-preview            Disable the preview pane\n"
+              << "  --frame-timing-only     Disable internal profiling; retain outer frame metrics\n"
+              << "  --stable-access         Declare immutable sample accessor semantics for caching\n"
               << "  --line-px <pixels>      Line thickness for line/area rendering (default: 1.5)\n"
               << "  --point-px <pixels>     Dot diameter for dots rendering (default: 1.0)\n"
               << "  --output-dir <path>     Output directory for reports (default: current dir)\n"
@@ -219,6 +226,26 @@ Parse_result parse_args(int argc, char* argv[])
             else
             if (arg == "--static-samples" && i + 1 < argc) {
                 config.static_sample_count = std::stoull(argv[++i]);
+            }
+            else
+            if (arg == "--append-per-frame" && i + 1 < argc) {
+                config.append_per_frame = std::stoull(argv[++i]);
+            }
+            else
+            if (arg == "--view-motion" && i + 1 < argc) {
+                config.view_motion = argv[++i];
+            }
+            else
+            if (arg == "--no-preview") {
+                config.preview_enabled = false;
+            }
+            else
+            if (arg == "--frame-timing-only") {
+                config.internal_profiling = false;
+            }
+            else
+            if (arg == "--stable-access") {
+                config.stable_access = true;
             }
             else
             if (arg == "--line-px" && i + 1 < argc) {
@@ -357,7 +384,7 @@ std::string validate_config(const vnm::benchmark::Benchmark_config& config)
     if (config.duration_seconds > 3600.0) {
         return "Duration cannot exceed 3600 seconds (1 hour)";
     }
-    if (config.rate < 1.0) {
+    if (!std::isfinite(config.rate) || config.rate < 1.0) {
         return "Rate must be at least 1 sample/sec (got " +
                std::to_string(config.rate) + ")";
     }
@@ -379,6 +406,27 @@ std::string validate_config(const vnm::benchmark::Benchmark_config& config)
     }
     if (config.static_sample_count < 2 || config.static_sample_count > config.ring_capacity) {
         return "Static sample count must be between 2 and the ring capacity";
+    }
+    if (config.view_motion != "fixed" && config.view_motion != "pan" &&
+        config.view_motion != "zoom") {
+        return "View motion must be fixed, pan, or zoom";
+    }
+    if (config.append_per_frame > config.ring_capacity) {
+        return "Append samples per frame cannot exceed the ring capacity";
+    }
+    if ((config.append_per_frame > 0 || config.view_motion != "fixed") &&
+        (!config.static_data || config.measured_frames == 0)) {
+        return "Deterministic append/motion require --static and an exact --frames count";
+    }
+    if (config.append_per_frame > 0 && config.view_motion != "fixed") {
+        return "Choose either append-per-frame or view motion";
+    }
+    const long double generated_samples = config.static_sample_count +
+        static_cast<long double>(config.append_per_frame) * config.measured_frames;
+    if (config.append_per_frame > 0 &&
+        generated_samples * std::llround(1.0e9 / config.rate) >=
+            static_cast<long double>(std::numeric_limits<std::int64_t>::max())) {
+        return "Deterministic publication would exceed the timestamp range";
     }
     if (config.volatility < 0.0 || config.volatility > 1.0) {
         return "Volatility must be between 0.0 and 1.0 (got " +
@@ -425,6 +473,10 @@ void print_config_summary(const vnm::benchmark::Benchmark_config& config, std::o
        << "  Series:       " << config.series_count << "\n"
        << "  Static data:  " << (config.static_data ? "yes" : "no")
        << " (" << config.static_sample_count << " samples/series)\n"
+       << "  Append/frame: " << config.append_per_frame << " samples/series\n"
+       << "  View motion:  " << config.view_motion << "\n"
+       << "  Preview:      " << (config.preview_enabled ? "yes" : "no") << "\n"
+       << "  Profiling:    " << (config.internal_profiling ? "internal + frame" : "frame only") << "\n"
        << "  Volatility:   " << config.volatility << "\n"
        << "  Seed:         " << config.seed << "\n"
        << "  Output dir:   " << config.output_directory << "\n"
@@ -580,6 +632,17 @@ int main(int argc, char* argv[])
         meta.reproduction["sample_count"] = std::to_string(config.sample_count);
         meta.reproduction["seed"] = std::to_string(config.seed);
         meta.reproduction["series_count"] = std::to_string(config.series_count);
+        meta.reproduction["stack_series"] = config.stack_series ? "true" : "false";
+        meta.reproduction["workload_contract_version"] = "3";
+        meta.reproduction["append_per_frame"] = std::to_string(config.append_per_frame);
+        meta.reproduction["view_motion"] = config.view_motion;
+        meta.reproduction["preview_enabled"] = config.preview_enabled ? "true" : "false";
+        meta.reproduction["internal_profiling"] = config.internal_profiling ? "true" : "false";
+        meta.reproduction["access_semantics"] = config.stable_access ? "stable" : "conservative";
+        meta.reproduction["pixel_readback"] = config.capture_pixel_checksum ? "true" : "false";
+        meta.reproduction["volatility"] = std::to_string(config.volatility);
+        meta.reproduction["line_width_px"] = std::to_string(config.line_width_px);
+        meta.reproduction["point_diameter_px"] = std::to_string(config.point_diameter_px);
         meta.reproduction["show_text"] = config.show_text ? "true" : "false";
         meta.reproduction["static_data"] = config.static_data ? "true" : "false";
         meta.reproduction["static_sample_count"] =

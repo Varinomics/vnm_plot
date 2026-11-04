@@ -1198,6 +1198,79 @@ bool test_label_fades_start_at_threshold_and_finish_after_zoom_stops()
     return true;
 }
 
+template<typename Key>
+bool check_label_membership_changes(Key first, Key second)
+{
+    struct label_t
+    {
+        Key         value;
+        std::string text;
+    };
+
+    using clock_t = std::chrono::steady_clock;
+    plot::Text_renderer::axis_fade_tracker_t<Key> tracker;
+    std::vector<label_t> labels{{second, "two"}, {first, "one"}, {second, "two"}};
+    std::map<Key, float> drawn;
+    auto now = clock_t::time_point{} + std::chrono::seconds(1);
+    const auto update = [&](bool animate_changes) {
+        drawn.clear();
+        return plot::detail::update_and_draw_faded_labels(
+            labels,
+            tracker,
+            180.0f,
+            animate_changes,
+            now,
+            [](const label_t& label) { return label.value; },
+            [&](Key key, const std::string&, float alpha) { drawn[key] += alpha; });
+    };
+    const std::map<Key, float> opaque{{first, 1.0f}, {second, 1.0f}};
+    const std::map<Key, float> halfway{{first, 0.5f}, {second, 0.5f}};
+
+    TEST_ASSERT(!update(false) && drawn == opaque && tracker.visible_alphas == opaque,
+        "unordered duplicate keys should initially emit each label once");
+    labels = {{first, "one"}, {second, "two"}, {first, "one"}};
+    now += std::chrono::milliseconds(90);
+    TEST_ASSERT(!update(false) && drawn == opaque && tracker.states.size() == 2,
+        "reordering and duplicating current keys should preserve settled labels");
+
+    labels.clear();
+    TEST_ASSERT(!update(false) && drawn.empty() && tracker.states.empty()
+        && tracker.visible_alphas.empty(),
+        "an empty nonanimated layout should remove every label and grid extension");
+    labels = {{second, "two"}, {first, "one"}, {second, "two"}};
+    TEST_ASSERT(!update(false) && drawn == opaque && tracker.visible_alphas == opaque,
+        "repopulating an empty layout should restore each current label once");
+
+    labels.clear();
+    TEST_ASSERT(update(true) && drawn == opaque && tracker.visible_alphas == opaque,
+        "an empty animated layout should retain outgoing labels on the transition frame");
+    now += std::chrono::milliseconds(90);
+    TEST_ASSERT(update(true) && drawn == halfway && tracker.visible_alphas == halfway,
+        "absent labels and grid extensions should fade together while the layout stays empty");
+
+    labels = {{second, "two"}, {second, "two"}};
+    TEST_ASSERT(update(true) && drawn == halfway && tracker.visible_alphas == halfway,
+        "a repeated returning key should reverse its fade without doubling its opacity");
+    now += std::chrono::milliseconds(90);
+    const std::map<Key, float> returned{{second, 1.0f}};
+    TEST_ASSERT(!update(false) && drawn == returned && tracker.visible_alphas == returned
+        && tracker.states.size() == 1 && tracker.states.count(first) == 0,
+        "only the returning label should survive after the other outgoing fade completes");
+
+    labels = {{first, "one"}};
+    const std::map<Key, float> replaced{{first, 1.0f}};
+    TEST_ASSERT(!update(false) && drawn == replaced && tracker.visible_alphas == replaced
+        && tracker.states.size() == 1 && tracker.states.count(second) == 0,
+        "a subsequent replacement should not retain keys from an earlier layout");
+    return true;
+}
+
+bool test_label_membership_handles_reordering_empty_layouts_and_reappearance()
+{
+    return check_label_membership_changes(0.25, 0.75)
+        && check_label_membership_changes<std::int64_t>(1, 3);
+}
+
 bool test_lcd_policy_helpers()
 {
     using request_t  = plot::lcd_request_t;
@@ -1579,6 +1652,7 @@ int main()
     RUN_TEST(test_timestamp_positions_preserve_epoch_nanoseconds);
     RUN_TEST(test_horizontal_label_fade_keys_preserve_int64_timestamps);
     RUN_TEST(test_label_fades_start_at_threshold_and_finish_after_zoom_stops);
+    RUN_TEST(test_label_membership_handles_reordering_empty_layouts_and_reappearance);
     RUN_TEST(test_lcd_policy_helpers);
     RUN_TEST(test_built_in_label_backgrounds_are_opaque_for_lcd);
     RUN_TEST(test_grid_lcd_order_selection);

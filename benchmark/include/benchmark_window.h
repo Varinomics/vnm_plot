@@ -82,6 +82,18 @@ struct Benchmark_config {
     // skips the producer thread.
     bool static_data = false;
     std::size_t static_sample_count = 10'000;
+    // Deterministic offscreen workloads start from the static prefill. A fixed
+    // publication per measured frame avoids faster builds seeing less data.
+    std::size_t append_per_frame = 0;
+    std::string view_motion = "fixed";  // fixed|pan|zoom, 120-frame cycle
+    bool preview_enabled = true;
+    // Keep outer frame timing/allocation accounting, without renderer/source
+    // profiling. Use alongside diagnostic runs to expose instrumentation cost.
+    bool internal_profiling = true;
+    // The synthetic callbacks are immutable. Opt into their explicit semantic
+    // identity to exercise normal range-cache reuse, retaining the legacy
+    // conservative callable path as a separate benchmark control.
+    bool stable_access = false;
     // Line thickness in pixels (default 1.5 for animated runs; bumped via
     // --line-px when comparing visuals so segments are easy to inspect).
     double line_width_px = 1.5;
@@ -207,6 +219,7 @@ private:
     void fill_static_data();
     bool initialize_rhi(std::string& error_message);
     bool render_frame(std::string& error_message, bool measured);
+    void append_frame_samples();
     void record_final_statistics(double measured_seconds);
     void record_phase(const char* phase, std::size_t frame = 0) const;
 

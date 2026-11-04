@@ -309,4 +309,25 @@ set_tests_properties(benchmark_shared_frame_pipeline PROPERTIES
     ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
 )
 
+add_test(
+    NAME benchmark_workload_contracts
+    COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/validate_workloads.py"
+        --executable "$<TARGET_FILE:vnm_plot_benchmark>"
+)
+set_tests_properties(benchmark_workload_contracts PROPERTIES
+    TIMEOUT 90
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
+)
+
+add_test(
+    NAME benchmark_suite_validation
+    COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+        -s "${CMAKE_CURRENT_SOURCE_DIR}/tools" -p test_run_suite.py
+)
+set_tests_properties(benchmark_suite_validation PROPERTIES
+    TIMEOUT 15
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
+)
+
 endif()
