@@ -633,7 +633,7 @@ int main(int argc, char* argv[])
         meta.reproduction["seed"] = std::to_string(config.seed);
         meta.reproduction["series_count"] = std::to_string(config.series_count);
         meta.reproduction["stack_series"] = config.stack_series ? "true" : "false";
-        meta.reproduction["workload_contract_version"] = "2";
+        meta.reproduction["workload_contract_version"] = "3";
         meta.reproduction["append_per_frame"] = std::to_string(config.append_per_frame);
         meta.reproduction["view_motion"] = config.view_motion;
         meta.reproduction["preview_enabled"] = config.preview_enabled ? "true" : "false";

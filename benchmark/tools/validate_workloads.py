@@ -30,7 +30,7 @@ def run(executable: Path, output: Path, *extra: str) -> dict:
         raise RuntimeError("Expected one raw report per run")
     report = json.loads(reports[0].read_text(encoding="utf-8"))
     observations = report["observations"]
-    assert report["metadata"]["workload_contract_version"] == "2"
+    assert report["metadata"]["workload_contract_version"] == "3"
     assert observations["benchmark.frame.output_count"]["total"] == 8
     assert observations["benchmark.frame.total_ms"]["count"] == 8
     assert observations["benchmark.frame.cpu_allocation_count"]["count"] == 8
@@ -83,10 +83,11 @@ def main() -> None:
         outer = run(args.executable, root / "outer", "--frame-timing-only", "--no-preview")
         assert outer["metadata"]["internal_profiling"] == "false"
         assert outer["metadata"]["preview_enabled"] == "false"
-        assert "renderer.frame" not in outer["scopes"]
+        assert not any(name.startswith("renderer.") for name in outer["scopes"])
         assert "renderer.frame.upload.primary_count" not in outer["observations"]
         assert not any(name.startswith("renderer.") for name in outer["observations"])
         assert "benchmark.planning.time_ms" not in outer["observations"]
+        assert "benchmark.cold.series_shader_pipeline_prepare_ms" not in outer["observations"]
         assert total(outer, "benchmark.ring.published_samples") == 0
 
         for invalid in (["--view-motion", "unknown"],

@@ -159,7 +159,7 @@ def normalized_backend(value: str) -> str:
 
 def expected_metadata(case: Case, args: argparse.Namespace) -> dict[str, str]:
     return {
-        "workload_contract_version": "2",
+        "workload_contract_version": "3",
         "data_type": case.data_type.title(),
         "render_style": case.style.title(),
         "series_count": str(case.series),
@@ -200,6 +200,19 @@ def check_metadata(actual: dict[str, Any], expected: dict[str, Any], context: st
         raise BenchmarkError(f"{context} metadata mismatch: {json.dumps(mismatches, sort_keys=True)}")
 
 
+def check_frame_timing_only(payload: dict[str, Any]) -> None:
+    for section in ("scopes", "observations"):
+        entries = payload.get(section, {})
+        if not isinstance(entries, dict):
+            raise BenchmarkError(f"{section} must be an object")
+        for name in entries:
+            if name.startswith("renderer.") or name in (
+                PLANNING_METRIC, "benchmark.cold.series_shader_pipeline_prepare_ms",
+            ):
+                raise BenchmarkError(
+                    f"frame-timing-only report contains internal {section}: {name}")
+
+
 def validate_run(
     payload: dict[str, Any], case: Case, args: argparse.Namespace,
     command: list[str], directory: Path,
@@ -222,6 +235,8 @@ def validate_run(
     elif actual_backend != normalized_backend(args.graphics_backend):
         raise BenchmarkError(f"graphics backend mismatch: {actual_backend}")
 
+    if args.frame_timing_only:
+        check_frame_timing_only(payload)
     metrics = list(METRICS)
     if not args.frame_timing_only:
         metrics.append(PLANNING_METRIC)

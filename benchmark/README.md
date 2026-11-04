@@ -150,11 +150,19 @@ and render-thread C++ allocation accounting, plus exact publication counts.
 Internal counters/scopes are absent in this mode and are not inferred as zero.
 Keep internal-profiling mode identical within each comparison.
 
+The current workload contract is **version 3**. It stops frame timing and
+allocation measurement before storing harness observations, and removes the
+finish profiler scope and preparation-time lookup from frame-only mode.
+The retained version 2 results are historical evidence with the earlier
+measurement boundary. Do not compare timings across contract versions;
+rebuild both variants with the same version 3 benchmark code for new comparisons.
+
 ### Measurement boundaries
 
 - `benchmark.frame.total_ms` is offscreen frame **wall time**, including
   begin/end-frame, production planning/layout/text/series preparation,
-  recording and `--finish`. It is not application FPS or isolated CPU time.
+  recording and `--finish`. Harness observation storage happens after the
+  timer stops. It is not application FPS or isolated CPU time.
 - `benchmark.frame.submission_ms` includes QRhi begin/end calls, which may
   synchronize. `gpu_finish_ms` is the extra finish call; it is not a GPU timer.
 - Internal named scopes are inclusive and aggregated by full scope name in
@@ -167,6 +175,8 @@ Keep internal-profiling mode identical within each comparison.
   frames and does not claim controlled cold-start performance.
 - Timing runs disable readback. Run `--pixel-checksum` separately on a raster
   backend and compare appropriate stable frames when validating a change.
+  When requested, readback and pixel validation remain inside frame timing
+  and allocation measurement.
   Faster execution alone is not evidence that rendering stayed correct.
 
 The offscreen runner consumes measured value-axis width feedback, as the
