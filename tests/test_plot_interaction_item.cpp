@@ -446,6 +446,125 @@ bool test_wheel_zoom_handles_near_zero_value_range()
     return true;
 }
 
+bool check_drag_modifier_consumes_only_new_vertical_movement(Qt::KeyboardModifier modifier)
+{
+    for (const bool shared_time_axis : {false, true}) {
+        plot::Plot_time_axis time_axis;
+        plot::Plot_widget widget;
+        if (shared_time_axis) {
+            widget.set_time_axis(&time_axis);
+        }
+        configure_view(widget, 1000, 2000, 0.0f, 100.0f);
+        widget.set_available_t_range(0, 3000);
+        widget.set_v_auto(true);
+
+        test_interaction_item_t item;
+        item.set_plot_widget(&widget);
+        item.setSize(QSizeF(1000.0 + widget.vbar_width_qml(), 500.0 + widget.reserved_height()));
+        int clicks = 0;
+        QObject::connect(&item, &plot::Plot_interaction_item::mouse_clicked,
+            [&clicks](qreal, qreal) { ++clicks; });
+
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(100.0, 100.0), QPointF(100.0, 100.0),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        item.mousePressEvent(&press);
+        TEST_ASSERT(press.isAccepted(), "main plot press should begin the gesture");
+
+        struct move_t { qreal x; qreal y; bool modified; double applied_y; };
+        const move_t moves[] = {
+            {150.0, 200.0, false, 0.0},
+            {151.0, 201.0, true,  1.0}, // Enable after 100 unmodified vertical pixels.
+            {170.0, 280.0, false, 1.0},
+            {170.0, 280.0, true,  1.0}, // Re-enable without movement.
+            {171.0, 281.0, true,  2.0},
+            {150.0, 100.0, false, 2.0}, // Cross the original y while remaining outside click slop.
+            {150.0, 100.0, true,  2.0},
+            {151.0,  99.0, true,  1.0},
+        };
+        qreal previous_x = 100.0;
+        qint64 expected_time_min = 1000;
+        for (const auto& move : moves) {
+            const Qt::KeyboardModifiers modifiers = move.modified ? modifier : Qt::NoModifier;
+            QMouseEvent event(QEvent::MouseMove, QPointF(move.x, move.y), QPointF(move.x, move.y),
+                Qt::NoButton, Qt::LeftButton, modifiers);
+            item.mouseMoveEvent(&event);
+            const double expected_min = move.applied_y / 5.0;
+            if (!nearly_equal(widget.v_min(), expected_min, 1e-5)) {
+                std::cerr << "modifier=" << static_cast<int>(modifier) << " y=" << move.y
+                    << " v_min=" << widget.v_min() << " expected=" << expected_min << '\n';
+            }
+            TEST_ASSERT(nearly_equal(widget.v_min(), expected_min, 1e-5) &&
+                nearly_equal(widget.v_max(), 100.0 + expected_min, 1e-5),
+                "enabling a drag modifier must consume only new vertical movement");
+            TEST_ASSERT(widget.v_auto() == (move.applied_y == 0.0),
+                "only value-axis movement should leave automatic scaling");
+
+            if (!move.modified || modifier != Qt::AltModifier) {
+                expected_time_min -= static_cast<qint64>(move.x - previous_x);
+            }
+            previous_x = move.x;
+            TEST_ASSERT(widget.t_min() == expected_time_min && widget.t_max() == expected_time_min + 1000,
+                "Ctrl pans both axes while Alt keeps time unchanged, without replay on release");
+        }
+        QMouseEvent release(QEvent::MouseButtonRelease, QPointF(151.0, 99.0), QPointF(151.0, 99.0),
+            Qt::LeftButton, Qt::NoButton, modifier);
+        item.mouseReleaseEvent(&release);
+        TEST_ASSERT(clicks == 0, "changing modifiers must not turn an engaged drag into a click");
+    }
+    return true;
+}
+
+bool test_ctrl_drag_consumes_only_new_vertical_movement()
+{
+    return check_drag_modifier_consumes_only_new_vertical_movement(Qt::ControlModifier);
+}
+
+bool test_alt_drag_consumes_only_new_vertical_movement()
+{
+    return check_drag_modifier_consumes_only_new_vertical_movement(Qt::AltModifier);
+}
+
+bool test_drag_modifier_preserves_initial_click_tolerance()
+{
+    for (const auto modifier : {Qt::ControlModifier, Qt::AltModifier}) {
+        plot::Plot_widget widget;
+        configure_view(widget, 1000, 2000, 0.0f, 100.0f);
+        test_interaction_item_t item;
+        item.set_plot_widget(&widget);
+        item.setSize(QSizeF(1000.0 + widget.vbar_width_qml(), 500.0 + widget.reserved_height()));
+        int clicks = 0;
+        QObject::connect(&item, &plot::Plot_interaction_item::mouse_clicked,
+            [&clicks](qreal, qreal) { ++clicks; });
+
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(100.0, 100.0), QPointF(100.0, 100.0),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        item.mousePressEvent(&press);
+        for (const auto modifiers : {Qt::NoModifier, modifier}) {
+            QMouseEvent move(QEvent::MouseMove, QPointF(100.0, 102.0), QPointF(100.0, 102.0),
+                Qt::NoButton, Qt::LeftButton, modifiers);
+            item.mouseMoveEvent(&move);
+        }
+        TEST_ASSERT(widget.v_min() == 0.0f && widget.v_max() == 100.0f &&
+            widget.t_min() == 1000 && widget.t_max() == 2000,
+            "modifier changes inside initial click tolerance must not pan either axis");
+        QMouseEvent release(QEvent::MouseButtonRelease, QPointF(100.0, 102.0), QPointF(100.0, 102.0),
+            Qt::LeftButton, Qt::NoButton, modifier);
+        item.mouseReleaseEvent(&release);
+        TEST_ASSERT(clicks == 1, "movement within initial tolerance must remain a click");
+
+        item.mousePressEvent(&press);
+        QMouseEvent slop(QEvent::MouseMove, QPointF(100.0, 102.0), QPointF(100.0, 102.0),
+            Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        item.mouseMoveEvent(&slop);
+        QMouseEvent drag(QEvent::MouseMove, QPointF(100.0, 105.0), QPointF(100.0, 105.0),
+            Qt::NoButton, Qt::LeftButton, modifier);
+        item.mouseMoveEvent(&drag);
+        TEST_ASSERT(widget.v_min() == 1.0f && widget.v_max() == 101.0f,
+            "the first engaged move must preserve the full displacement from the press");
+    }
+    return true;
+}
+
 bool test_vertical_interaction_minimum_preserves_ranges()
 {
     plot::Plot_widget widget;
@@ -1633,6 +1752,9 @@ int main(int argc, char** argv)
     RUN_TEST(test_zoom_math_handles_zero_velocity);
     RUN_TEST(test_wheel_event_uses_platform_pixel_policy);
     RUN_TEST(test_wheel_zoom_handles_near_zero_value_range);
+    RUN_TEST(test_ctrl_drag_consumes_only_new_vertical_movement);
+    RUN_TEST(test_alt_drag_consumes_only_new_vertical_movement);
+    RUN_TEST(test_drag_modifier_preserves_initial_click_tolerance);
     RUN_TEST(test_vertical_interaction_minimum_preserves_ranges);
     RUN_TEST(test_restoring_autoscale_cancels_vertical_zoom_inertia);
     RUN_TEST(test_time_wheel_preserves_vertical_scaling_mode);

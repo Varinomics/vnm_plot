@@ -294,9 +294,9 @@ void Plot_interaction_item::mouseMoveEvent(QMouseEvent* event)
         const bool ctrl_held = mods & Qt::ControlModifier;
         const bool alt_held  = mods & Qt::AltModifier;
 
+        const qreal dy = y - m_drag_last_y;
+        m_drag_last_y = y;
         if (ctrl_held || alt_held) {
-            const qreal dy = y - m_drag_last_y;
-            m_drag_last_y = y;
             m_plot_widget->adjust_v_from_mouse_diff(usable_height(), dy);
         }
 
