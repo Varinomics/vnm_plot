@@ -279,14 +279,14 @@ void Plot_interaction_item::mouseMoveEvent(QMouseEvent* event)
     }
 
     if (m_dragging) {
-        const qreal move_dx = x - m_press_x;
-        const qreal move_dy = y - m_press_y;
-        if ((move_dx * move_dx + move_dy * move_dy) <=
-            (k_click_move_tolerance_px * k_click_move_tolerance_px))
-        {
-            return;
-        }
         if (m_click_candidate) {
+            const qreal move_dx = x - m_press_x;
+            const qreal move_dy = y - m_press_y;
+            if ((move_dx * move_dx + move_dy * move_dy) <=
+                (k_click_move_tolerance_px * k_click_move_tolerance_px))
+            {
+                return;
+            }
             m_click_candidate = false;
         }
 
