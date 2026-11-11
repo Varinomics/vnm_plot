@@ -46,6 +46,8 @@ class test_interaction_item_t : public plot::Plot_interaction_item
 public:
     using plot::Plot_interaction_item::wheelEvent;
     using plot::Plot_interaction_item::mousePressEvent;
+    using plot::Plot_interaction_item::mouseMoveEvent;
+    using plot::Plot_interaction_item::mouseReleaseEvent;
     using plot::Plot_interaction_item::mouseDoubleClickEvent;
 };
 
@@ -1472,6 +1474,89 @@ bool test_opt_in_preview_collapse()
     return true;
 }
 
+bool test_drag_returns_through_press_position()
+{
+    for (bool shared : {false, true}) {
+        for (const auto& positions : {std::vector<int>{120, 100},
+                 std::vector<int>{120, 104, 102, 100, 98, 96, 100}})
+        {
+            plot::Plot_time_axis axis;
+            plot::Plot_widget widget;
+            if (shared) {
+                widget.set_time_axis(&axis);
+            }
+            configure_time_window(widget, 1000, 2000, 0, 3000);
+
+            test_interaction_item_t item;
+            item.set_plot_widget(&widget);
+            item.setWidth(200.0 + widget.vbar_width_qml());
+            item.setHeight(500.0);
+            int clicks = 0;
+            QObject::connect(&item, &plot::Plot_interaction_item::mouse_clicked,
+                [&clicks](qreal, qreal) { ++clicks; });
+
+            QMouseEvent press(QEvent::MouseButtonPress, QPointF(100.0, 100.0), QPointF(100.0, 100.0),
+                Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            item.mousePressEvent(&press);
+            TEST_ASSERT(press.isAccepted(), "main plot press should begin the gesture");
+
+            for (int x : positions) {
+                QMouseEvent move(QEvent::MouseMove, QPointF(x, 100.0), QPointF(x, 100.0),
+                    Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                item.mouseMoveEvent(&move);
+                const qint64 shift = (x - 100) * 5;
+                if (widget.t_min() != 1000 - shift || widget.t_max() != 2000 - shift) {
+                    std::cerr << "drag x=" << x << " range=[" << widget.t_min()
+                        << ", " << widget.t_max() << "] expected=[" << 1000 - shift
+                        << ", " << 2000 - shift << "]\n";
+                }
+                TEST_ASSERT(widget.t_min() == 1000 - shift && widget.t_max() == 2000 - shift,
+                    "engaged drag should consume movement through the press position");
+            }
+
+            QMouseEvent release(QEvent::MouseButtonRelease, QPointF(100.0, 100.0), QPointF(100.0, 100.0),
+                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            item.mouseReleaseEvent(&release);
+            TEST_ASSERT(widget.t_min() == 1000 && widget.t_max() == 2000,
+                "release at the returned press position should preserve the restored range");
+            TEST_ASSERT(clicks == 0, "an engaged drag returning to its origin should not emit a click");
+        }
+    }
+    return true;
+}
+
+bool test_click_tolerance_preserves_range()
+{
+    plot::Plot_widget widget;
+    configure_time_window(widget, 1000, 2000, 0, 3000);
+    test_interaction_item_t item;
+    item.set_plot_widget(&widget);
+    item.setWidth(200.0 + widget.vbar_width_qml());
+    item.setHeight(500.0);
+    int clicks = 0;
+    QObject::connect(&item, &plot::Plot_interaction_item::mouse_clicked,
+        [&clicks](qreal x, qreal y) {
+            if (x == 100.0 && y == 100.0) {
+                ++clicks;
+            }
+        });
+
+    QMouseEvent press(QEvent::MouseButtonPress, QPointF(100.0, 100.0), QPointF(100.0, 100.0),
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    item.mousePressEvent(&press);
+    QMouseEvent move(QEvent::MouseMove, QPointF(103.0, 100.0), QPointF(103.0, 100.0),
+        Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    item.mouseMoveEvent(&move);
+    QMouseEvent release(QEvent::MouseButtonRelease, QPointF(103.0, 100.0), QPointF(103.0, 100.0),
+        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    item.mouseReleaseEvent(&release);
+
+    TEST_ASSERT(widget.t_min() == 1000 && widget.t_max() == 2000,
+        "movement within initial click tolerance should not pan");
+    TEST_ASSERT(clicks == 1, "a click within tolerance should report its press position");
+    return true;
+}
+
 bool test_double_click_and_focus()
 {
     // Lumis's former MouseArea focused the plot and routed double clicks to its host.
@@ -1579,6 +1664,8 @@ int main(int argc, char** argv)
     RUN_TEST(test_automatic_preview_resumes_after_fixed_height);
     RUN_TEST(test_opt_in_preview_collapse);
     RUN_TEST(test_double_click_and_focus);
+    RUN_TEST(test_drag_returns_through_press_position);
+    RUN_TEST(test_click_tolerance_preserves_range);
     RUN_TEST(test_same_screen_pixel_ratio_change_updates_plot_scaling);
 
     std::cout << "Results: " << passed << " passed, " << failed << " failed" << std::endl;
